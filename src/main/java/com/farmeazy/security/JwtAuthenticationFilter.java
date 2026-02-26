@@ -180,6 +180,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter implements Ord
     protected boolean shouldNotFilter(HttpServletRequest request) {
         String path = request.getRequestURI();
         return path.startsWith("/api/auth/") || 
+               path.startsWith("/api/otp/") ||
                path.startsWith("/v3/api-docs") || 
                path.startsWith("/swagger-ui") ||
                path.startsWith("/h2-console") ||
