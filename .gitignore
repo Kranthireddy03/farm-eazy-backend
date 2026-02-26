@@ -1,0 +1,22 @@
+# Build outputs
+/target/
+
+# IDE
+/.idea/
+*.iml
+
+# Logs and runtime artifacts
+*.log
+/server.log
+/server_output.log
+/server_run.log
+/verbose_server.log
+/build.log
+
+# Local data/uploads
+/data/
+/uploads/
+
+# OS
+.DS_Store
+Thumbs.db

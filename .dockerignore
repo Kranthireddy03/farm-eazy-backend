@@ -1,0 +1,70 @@
+# ============================================================================
+# .DOCKERIGNORE FILE FOR FARMEAZY BACKEND
+# ============================================================================
+#
+# Purpose: Specify files/folders that should NOT be copied into Docker image
+#
+# How it works:
+# 1. Docker reads Dockerfile
+# 2. When it sees "COPY . ." it uses .dockerignore
+# 3. Anything listed in .dockerignore is skipped
+# 4. Only relevant files are copied to image
+#
+# Benefits:
+# - Smaller Docker images (faster build, faster push/pull)
+# - Faster build time (fewer files to process)
+# - More secure (secrets, credentials not in image)
+# - Cleaner build context
+#
+# ============================================================================
+
+# MAVEN BUILD ARTIFACTS
+# Files created during 'mvn clean package'
+# These will be regenerated in Docker build
+target/
+
+# GIT REPOSITORY
+# Git history not needed in production image
+.git/
+
+# GIT IGNORE FILE
+.gitignore
+
+# README and Documentation
+# Not needed in running container
+README.md
+
+# ENVIRONMENT FILES
+# Never include secret env files in Docker image!
+# If leaked, entire application compromised
+.env
+.env.local
+.env.*.local
+
+# NODEJS / FRONTEND BUILD
+# Excluded in case Docker context includes frontend
+# Frontend deploys separately to Vercel
+node_modules/
+
+# MAVEN WRAPPER
+# Maven is already in docker image
+.mvn/
+mvnw
+mvnw.cmd
+
+# LOG FILES
+# Any .log files (build logs, debug logs, etc)
+*.log
+
+# SYSTEM FILES
+# OS specific files that shouldn't be in image
+.DS_Store
+.vscode/
+.idea/
+
+# OTHER BUILD ARTIFACTS (optional)
+# These might exist in various environments
+*.jar.original
+*.class
+*.o
+*.so
