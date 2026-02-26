@@ -67,6 +67,8 @@ public class SecurityConfig {
                 .authenticationEntryPoint(jwtAuthenticationEntryPoint))
             .sessionManagement(sessionManagement -> sessionManagement
                 .sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+            .securityContext(securityContext -> securityContext
+                .requireExplicitSave(false))
             .authorizeHttpRequests(authorize -> authorize
                 .requestMatchers("/", "/favicon.ico", "/health").permitAll()
                 .requestMatchers("/api/auth/**").permitAll()
@@ -78,7 +80,7 @@ public class SecurityConfig {
             );
 
         http.addFilterBefore(rateLimitingFilter, UsernamePasswordAuthenticationFilter.class);
-        http.addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
+        http.addFilterAfter(jwtAuthenticationFilter, org.springframework.security.web.context.SecurityContextHolderFilter.class);
 
         return http.build();
     }
