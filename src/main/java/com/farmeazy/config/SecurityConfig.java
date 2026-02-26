@@ -70,6 +70,7 @@ public class SecurityConfig {
             .authorizeHttpRequests(authorize -> authorize
                 .requestMatchers("/", "/favicon.ico", "/health").permitAll()
                 .requestMatchers("/api/auth/**").permitAll()
+                .requestMatchers("/api/otp/**").permitAll()
                 .requestMatchers("/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html", "/swagger-ui/*.css", "/swagger-ui/*.js", "/swagger-ui/*.png").permitAll()
                 .requestMatchers("/h2-console/**").permitAll()
                 .requestMatchers(HttpMethod.GET, "/api/public/**").permitAll()
