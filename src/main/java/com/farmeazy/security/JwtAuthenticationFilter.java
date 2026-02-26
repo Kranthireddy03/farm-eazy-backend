@@ -286,7 +286,6 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter implements Ord
                 context.setAuthentication(authentication);
                 SecurityContextHolder.setContext(context);
                 securityContextRepository.saveContext(context, request, response);
-                }
             }
         } catch (Exception ex) {
             /**
