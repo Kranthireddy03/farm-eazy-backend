@@ -24,6 +24,8 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import java.security.SecureRandom;
 import java.time.LocalDateTime;
 import java.util.HashSet;
@@ -80,6 +82,8 @@ import java.util.Set;
  */
 @Service
 public class AuthService implements UserDetailsService {
+
+    private static final Logger logger = LoggerFactory.getLogger(AuthService.class);
 
     @Autowired
     private OtpService otpService;
@@ -212,8 +216,10 @@ public class AuthService implements UserDetailsService {
      */
     @Transactional
     public AuthResponseDto register(AuthRegisterDto registerDto) {
+        logger.info("AUTH_REGISTER: email={}", registerDto.getEmail());
         // Check if email already exists in database
         if (userRepository.existsByEmail(registerDto.getEmail())) {
+            logger.warn("AUTH_REGISTER_FAILED: Duplicate email={}", registerDto.getEmail());
             throw new DuplicateResourceException("Email already registered");
         }
 
@@ -266,13 +272,14 @@ public class AuthService implements UserDetailsService {
                         "Registered a new account (instant registration)"
                 );
             } catch (Exception e) {
-                System.err.println("Failed to log registration activity: " + e.getMessage());
+                logger.warn("AUTH_ACTIVITY_LOG_FAILED: {}", e.getMessage());
             }
         }
 
         // Return response with user info and JWT token (no OTP required)
         UserDetails userDetails = loadUserByUsername(user.getEmail());
         String token = jwtUtil.generateToken(userDetails);
+        logger.info("AUTH_REGISTER_SUCCESS: userId={}, email={}", user.getId(), user.getEmail());
         return mapUserToAuthResponseDto(user, token);
     }
 
@@ -310,6 +317,7 @@ public class AuthService implements UserDetailsService {
      */
     public AuthResponseDto login(AuthLoginDto loginDto) {
         String identifier = loginDto.getIdentifier();
+        logger.info("AUTH_LOGIN: identifier={}", identifier);
         
         // Resolve identifier to user (supports email, username, or user ID)
         User user = resolveUserByIdentifier(identifier);
@@ -336,9 +344,10 @@ public class AuthService implements UserDetailsService {
                     "Logged in to the system"
             );
         } catch (Exception e) {
-            System.err.println("Failed to log login activity: " + e.getMessage());
+            logger.warn("AUTH_ACTIVITY_LOG_FAILED: {}", e.getMessage());
         }
 
+        logger.info("AUTH_LOGIN_SUCCESS: userId={}, email={}", user.getId(), user.getEmail());
         // Return response with user info and token
         return mapUserToAuthResponseDto(user, token);
     }

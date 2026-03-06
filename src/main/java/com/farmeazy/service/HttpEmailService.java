@@ -1393,11 +1393,11 @@ public class HttpEmailService {
             );
 
             if (response.getStatusCode().is2xxSuccessful()) {
-                logger.info("Email sent successfully to: {}", to);
+                logger.info("EMAIL_SENT: to={}, subject={}", to, subject);
                 return true;
             } else {
-                logger.error("Failed to send email. Status: {}, Body: {}", 
-                    response.getStatusCode(), response.getBody());
+                logger.error("EMAIL_FAILED: to={}, status={}, error={}", 
+                    to, response.getStatusCode(), response.getBody());
                 throw new EmailDeliveryException(
                     "Failed to send email. Please try again later.",
                     "EMAIL_DELIVERY_FAILED",
@@ -1407,7 +1407,7 @@ public class HttpEmailService {
 
         } catch (HttpClientErrorException e) {
             // Handle 4xx errors (domain not verified, invalid API key, etc.)
-            logger.error("Email API client error for {}: {} - {}", to, e.getStatusCode(), e.getResponseBodyAsString());
+            logger.error("EMAIL_API_ERROR: to={}, status={}, error={}", to, e.getStatusCode(), e.getResponseBodyAsString());
             String errorMessage = parseResendErrorMessage(e.getResponseBodyAsString());
             throw new EmailDeliveryException(
                 errorMessage != null ? errorMessage : "Email service configuration error. Please contact support.",
@@ -1416,7 +1416,7 @@ public class HttpEmailService {
             );
         } catch (HttpServerErrorException e) {
             // Handle 5xx errors (service unavailable)
-            logger.error("Email API server error for {}: {} - {}", to, e.getStatusCode(), e.getResponseBodyAsString());
+            logger.error("EMAIL_SERVER_ERROR: to={}, status={}, error={}", to, e.getStatusCode(), e.getResponseBodyAsString());
             throw new EmailDeliveryException(
                 "Email service is temporarily unavailable. Please try again later.",
                 "EMAIL_SERVICE_UNAVAILABLE",
@@ -1426,7 +1426,7 @@ public class HttpEmailService {
             // Re-throw our own exceptions
             throw e;
         } catch (Exception e) {
-            logger.error("Error sending email to {}: {}", to, e.getMessage());
+            logger.error("EMAIL_ERROR: to={}, error={}", to, e.getMessage());
             throw new EmailDeliveryException(
                 "Unable to send email at this time. Please try again later.",
                 to,

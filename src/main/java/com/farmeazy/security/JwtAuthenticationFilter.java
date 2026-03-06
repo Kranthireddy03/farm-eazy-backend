@@ -3,6 +3,8 @@ package com.farmeazy.security;
 
 import com.farmeazy.service.AuthService;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
 import jakarta.servlet.FilterChain;
@@ -163,10 +165,13 @@ import java.io.IOException;
 
 @Component
 public class JwtAuthenticationFilter extends OncePerRequestFilter implements Ordered {
-        @Override
-        public int getOrder() {
-            return Ordered.HIGHEST_PRECEDENCE + 10;
-        }
+        
+    private static final Logger log = LoggerFactory.getLogger(JwtAuthenticationFilter.class);
+    
+    @Override
+    public int getOrder() {
+        return Ordered.HIGHEST_PRECEDENCE + 10;
+    }
     private final JwtUtil jwtUtil;
     private final AuthService authService;
     private final RequestAttributeSecurityContextRepository securityContextRepository = new RequestAttributeSecurityContextRepository();
@@ -220,9 +225,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter implements Ord
     protected void doFilterInternal(HttpServletRequest request,
                                    HttpServletResponse response,
                                    FilterChain filterChain) throws ServletException, IOException {
-        System.out.println("[JWT DEBUG] Processing request: " + request.getMethod() + " " + request.getRequestURI());
-        String authHeader = request.getHeader("Authorization");
-        System.out.println("[JWT DEBUG] Authorization header: " + (authHeader != null ? authHeader.substring(0, Math.min(50, authHeader.length())) + "..." : "null"));
+        log.debug("JWT_FILTER: {} {}", request.getMethod(), request.getRequestURI());
         
         try {
             /**
@@ -231,7 +234,6 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter implements Ord
              * This method returns the {token} part or null if missing
              */
             String jwt = extractJwtFromRequest(request);
-            System.out.println("[JWT DEBUG] Extracted JWT: " + (jwt != null ? "present (" + jwt.length() + " chars)" : "null"));
 
             /**
              * Step 2: Validate token exists and is valid
@@ -239,10 +241,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter implements Ord
              * - jwtUtil.validateToken(jwt): Signature correct, not expired
              * Only proceed if both conditions true
              */
-            if (StringUtils.hasText(jwt)) {
-                boolean isValid = jwtUtil.validateToken(jwt);
-                System.out.println("[JWT DEBUG] Token validation result: " + isValid);
-                if (isValid) {
+            if (StringUtils.hasText(jwt) && jwtUtil.validateToken(jwt)) {
                 /**
                  * Step 3: Extract username (email) from token claims
                  * This doesn't require database query, just JWT parsing
@@ -293,8 +292,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter implements Ord
                 context.setAuthentication(authentication);
                 SecurityContextHolder.setContext(context);
                 securityContextRepository.saveContext(context, request, response);
-                System.out.println("[JWT DEBUG] Authentication set successfully for: " + username);
-                }
+                log.info("JWT_AUTH_SUCCESS: user={}", username);
             }
         } catch (Exception ex) {
             /**
@@ -309,18 +307,11 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter implements Ord
              * - UsernameNotFoundException: User email not in database
              * - Exception: Any other error during processing
              */
-            logger.error("Could not set user authentication in security context", ex);
+            log.error("Could not set user authentication in security context", ex);
         }
 
-        /**
-         * Step 8: Continue to next filter in chain
-         * If authentication set: Continues with authenticated context
-         * If authentication not set: Continues without authentication
-         * Authorization checks happen in next filters
-         */
-        System.out.println("[JWT DEBUG] Before doFilter - Auth: " + SecurityContextHolder.getContext().getAuthentication());
+        // Continue to next filter in chain
         filterChain.doFilter(request, response);
-        System.out.println("[JWT DEBUG] After doFilter - Auth: " + SecurityContextHolder.getContext().getAuthentication());
     }
 
     /**
