@@ -251,21 +251,23 @@ public class AuthService implements UserDetailsService {
         roles.add("USER");
         user.setRoles(roles);
 
-        // Save user to database
-        user = userRepository.save(user);
+        // Save user to database (use saveAndFlush to ensure ID is generated immediately)
+        user = userRepository.saveAndFlush(user);
 
         // Send welcome email asynchronously (optional)
         httpEmailService.sendWelcomeEmailAsync(user.getEmail(), user.getUsername());
 
-        // Log registration activity
-        try {
-            userActivityService.logActivity(
-                    user,
-                    ActivityType.REGISTERED,
-                    "Registered a new account (instant registration)"
-            );
-        } catch (Exception e) {
-            System.err.println("Failed to log registration activity: " + e.getMessage());
+        // Log registration activity (only if user has valid ID)
+        if (user.getId() != null) {
+            try {
+                userActivityService.logActivity(
+                        user,
+                        ActivityType.REGISTERED,
+                        "Registered a new account (instant registration)"
+                );
+            } catch (Exception e) {
+                System.err.println("Failed to log registration activity: " + e.getMessage());
+            }
         }
 
         // Return response with user info and JWT token (no OTP required)
