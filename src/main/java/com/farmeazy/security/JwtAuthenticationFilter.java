@@ -184,7 +184,6 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter implements Ord
     protected boolean shouldNotFilter(HttpServletRequest request) {
         String path = request.getRequestURI();
         return path.startsWith("/api/auth/") || 
-               path.startsWith("/api/otp/") ||
                path.startsWith("/v3/api-docs") || 
                path.startsWith("/swagger-ui") ||
                path.startsWith("/h2-console") ||
@@ -221,6 +220,10 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter implements Ord
     protected void doFilterInternal(HttpServletRequest request,
                                    HttpServletResponse response,
                                    FilterChain filterChain) throws ServletException, IOException {
+        System.out.println("[JWT DEBUG] Processing request: " + request.getMethod() + " " + request.getRequestURI());
+        String authHeader = request.getHeader("Authorization");
+        System.out.println("[JWT DEBUG] Authorization header: " + (authHeader != null ? authHeader.substring(0, Math.min(50, authHeader.length())) + "..." : "null"));
+        
         try {
             /**
              * Step 1: Extract JWT token from Authorization header
@@ -228,6 +231,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter implements Ord
              * This method returns the {token} part or null if missing
              */
             String jwt = extractJwtFromRequest(request);
+            System.out.println("[JWT DEBUG] Extracted JWT: " + (jwt != null ? "present (" + jwt.length() + " chars)" : "null"));
 
             /**
              * Step 2: Validate token exists and is valid
@@ -235,7 +239,10 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter implements Ord
              * - jwtUtil.validateToken(jwt): Signature correct, not expired
              * Only proceed if both conditions true
              */
-            if (StringUtils.hasText(jwt) && jwtUtil.validateToken(jwt)) {
+            if (StringUtils.hasText(jwt)) {
+                boolean isValid = jwtUtil.validateToken(jwt);
+                System.out.println("[JWT DEBUG] Token validation result: " + isValid);
+                if (isValid) {
                 /**
                  * Step 3: Extract username (email) from token claims
                  * This doesn't require database query, just JWT parsing
@@ -286,6 +293,8 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter implements Ord
                 context.setAuthentication(authentication);
                 SecurityContextHolder.setContext(context);
                 securityContextRepository.saveContext(context, request, response);
+                System.out.println("[JWT DEBUG] Authentication set successfully for: " + username);
+                }
             }
         } catch (Exception ex) {
             /**
@@ -309,7 +318,9 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter implements Ord
          * If authentication not set: Continues without authentication
          * Authorization checks happen in next filters
          */
+        System.out.println("[JWT DEBUG] Before doFilter - Auth: " + SecurityContextHolder.getContext().getAuthentication());
         filterChain.doFilter(request, response);
+        System.out.println("[JWT DEBUG] After doFilter - Auth: " + SecurityContextHolder.getContext().getAuthentication());
     }
 
     /**

@@ -5,6 +5,7 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.boot.autoconfigure.domain.EntityScan;
 import org.springframework.data.jpa.repository.config.EnableJpaAuditing;
 import org.springframework.scheduling.annotation.EnableAsync;
+import org.springframework.scheduling.annotation.EnableScheduling;
 
 /**
  * FARMEAZY APPLICATION - MAIN ENTRY POINT
@@ -21,6 +22,7 @@ import org.springframework.scheduling.annotation.EnableAsync;
  * - Sets up Spring Security and JWT authentication
  * - Loads Spring Data JPA for ORM
  * - Enables Spring Web MVC for REST API
+ * - Enables Scheduled tasks for payout processing
  * 
  * STARTUP SEQUENCE:
  * 1. JVM executes main() method with Spring Boot launcher
@@ -64,6 +66,7 @@ import org.springframework.scheduling.annotation.EnableAsync;
 @SpringBootApplication
 @EnableJpaAuditing
 @EnableAsync
+@EnableScheduling
 @EntityScan(basePackages = {"com.farmeazy.entity"})
 public class FarmEazyApplication {
 
