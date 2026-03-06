@@ -54,17 +54,10 @@ public class AuthResponseDto {
     /**
      * USERNAME - USER'S UNIQUE DISPLAY NAME
      * Shown in UI header, session timer, and communications
-     * More user-friendly than email for display
+     * Used for display and personalization
      * Example: "rajesh_9876"
      */
     private String username;
-    
-    /**
-     * FULL NAME - USER'S DISPLAY NAME
-     * Shown in UI to personalize user experience
-     * Example: "Rajesh Kumar"
-     */
-    private String fullName;
     
     /**
      * ROLES - USER'S PERMISSION ROLES
@@ -93,10 +86,10 @@ public class AuthResponseDto {
     
     public AuthResponseDto() {}
     
-    public AuthResponseDto(Long id, String email, String fullName, Set<String> roles, String token) {
+    public AuthResponseDto(Long id, String email, String username, Set<String> roles, String token) {
         this.id = id;
         this.email = email;
-        this.fullName = fullName;
+        this.username = username;
         this.roles = roles;
         this.token = token;
     }
@@ -107,8 +100,6 @@ public class AuthResponseDto {
     public void setEmail(String email) { this.email = email; }
     public String getUsername() { return username; }
     public void setUsername(String username) { this.username = username; }
-    public String getFullName() { return fullName; }
-    public void setFullName(String fullName) { this.fullName = fullName; }
     public Set<String> getRoles() { return roles; }
     public void setRoles(Set<String> roles) { this.roles = roles; }
     public String getToken() { return token; }

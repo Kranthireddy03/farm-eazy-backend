@@ -35,11 +35,13 @@ public class User {
     
     /**
      * UNIQUE IDENTIFIER FOR USER
-     * - Auto-generated primary key using database identity strategy
+     * - Auto-generated primary key using sequence starting at 10000
      * - Used to uniquely identify each user in the system
+     * - Format: 5-digit display ID (e.g., 10000, 10001, ...)
      */
     @Id
-    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    @GeneratedValue(strategy = GenerationType.SEQUENCE, generator = "user_seq")
+    @SequenceGenerator(name = "user_seq", sequenceName = "USER_SEQ", initialValue = 10000, allocationSize = 1)
     private Long id;
     
     /**
@@ -66,19 +68,10 @@ public class User {
      * - Cannot be null
      * - Encrypted using BCryptPasswordEncoder before storage
      * - Never transmitted or displayed in response DTOs
-     * - Used with email for user authentication during login
+     * - Used with email/username for user authentication during login
      */
     @Column(nullable = false)
     private String password;
-    
-    /**
-     * FULL NAME - USER'S DISPLAY NAME
-     * - Cannot be null
-     * - Used to identify user across the application
-     * - Shown in user profile and farm management interface
-     */
-    @Column(nullable = false)
-    private String fullName;
     
     /**
      * PHONE NUMBER - USER'S CONTACT INFORMATION
@@ -175,11 +168,10 @@ public class User {
     
     public User() {}
     
-    public User(Long id, String email, String password, String fullName, String phone, String address, String city, String state, String pinCode, Boolean active, Set<String> roles) {
+    public User(Long id, String email, String password, String phone, String address, String city, String state, String pinCode, Boolean active, Set<String> roles) {
         this.id = id;
         this.email = email;
         this.password = password;
-        this.fullName = fullName;
         this.phone = phone;
         this.address = address;
         this.city = city;
@@ -197,8 +189,6 @@ public class User {
     public void setUsername(String username) { this.username = username; }
     public String getPassword() { return password; }
     public void setPassword(String password) { this.password = password; }
-    public String getFullName() { return fullName; }
-    public void setFullName(String fullName) { this.fullName = fullName; }
     public String getPhone() { return phone; }
     public void setPhone(String phone) { this.phone = phone; }
     public String getAddress() { return address; }

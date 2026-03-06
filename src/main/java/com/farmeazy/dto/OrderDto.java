@@ -27,6 +27,17 @@ public class OrderDto {
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 
+    // Refund fields
+    private String refundStatus;
+    private BigDecimal refundAmount;
+    private Long coinsRefunded;
+    private String refundReason;
+    private String refundType;
+    private LocalDateTime refundRequestedAt;
+    private LocalDateTime refundCompletedAt;
+    private boolean canCancel;
+    private boolean canReturn;
+
     public OrderDto() {
     }
 
@@ -193,5 +204,78 @@ public class OrderDto {
 
     public void setUpdatedAt(LocalDateTime updatedAt) {
         this.updatedAt = updatedAt;
+    }
+
+    // Refund field getters and setters
+    public String getRefundStatus() {
+        return refundStatus;
+    }
+
+    public void setRefundStatus(String refundStatus) {
+        this.refundStatus = refundStatus;
+    }
+
+    public BigDecimal getRefundAmount() {
+        return refundAmount;
+    }
+
+    public void setRefundAmount(BigDecimal refundAmount) {
+        this.refundAmount = refundAmount;
+    }
+
+    public Long getCoinsRefunded() {
+        return coinsRefunded;
+    }
+
+    public void setCoinsRefunded(Long coinsRefunded) {
+        this.coinsRefunded = coinsRefunded;
+    }
+
+    public String getRefundReason() {
+        return refundReason;
+    }
+
+    public void setRefundReason(String refundReason) {
+        this.refundReason = refundReason;
+    }
+
+    public String getRefundType() {
+        return refundType;
+    }
+
+    public void setRefundType(String refundType) {
+        this.refundType = refundType;
+    }
+
+    public LocalDateTime getRefundRequestedAt() {
+        return refundRequestedAt;
+    }
+
+    public void setRefundRequestedAt(LocalDateTime refundRequestedAt) {
+        this.refundRequestedAt = refundRequestedAt;
+    }
+
+    public LocalDateTime getRefundCompletedAt() {
+        return refundCompletedAt;
+    }
+
+    public void setRefundCompletedAt(LocalDateTime refundCompletedAt) {
+        this.refundCompletedAt = refundCompletedAt;
+    }
+
+    public boolean isCanCancel() {
+        return canCancel;
+    }
+
+    public void setCanCancel(boolean canCancel) {
+        this.canCancel = canCancel;
+    }
+
+    public boolean isCanReturn() {
+        return canReturn;
+    }
+
+    public void setCanReturn(boolean canReturn) {
+        this.canReturn = canReturn;
     }
 }

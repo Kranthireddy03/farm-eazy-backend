@@ -124,7 +124,7 @@ public class ProductService {
         try {
             httpEmailService.sendProductListingConfirmation(
                 seller.getEmail(),
-                seller.getFullName(),
+                seller.getUsername(),
                 savedProduct.getProductName(),
                 savedProduct.getCategory(),
                 savedProduct.getPrice(),
@@ -203,7 +203,7 @@ public class ProductService {
         try {
             httpEmailService.sendProductUpdateConfirmation(
                 updatedProduct.getSeller().getEmail(),
-                updatedProduct.getSeller().getFullName(),
+                updatedProduct.getSeller().getUsername(),
                 updatedProduct.getProductName(),
                 updatedProduct.getCategory(),
                 updatedProduct.getPrice(),
@@ -233,7 +233,7 @@ public class ProductService {
         try {
             httpEmailService.sendProductDeleteConfirmation(
                 product.getSeller().getEmail(),
-                product.getSeller().getFullName(),
+                product.getSeller().getUsername(),
                 product.getProductName(),
                 product.getCategory(),
                 product.getPrice(),
@@ -271,7 +271,7 @@ public class ProductService {
         dto.setId(product.getId());
         dto.setSellerId(product.getSeller().getId());
         dto.setSellerUsername(product.getSeller().getUsername());
-        dto.setSellerFullName(product.getSeller().getFullName());
+        dto.setSellerFullName(product.getSeller().getUsername());
         dto.setSellerEmail(product.getSeller().getEmail());
         dto.setSellerPhone(product.getSeller().getPhone());
         dto.setSellerLocation(product.getSeller().getCity() != null ? product.getSeller().getCity() : "Location not specified");

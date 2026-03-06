@@ -1,6 +1,5 @@
 package com.farmeazy.dto;
 
-import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 
@@ -11,34 +10,41 @@ import jakarta.validation.constraints.Size;
  * Acts as the request contract for the login API endpoint (/api/auth/login).
  * 
  * KEY FEATURES:
- * 1. Authentication: Collects email and password for user verification
- * 2. Validation: Ensures email format and password strength
+ * 1. Authentication: Collects email/username and password for user verification
+ * 2. Validation: Ensures identifier and password are provided
  * 3. Security: Validates input to prevent injection attacks
  * 
  * HOW IT WORKS:
  * - Client sends login request with JSON body mapped to this DTO
- * - Spring validates @NotBlank and @Email annotations
+ * - User can login with either email OR username
+ * - Spring validates @NotBlank annotations
  * - If validation fails, error response is returned with details
  * - If validation passes, credentials are verified against database
  * - On success: User and JWT token are returned in AuthResponseDto
  * - On failure: Unauthorized exception is thrown
  * 
  * VALIDATION RULES:
- * - email: Required, must be valid email format (user's registered email)
+ * - email: Required (can be email or username)
  * - password: Required, minimum 6 characters (user's registered password)
  * 
- * USAGE EXAMPLE:
- * POST /api/auth/login
+ * USAGE EXAMPLES:
+ * POST /api/auth/login (with email)
  * {
  *     "email": "rajesh@example.com",
  *     "password": "SecurePass123"
  * }
  * 
+ * POST /api/auth/login (with username)
+ * {
+ *     "email": "rajesh_farmer",
+ *     "password": "SecurePass123"
+ * }
+ * 
  * RESPONSE (on success):
  * {
- *     "id": 1,
+ *     "id": 10001,
  *     "email": "rajesh@example.com",
- *     "fullName": "Rajesh Kumar",
+ *     "username": "rajesh_farmer",
  *     "roles": ["USER"],
  *     "token": "eyJhbGciOiJIUzUxMiJ9...",
  *     "tokenType": "Bearer"
@@ -47,15 +53,13 @@ import jakarta.validation.constraints.Size;
 public class AuthLoginDto {
     
     /**
-     * EMAIL - USER'S LOGIN IDENTIFIER
+     * IDENTIFIER - USER'S LOGIN IDENTIFIER
      * @NotBlank: Field cannot be null or empty
-     * @Email: Must be valid email format
-     * This email must match the one used during registration
-     * Example: "rajesh@example.com"
+     * Can be any of: email, username, or user ID (5-digit number)
+     * Example: "rajesh@example.com" or "rajesh_farmer" or "10001"
      */
-    @NotBlank(message = "Email is required")
-    @Email(message = "Email must be valid")
-    private String email;
+    @NotBlank(message = "Email, username, or user ID is required")
+    private String identifier;
     
     /**
      * PASSWORD - USER'S LOGIN CREDENTIAL
@@ -71,13 +75,18 @@ public class AuthLoginDto {
     
     public AuthLoginDto() {}
     
-    public AuthLoginDto(String email, String password) {
-        this.email = email;
+    public AuthLoginDto(String identifier, String password) {
+        this.identifier = identifier;
         this.password = password;
     }
     
-    public String getEmail() { return email; }
-    public void setEmail(String email) { this.email = email; }
+    public String getIdentifier() { return identifier; }
+    public void setIdentifier(String identifier) { this.identifier = identifier; }
+    
+    // Alias for backward compatibility - maps to identifier
+    public String getEmail() { return identifier; }
+    public void setEmail(String email) { this.identifier = email; }
+    
     public String getPassword() { return password; }
     public void setPassword(String password) { this.password = password; }
 }

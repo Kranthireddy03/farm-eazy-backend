@@ -44,6 +44,20 @@ public class OrderService {
                 "Payment Successful - FarmEazy",
                 "Your payment retry was successful and your order is now confirmed."
             );
+            
+            // Send SMS for payment success
+            try {
+                if (user.getPhone() != null && !user.getPhone().isBlank()) {
+                    smsService.sendPaymentSuccess(
+                        user.getPhone(),
+                        user.getUsername(),
+                        retryDto.getAmount() != null ? retryDto.getAmount() : "N/A",
+                        "ORD" + orderId
+                    );
+                }
+            } catch (Exception smsEx) {
+                log.warn("Failed to send payment success SMS for order {}: {}", orderId, smsEx.getMessage());
+            }
         } else {
             httpEmailService.sendNotificationEmail(
                 user.getEmail(),
@@ -51,6 +65,19 @@ public class OrderService {
                 "Payment Failed - FarmEazy",
                 "Your payment retry failed. Please try again or contact support."
             );
+            
+            // Send SMS for payment failure
+            try {
+                if (user.getPhone() != null && !user.getPhone().isBlank()) {
+                    smsService.sendPaymentFailed(
+                        user.getPhone(),
+                        user.getUsername(),
+                        "ORD" + orderId
+                    );
+                }
+            } catch (Exception smsEx) {
+                log.warn("Failed to send payment failed SMS for order {}: {}", orderId, smsEx.getMessage());
+            }
         }
         Order order = orderRepository.findByIdAndUser(orderId, user)
                 .orElseThrow(() -> new ResourceNotFoundException("Order not found"));
@@ -112,6 +139,9 @@ public class OrderService {
     @Autowired
     private HttpEmailService httpEmailService;
 
+    @Autowired
+    private SmsService smsService;
+
     /**
      * Create new order from cart
      */
@@ -155,8 +185,15 @@ public class OrderService {
                 order.setOrderStatus(OrderStatus.CONFIRMED);
 
                 // Add shipping address for COD
+            } else if ("RAZORPAY".equals(createDto.getPaymentMethod()) && 
+                       createDto.getPaymentId() != null && !createDto.getPaymentId().isBlank()) {
+                // Razorpay payment already verified - mark as completed
+                order.setPaymentStatus(PaymentStatus.COMPLETED);
+                order.setOrderStatus(OrderStatus.CONFIRMED);
+                order.setTransactionId(createDto.getPaymentId());
+                order.setPaidAt(LocalDateTime.now());
             } else {
-                // For UPI/PhonePay, mark as processing
+                // For other payment methods or Razorpay without paymentId, mark as processing
                 order.setPaymentStatus(PaymentStatus.PROCESSING);
                 order.setOrderStatus(OrderStatus.PENDING);
             }
@@ -229,6 +266,20 @@ public class OrderService {
                     savedOrder.getTaxAmount().toPlainString(),
                     savedOrder.getFinalAmount().toPlainString()
                 );
+                
+                // Send SMS notification for payment success (order confirmation)
+                try {
+                    if (user.getPhone() != null && !user.getPhone().isBlank()) {
+                        smsService.sendPaymentSuccess(
+                            user.getPhone(),
+                            user.getUsername(),
+                            savedOrder.getFinalAmount().toPlainString(),
+                            "ORD" + savedOrder.getId()
+                        );
+                    }
+                } catch (Exception smsEx) {
+                    log.warn("Failed to send order confirmation SMS for order {}: {}", savedOrder.getId(), smsEx.getMessage());
+                }
             } else if (savedOrder.getPaymentStatus() == PaymentStatus.FAILED) {
                 // Optional: Send payment failure email
                 httpEmailService.sendNotificationEmail(
@@ -237,6 +288,19 @@ public class OrderService {
                         "Payment Failed - FarmEazy",
                         "Your payment for order #" + savedOrder.getId() + " was not successful. Please retry payment or contact support if you need help."
                 );
+                
+                // Send SMS for payment failure
+                try {
+                    if (user.getPhone() != null && !user.getPhone().isBlank()) {
+                        smsService.sendPaymentFailed(
+                            user.getPhone(),
+                            user.getUsername(),
+                            "ORD" + savedOrder.getId()
+                        );
+                    }
+                } catch (Exception smsEx) {
+                    log.warn("Failed to send payment failed SMS for order {}: {}", savedOrder.getId(), smsEx.getMessage());
+                }
             }
 
             log.info("Order created successfully: {}", savedOrder.getId());
@@ -385,6 +449,37 @@ public class OrderService {
     }
 
     /**
+     * Mark order as refund initiated
+     * 
+     * WHY: After user provides refund details, we initiate the refund process.
+     * This updates the order status to track refund progress.
+     */
+    @Transactional
+    public void markRefundInitiated(Long orderId, User user) {
+        Order order = orderRepository.findByIdAndUser(orderId, user)
+                .orElseThrow(() -> new ResourceNotFoundException("Order not found"));
+
+        if (!OrderStatus.CANCELLED.equals(order.getOrderStatus())) {
+            throw new IllegalArgumentException("Only cancelled orders can have refund initiated");
+        }
+
+        order.setPaymentStatus(PaymentStatus.REFUND_INITIATED);
+        orderRepository.save(order);
+
+        // Log activity
+        userActivityService.logActivity(
+                user,
+                ActivityType.REFUND_INITIATED,
+                "Refund initiated for Order #" + orderId,
+                null,
+                String.valueOf(orderId),
+                "Order"
+        );
+
+        log.info("Refund initiated for order: {}", orderId);
+    }
+
+    /**
      * Get order count for user
      */
     public Long getUserOrderCount(User user) {
@@ -408,6 +503,21 @@ public class OrderService {
         dto.setPaymentMethod(order.getPaymentMethod().name());
         dto.setCreatedAt(order.getCreatedAt());
         dto.setUpdatedAt(order.getUpdatedAt());
+
+        // Refund fields
+        if (order.getRefundStatus() != null) {
+            dto.setRefundStatus(order.getRefundStatus().name());
+        }
+        dto.setRefundAmount(order.getRefundAmount());
+        dto.setCoinsRefunded(order.getCoinsRefunded());
+        dto.setRefundReason(order.getRefundReason());
+        if (order.getRefundType() != null) {
+            dto.setRefundType(order.getRefundType().name());
+        }
+        dto.setRefundRequestedAt(order.getRefundRequestedAt());
+        dto.setRefundCompletedAt(order.getRefundCompletedAt());
+        dto.setCanCancel(order.canBeCancelled());
+        dto.setCanReturn(order.canBeReturned());
 
         if (order.getShippingAddress() != null) {
             dto.setShippingAddress(addressService.convertToDto(order.getShippingAddress()));

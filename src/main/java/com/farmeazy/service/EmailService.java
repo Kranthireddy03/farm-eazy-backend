@@ -49,13 +49,14 @@ import org.springframework.stereotype.Service;
 public class EmailService {
     /**
      * Sends password changed confirmation email.
+     * Uses SUPPORT sender as this is a security-related notification.
      * @param to Recipient email address
      * @param fullName User's full name
      */
     public void sendPasswordChangedConfirmation(String to, String fullName) {
         String subject = "Your FarmEazy password was changed";
-        String body = "Hello " + fullName + ",\n\nYour password was changed successfully. If you did not perform this action, please contact support immediately.\n\nRegards,\nFarmEazy Support";
-        sendEmail(to, subject, body);
+        String body = "Hello " + fullName + ",\n\nYour password was changed successfully. If you did not perform this action, please contact support immediately at support@farm-eazy.com.\n\nRegards,\nFarmEazy Support";
+        sendEmail(to, subject, body, EmailType.SUPPORT);
     }
 
     private static final Logger logger = LoggerFactory.getLogger(EmailService.class);
@@ -72,39 +73,77 @@ public class EmailService {
     @Value("${farmeazy.app.base-url:https://farm-eazy-backend.onrender.com}")
     private String appBaseUrl;
 
+    // Multi-sender email addresses
+    @Value("${farmeazy.mail.noreply:no-reply@farm-eazy.com}")
+    private String noReplyEmail;
+
+    @Value("${farmeazy.mail.info:info@farm-eazy.com}")
+    private String infoEmail;
+
+    @Value("${farmeazy.mail.support:support@farm-eazy.com}")
+    private String supportEmail;
+
+    /**
+     * Gets the appropriate sender email address based on email type.
+     * 
+     * @param emailType The type of email being sent
+     * @return The sender email address for this type
+     */
+    private String getSenderEmail(EmailType emailType) {
+        return switch (emailType) {
+            case NOREPLY -> noReplyEmail;
+            case INFO -> infoEmail;
+            case SUPPORT -> supportEmail;
+        };
+    }
+
     private String getAppBaseUrl() {
         return System.getenv().getOrDefault("APP_BASE_URL", appBaseUrl);
     }
+
     /**
-     * Sends a plain text email.
+     * Sends a plain text email using the default sender.
      * 
      * @param to Recipient email address
      * @param subject Email subject
      * @param body Email body (plain text)
      */
     public void sendEmail(String to, String subject, String body) {
+        sendEmail(to, subject, body, EmailType.NOREPLY);
+    }
+
+    /**
+     * Sends a plain text email using the specified sender type.
+     * 
+     * @param to Recipient email address
+     * @param subject Email subject
+     * @param body Email body (plain text)
+     * @param emailType The type of email (determines sender address)
+     */
+    public void sendEmail(String to, String subject, String body, EmailType emailType) {
         if (!emailEnabled) {
             logger.info("Email sending is disabled. Would have sent to: {}", to);
             throw new RuntimeException("Email sending is disabled.");
         }
 
+        String senderEmail = getSenderEmail(emailType);
         int attempts = 0;
         boolean sent = false;
         Exception lastException = null;
         while (!sent && attempts < 2) {
             try {
                 SimpleMailMessage message = new SimpleMailMessage();
-                message.setFrom(fromEmail);
+                message.setFrom(senderEmail);
                 message.setTo(to);
                 message.setSubject(subject);
                 message.setText(body);
                 mailSender.send(message);
-                logger.info("Email sent successfully to: {}", to);
+                logger.info("Email sent successfully to: {} from: {}", to, senderEmail);
                 sent = true;
             } catch (Exception e) {
                 attempts++;
                 lastException = e;
-                logger.error("Failed to send email to: {} (attempt {})", to, attempts, e);
+                logger.error("Failed to send email to: {} from: {} (attempt {})", to, senderEmail, attempts, e);
             }
         }
         if (!sent) {
@@ -113,31 +152,44 @@ public class EmailService {
     }
 
     /**
-     * Sends an HTML email.
+     * Sends an HTML email using the default sender.
      * 
      * @param to Recipient email address
      * @param subject Email subject
      * @param htmlBody Email body (HTML content)
      */
     public void sendHtmlEmail(String to, String subject, String htmlBody) {
+        sendHtmlEmail(to, subject, htmlBody, EmailType.NOREPLY);
+    }
+
+    /**
+     * Sends an HTML email using the specified sender type.
+     * 
+     * @param to Recipient email address
+     * @param subject Email subject
+     * @param htmlBody Email body (HTML content)
+     * @param emailType The type of email (determines sender address)
+     */
+    public void sendHtmlEmail(String to, String subject, String htmlBody, EmailType emailType) {
         if (!emailEnabled) {
             logger.info("Email sending is disabled. Would have sent HTML email to: {}", to);
             return;
         }
 
+        String senderEmail = getSenderEmail(emailType);
         try {
             MimeMessage message = mailSender.createMimeMessage();
             MimeMessageHelper helper = new MimeMessageHelper(message, true, "UTF-8");
             
-            helper.setFrom(fromEmail);
+            helper.setFrom(senderEmail);
             helper.setTo(to);
             helper.setSubject(subject);
             helper.setText(htmlBody, true); // true = isHtml
             
             mailSender.send(message);
-            logger.info("HTML email sent successfully to: {}", to);
+            logger.info("HTML email sent successfully to: {} from: {}", to, senderEmail);
         } catch (MessagingException e) {
-            logger.error("Failed to send HTML email to: {}", to, e);
+            logger.error("Failed to send HTML email to: {} from: {}", to, senderEmail, e);
             throw new RuntimeException("Failed to send HTML email", e);
         }
     }
@@ -235,8 +287,8 @@ public class EmailService {
             </html>
             """, userName, farmName, cropName, scheduledTime);
 
-        sendHtmlEmail(userEmail, subject, htmlBody);
-        logger.info("HTML Irrigation Reminder email sent to: {} for farm: {}", userEmail, farmName);
+        sendHtmlEmail(userEmail, subject, htmlBody, EmailType.INFO);
+        logger.info("HTML Irrigation Reminder email sent to: {} for farm: {} (from: info@farm-eazy.com)", userEmail, farmName);
     }
 
     /**
@@ -302,8 +354,8 @@ public class EmailService {
             </html>
             """, userName, farmName, cropName, estimatedDate, getAppBaseUrl());
 
-        sendHtmlEmail(userEmail, subject, htmlBody);
-        logger.info("HTML Harvest Notification email sent to: {} for crop: {}", userEmail, cropName);
+        sendHtmlEmail(userEmail, subject, htmlBody, EmailType.INFO);
+        logger.info("HTML Harvest Notification email sent to: {} for crop: {} (from: info@farm-eazy.com)", userEmail, cropName);
     }
 
     /**
@@ -327,6 +379,33 @@ public class EmailService {
      */
     public void sendNotification(String userEmail, String userName, String subject, String message) {
         sendNotificationHtml(userEmail, userName, subject, message);
+    }
+
+    /**
+     * Sends notification email (alias for sendNotification).
+     * Uses INFO sender by default for general notifications.
+     * 
+     * @param userEmail User's email address
+     * @param userName User's name
+     * @param subject Email subject
+     * @param message Email message
+     */
+    public void sendNotificationEmail(String userEmail, String userName, String subject, String message) {
+        sendNotificationHtml(userEmail, userName, subject, message, EmailType.INFO);
+    }
+
+    /**
+     * Sends notification email with specific sender type.
+     * Use SUPPORT for security-related notifications (bank details, account changes).
+     * 
+     * @param userEmail User's email address
+     * @param userName User's name
+     * @param subject Email subject
+     * @param message Email message
+     * @param emailType The type of email (determines sender address)
+     */
+    public void sendNotificationEmail(String userEmail, String userName, String subject, String message, EmailType emailType) {
+        sendNotificationHtml(userEmail, userName, subject, message, emailType);
     }
 
     /**
@@ -392,8 +471,8 @@ public class EmailService {
             </html>
             """, userName, purposeText, otpCode);
 
-        sendHtmlEmail(userEmail, subject, htmlBody);
-        logger.info("HTML OTP email sent to: {} for purpose: {}", userEmail, purpose);
+        sendHtmlEmail(userEmail, subject, htmlBody, EmailType.NOREPLY);
+        logger.info("HTML OTP email sent to: {} for purpose: {} (from: no-reply@farm-eazy.com)", userEmail, purpose);
     }
 
     /**
@@ -554,8 +633,8 @@ public class EmailService {
             </html>
             """, userName, getAppBaseUrl());
         
-        sendHtmlEmail(userEmail, subject, htmlBody);
-        logger.info("Professional HTML welcome email sent to: {}", userEmail);
+        sendHtmlEmail(userEmail, subject, htmlBody, EmailType.INFO);
+        logger.info("Professional HTML welcome email sent to: {} (from: info@farm-eazy.com)", userEmail);
     }
 
     /**
@@ -673,8 +752,8 @@ public class EmailService {
             </html>
             """, userName, resetLink, shortCode, userEmail);
         
-        sendHtmlEmail(userEmail, subject, htmlBody);
-        logger.info("Professional HTML password reset email sent to: {}", userEmail);
+        sendHtmlEmail(userEmail, subject, htmlBody, EmailType.SUPPORT);
+        logger.info("Professional HTML password reset email sent to: {} (from: support@farm-eazy.com)", userEmail);
     }
 
     /**
@@ -752,8 +831,8 @@ public class EmailService {
             </html>
             """, userName, orderId, totalAmount);
         
-        sendHtmlEmail(userEmail, subject, htmlBody);
-        logger.info("Order confirmation email sent to: {} for order: {}", userEmail, orderId);
+        sendHtmlEmail(userEmail, subject, htmlBody, EmailType.NOREPLY);
+        logger.info("Order confirmation email sent to: {} for order: {} (from: no-reply@farm-eazy.com)", userEmail, orderId);
     }
 
     /**
@@ -831,12 +910,12 @@ public class EmailService {
             </html>
             """, userName, productName, category, price, unit, quantity, unit);
         
-        sendHtmlEmail(userEmail, subject, htmlBody);
-        logger.info("HTML Product listing confirmation email sent to: {} for product: {}", userEmail, productName);
+        sendHtmlEmail(userEmail, subject, htmlBody, EmailType.INFO);
+        logger.info("HTML Product listing confirmation email sent to: {} for product: {} (from: info@farm-eazy.com)", userEmail, productName);
     }
 
     /**
-     * Sends a professional HTML generic notification email.
+     * Sends a professional HTML generic notification email using INFO sender.
      *
      * @param userEmail User's email address
      * @param userName User's name
@@ -844,6 +923,19 @@ public class EmailService {
      * @param message The main message content
      */
     private void sendNotificationHtml(String userEmail, String userName, String subject, String message) {
+        sendNotificationHtml(userEmail, userName, subject, message, EmailType.INFO);
+    }
+
+    /**
+     * Sends a professional HTML generic notification email with specific sender type.
+     *
+     * @param userEmail User's email address
+     * @param userName User's name
+     * @param subject Email subject
+     * @param message The main message content
+     * @param emailType The type of email (determines sender address)
+     */
+    private void sendNotificationHtml(String userEmail, String userName, String subject, String message, EmailType emailType) {
         String htmlBody = String.format("""
             <!DOCTYPE html>
             <html lang="en">
@@ -882,7 +974,7 @@ public class EmailService {
             </html>
             """, userName, subject, message);
 
-        sendHtmlEmail(userEmail, subject, htmlBody);
-        logger.info("HTML Notification email sent to: {}", userEmail);
+        sendHtmlEmail(userEmail, subject, htmlBody, emailType);
+        logger.info("HTML Notification email sent to: {} (from: {})", userEmail, emailType);
     }
 }

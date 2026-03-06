@@ -72,6 +72,14 @@ public class Product {
 
     @Column(name = "seller_email")
     private String sellerEmail;
+
+    // Marketplace / Payout fields
+    @Enumerated(EnumType.STRING)
+    @Column(name = "payout_status", length = 50)
+    private PayoutStatus payoutStatus = PayoutStatus.NOT_APPLICABLE;
+
+    @Column(name = "platform_fee_percentage", precision = 5, scale = 2)
+    private java.math.BigDecimal platformFeePercentage = new java.math.BigDecimal("5.00");
     
     @Column(name = "created_at", nullable = false, updatable = false)
     private LocalDateTime createdAt;
@@ -279,5 +287,29 @@ public class Product {
 
     public void setSellerEmail(String sellerEmail) {
         this.sellerEmail = sellerEmail;
+    }
+
+    public PayoutStatus getPayoutStatus() {
+        return payoutStatus;
+    }
+
+    public void setPayoutStatus(PayoutStatus payoutStatus) {
+        this.payoutStatus = payoutStatus;
+    }
+
+    public java.math.BigDecimal getPlatformFeePercentage() {
+        return platformFeePercentage;
+    }
+
+    public void setPlatformFeePercentage(java.math.BigDecimal platformFeePercentage) {
+        this.platformFeePercentage = platformFeePercentage;
+    }
+
+    public enum PayoutStatus {
+        NOT_APPLICABLE,
+        PENDING,
+        PROCESSING,
+        COMPLETED,
+        FAILED
     }
 }

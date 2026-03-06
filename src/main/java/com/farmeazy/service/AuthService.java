@@ -101,7 +101,7 @@ public class AuthService implements UserDetailsService {
         user.setPassword(passwordEncoder.encode(dto.getNewPassword()));
         userRepository.save(user);
         // Send confirmation email
-        emailService.sendPasswordChangedConfirmation(user.getEmail(), user.getFullName());
+        emailService.sendPasswordChangedConfirmation(user.getEmail(), user.getUsername());
         // Log activity
         userActivityService.logActivity(user, com.farmeazy.entity.UserActivity.ActivityType.PASSWORD_CHANGED, "Password changed successfully");
     }
@@ -159,7 +159,7 @@ public class AuthService implements UserDetailsService {
      * Called during authentication to load user details from database.
      * 
      * PARAMETERS:
-     * - email: User's email address (used as username)
+     * - identifier: User's email address OR username
      * 
      * RETURNS: Spring Security UserDetails object with:
      * - Username: email
@@ -168,41 +168,14 @@ public class AuthService implements UserDetailsService {
      * - Authorities: user roles (e.g., "ROLE_USER", "ROLE_ADMIN")
      * 
      * HOW IT WORKS:
-     * 1. Query database for user by email
+     * 1. Query database for user by email first, then by username
      * 2. If not found, throw IllegalArgumentException
-     * 3. Create Spring Security User object with:
-     *    - Email as username
-     *    - Encrypted password (stored in DB)
-     *    - Enabled status based on user.active flag
-     *    - Convert roles to authorities (e.g., "USER" → "ROLE_USER")
+     * 3. Create Spring Security User object
      * 4. Return UserDetails for authentication comparison
      * 
      * USED BY: Spring Security's DaoAuthenticationProvider during login
      */
-    @Override
-    public UserDetails loadUserByUsername(String email) {
-        // Find user in database or throw exception
-        User user = userRepository.findByEmail(email)
-                .orElseThrow(() -> new IllegalArgumentException("User not found with email: " + email));
-
-        // Convert User entity to Spring Security UserDetails
-        // This allows Spring Security to authenticate user credentials
-        return new org.springframework.security.core.userdetails.User(
-                user.getEmail(),                           // Username (email)
-                user.getPassword(),                        // Encrypted password from DB
-                user.getActive(),                          // Account enabled status
-                true,                                      // Account not expired
-                true,                                      // Credentials not expired
-                true,                                      // Account not locked
-                // Convert user roles to Spring Security authorities
-                // Example: "USER" role becomes "ROLE_USER" authority
-                org.springframework.security.core.authority.AuthorityUtils.createAuthorityList(
-                        user.getRoles().stream()
-                                .map(r -> "ROLE_" + r)    // Prefix with ROLE_
-                                .toArray(String[]::new)
-                )
-        );
-    }
+    // Note: loadUserByUsername is defined after resetPassword method to support email OR username login
 
     /**
      * USER REGISTRATION - CREATE NEW ACCOUNT
@@ -211,7 +184,7 @@ public class AuthService implements UserDetailsService {
      * Handles validation, encryption, and JWT token generation.
      * 
      * PARAMETERS:
-     * - registerDto: Registration data (email, password, name, phone, address, city, state, pinCode)
+     * - registerDto: Registration data (username, email, password, phone, address, city, state, pinCode)
      * 
      * RETURNS: AuthResponseDto with:
      * - User ID, email, fullName, roles
@@ -244,16 +217,15 @@ public class AuthService implements UserDetailsService {
             throw new DuplicateResourceException("Email already registered");
         }
 
-        // Generate or validate username
+        // Validate username (required - no auto-generation)
         String username = registerDto.getUsername();
         if (username == null || username.trim().isEmpty()) {
-            // Auto-generate username from email and phone
-            username = generateUsername(registerDto.getEmail(), registerDto.getPhone());
-        } else {
-            // Check if provided username already exists
-            if (userRepository.existsByUsername(username)) {
-                throw new DuplicateResourceException("Username already taken");
-            }
+            throw new IllegalArgumentException("Username is required");
+        }
+        
+        // Check if username already exists
+        if (userRepository.existsByUsername(username)) {
+            throw new DuplicateResourceException("Username '" + username + "' is already taken. Please choose another username.");
         }
 
         // Create new user entity
@@ -261,7 +233,6 @@ public class AuthService implements UserDetailsService {
         user.setEmail(registerDto.getEmail());
         user.setUsername(username);
         user.setPassword(passwordEncoder.encode(registerDto.getPassword()));
-        user.setFullName(registerDto.getFullName());
         user.setPhone(registerDto.getPhone());
         user.setAddress(registerDto.getAddress());
         user.setCity(registerDto.getCity());
@@ -277,7 +248,7 @@ public class AuthService implements UserDetailsService {
         user = userRepository.save(user);
 
         // Send welcome email asynchronously (optional)
-        httpEmailService.sendWelcomeEmailAsync(user.getEmail(), user.getFullName());
+        httpEmailService.sendWelcomeEmailAsync(user.getEmail(), user.getUsername());
 
         // Log registration activity
         try {
@@ -329,21 +300,22 @@ public class AuthService implements UserDetailsService {
      * HANDLED BY: GlobalExceptionHandler converts to HTTP 401 Unauthorized
      */
     public AuthResponseDto login(AuthLoginDto loginDto) {
-        // Authenticate credentials
+        String identifier = loginDto.getIdentifier();
+        
+        // Resolve identifier to user (supports email, username, or user ID)
+        User user = resolveUserByIdentifier(identifier);
+        
+        // Authenticate using email (Spring Security uses email as username)
         Authentication authentication = authenticationManager.authenticate(
                 new UsernamePasswordAuthenticationToken(
-                        loginDto.getEmail(),
+                        user.getEmail(),
                         loginDto.getPassword()
                 )
         );
 
-        // Fetch user entity
-        User user = userRepository.findByEmail(loginDto.getEmail())
-                .orElseThrow(() -> new IllegalArgumentException("User not found"));
-
         // OTP/2FA for login removed: login is now password-only
 
-        // OTP verified, proceed to generate JWT
+        // Proceed to generate JWT
         UserDetails userDetails = (UserDetails) authentication.getPrincipal();
         String token = jwtUtil.generateToken(userDetails);
 
@@ -352,7 +324,7 @@ public class AuthService implements UserDetailsService {
             userActivityService.logActivity(
                     user,
                     ActivityType.LOGGED_IN,
-                    "Logged in to the system (2FA verified)"
+                    "Logged in to the system"
             );
         } catch (Exception e) {
             System.err.println("Failed to log login activity: " + e.getMessage());
@@ -360,6 +332,46 @@ public class AuthService implements UserDetailsService {
 
         // Return response with user info and token
         return mapUserToAuthResponseDto(user, token);
+    }
+    
+    /**
+     * RESOLVE USER BY IDENTIFIER
+     * 
+     * PURPOSE: Finds user by email, username, or user ID.
+     * Supports flexible login with any of these identifiers.
+     * 
+     * @param identifier Email, username, or numeric user ID
+     * @return User entity
+     * @throws IllegalArgumentException if user not found
+     */
+    private User resolveUserByIdentifier(String identifier) {
+        User user = null;
+        
+        // Check if identifier is a numeric user ID
+        if (identifier.matches("^\\d+$")) {
+            try {
+                Long userId = Long.parseLong(identifier);
+                user = userRepository.findById(userId).orElse(null);
+            } catch (NumberFormatException e) {
+                // Not a valid number, continue to email/username lookup
+            }
+        }
+        
+        // If not found by ID, try email
+        if (user == null) {
+            user = userRepository.findByEmail(identifier).orElse(null);
+        }
+        
+        // If not found by email, try username
+        if (user == null) {
+            user = userRepository.findByUsername(identifier).orElse(null);
+        }
+        
+        if (user == null) {
+            throw new IllegalArgumentException("User not found with email, username, or user ID: " + identifier);
+        }
+        
+        return user;
     }
 
     /**
@@ -387,7 +399,6 @@ public class AuthService implements UserDetailsService {
         response.setId(user.getId());
         response.setEmail(user.getEmail());
         response.setUsername(user.getUsername());
-        response.setFullName(user.getFullName());
         response.setRoles(user.getRoles());
         response.setToken(token);
         return response;
@@ -525,66 +536,56 @@ public class AuthService implements UserDetailsService {
         // Send confirmation email asynchronously - does not block response
         String message = "Your password has been successfully reset. "
                 + "If you did not make this change, please contact support immediately.";
-        httpEmailService.sendNotificationAsync(user.getEmail(), user.getFullName(),
+        httpEmailService.sendNotificationAsync(user.getEmail(), user.getUsername(),
             "Password Reset Confirmation - FarmEazy", message);
     }
-    
+
     /**
-     * GENERATE USERNAME - AUTO-CREATE UNIQUE USERNAME
-     * 
-     * PURPOSE: Generates a unique username from email and phone number.
-     * Ensures generated username doesn't conflict with existing ones.
-     * 
-     * @param email User's email address
-     * @param phone User's phone number (10 digits)
-     * @return Unique username (format: emailPrefix_phoneDigits or emailPrefix_randomNum)
-     * 
-     * ALGORITHM:
-     * 1. Extract prefix from email (before @)
-     * 2. Take last 4 digits of phone number
-     * 3. Combine: emailPrefix_phoneDigits (e.g., "john_9876")
-     * 4. If exists, add random 4-digit number
-     * 5. Keep trying until unique username found
-     * 
-     * EXAMPLES:
-     * - Email: "john@example.com", Phone: "9876543210" → "john_3210"
-     * - If "john_3210" exists → "john_3210_1234" (random)
+     * LOAD USER BY IDENTIFIER (SPRING SECURITY)
+     * Supports login with email, username, or user ID
      */
-    private String generateUsername(String email, String phone) {
-        // Extract email prefix (before @)
-        String emailPrefix = email.substring(0, email.indexOf('@'))
-                .replaceAll("[^a-zA-Z0-9]", "_")  // Replace special chars with underscore
-                .toLowerCase();
+    @Override
+    public UserDetails loadUserByUsername(String identifier) {
+        // Try to find user by different methods:
+        // 1. If identifier is numeric, try to find by user ID first
+        // 2. Try to find by email
+        // 3. Try to find by username
+        User user = null;
         
-        // Truncate email prefix to ensure final username doesn't exceed 20 characters
-        // Max username length: 20 chars
-        // Format: emailPrefix + "_" + suffix (where suffix can be 3-5 digits)
-        // So emailPrefix max should be: 20 - 1 (underscore) - 4 (digits) = 15 chars
-        if (emailPrefix.length() > 15) {
-            emailPrefix = emailPrefix.substring(0, 15);
-        }
-        
-        // Take last 4 digits of phone
-        String phoneDigits = phone.substring(phone.length() - 4);
-        
-        // Create base username
-        String baseUsername = emailPrefix + "_" + phoneDigits;
-        
-        // Ensure uniqueness
-        String username = baseUsername;
-        int counter = 1;
-        while (userRepository.existsByUsername(username)) {
-            // Add random number if username exists
-            username = baseUsername + "_" + (1000 + RANDOM.nextInt(9000)); // 4-digit random
-            counter++;
-            if (counter > 10) {
-                // Fallback: use shorter random suffix if too many collisions
-                username = emailPrefix + "_" + RANDOM.nextInt(10000);
-                break;
+        // Check if identifier is a numeric user ID
+        if (identifier.matches("^\\d+$")) {
+            try {
+                Long userId = Long.parseLong(identifier);
+                user = userRepository.findById(userId).orElse(null);
+            } catch (NumberFormatException e) {
+                // Not a valid number, continue to email/username lookup
             }
         }
         
-        return username;
+        // If not found by ID, try email
+        if (user == null) {
+            user = userRepository.findByEmail(identifier).orElse(null);
+        }
+        
+        // If not found by email, try username
+        if (user == null) {
+            user = userRepository.findByUsername(identifier)
+                    .orElseThrow(() -> new IllegalArgumentException("User not found with email, username, or user ID: " + identifier));
+        }
+
+        return new org.springframework.security.core.userdetails.User(
+                user.getEmail(),
+                user.getPassword(),
+                user.getActive(),
+                true,
+                true,
+                true,
+                org.springframework.security.core.authority.AuthorityUtils.createAuthorityList(
+                        user.getRoles().stream()
+                                .map(r -> "ROLE_" + r)
+                                .toArray(String[]::new)
+                )
+        );
     }
     
     /**
@@ -652,6 +653,59 @@ public class AuthService implements UserDetailsService {
         }
         
         return suggestions;
+    }
+    
+    // ========== OTP-BASED LOGIN ==========
+    
+    /**
+     * LOGIN WITH OTP - PHONE-BASED LOGIN
+     * 
+     * PURPOSE: Logs in user using phone number + OTP code.
+     * Alternative to password-based login.
+     * 
+     * WORKFLOW:
+     * 1. Verify OTP code is valid for phone
+     * 2. Find user by phone number
+     * 3. Generate JWT token
+     * 4. Log activity
+     * 5. Return AuthResponseDto with token
+     * 
+     * @param phone 10-digit phone number
+     * @param otpCode 6-digit OTP code
+     * @return AuthResponseDto with JWT token
+     * @throws UnauthorizedException if OTP invalid/expired or user not found
+     */
+    @Transactional
+    public AuthResponseDto loginWithOtp(String phone, String otpCode) {
+        // Verify OTP (throws UnauthorizedException if invalid)
+        otpService.verifyLoginOtp(phone, otpCode);
+        
+        // Find user by phone
+        User user = userRepository.findByPhone(phone)
+            .orElseThrow(() -> new UnauthorizedException("User not found with this phone number"));
+        
+        // Check if user is active
+        if (user.getActive() == null || !user.getActive()) {
+            throw new UnauthorizedException("User account is inactive");
+        }
+        
+        // Generate JWT token
+        UserDetails userDetails = loadUserByUsername(user.getEmail());
+        String token = jwtUtil.generateToken(userDetails);
+        
+        // Log activity
+        try {
+            userActivityService.logActivity(
+                user,
+                ActivityType.LOGGED_IN,
+                "Logged in via OTP"
+            );
+        } catch (Exception e) {
+            System.err.println("Failed to log OTP login activity: " + e.getMessage());
+        }
+        
+        // Return response
+        return mapUserToAuthResponseDto(user, token);
     }
 }
 

@@ -7,7 +7,7 @@ public class OtpRequestDto {
     @Email(message = "Invalid email format")
     private String email;
 
-    @NotBlank(message = "Phone is required")
+    // Phone is optional for registration OTP (email-only verification)
     @Pattern(regexp = "^[0-9]{10}$", message = "Phone must be 10 digits")
     private String phone;
 

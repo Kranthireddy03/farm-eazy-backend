@@ -50,34 +50,28 @@ import jakarta.validation.constraints.Pattern;
 public class AuthRegisterDto {
     
     /**
-     * FULL NAME - USER'S COMPLETE NAME
+     * USERNAME - UNIQUE DISPLAY NAME (REQUIRED)
      * @NotBlank: Field cannot be null or empty
-     * Used as display name throughout the application
+     * @Size(min = 3, max = 20): Must be between 3-20 characters
+     * @Pattern: Alphanumeric with underscores only
+     * User must provide this - no auto-generation
+     * Example: "rajesh_farmer" or "john_9876"
      */
-    @NotBlank(message = "Full name is required")
-    private String fullName;
+    @NotBlank(message = "Username is required")
+    @Size(min = 3, max = 20, message = "Username must be between 3 and 20 characters")
+    @Pattern(regexp = "^[a-zA-Z0-9_]*$", message = "Username can only contain letters, numbers, and underscores")
+    private String username;
     
     /**
      * EMAIL - UNIQUE LOGIN IDENTIFIER
      * @NotBlank: Field cannot be null or empty
      * @Email: Must be valid email format (checked by regex pattern)
-     * Used as unique username for login and user identification
+     * Used as unique identifier for login (along with username)
      * Example: "farmer@example.com"
      */
     @NotBlank(message = "Email is required")
     @Email(message = "Email must be valid")
     private String email;
-    
-    /**
-     * USERNAME - UNIQUE DISPLAY NAME
-     * Optional field (can be auto-generated if not provided)
-     * @Size(min = 3, max = 20): Must be between 3-20 characters
-     * @Pattern: Alphanumeric with underscores only
-     * Example: "rajesh_9876" or "john_farmer"
-     */
-    @Size(min = 3, max = 20, message = "Username must be between 3 and 20 characters")
-    @Pattern(regexp = "^[a-zA-Z0-9_]*$", message = "Username can only contain letters, numbers, and underscores")
-    private String username;
     
     /**
      * PASSWORD - LOGIN CREDENTIAL (ENCRYPTED)
@@ -132,8 +126,8 @@ public class AuthRegisterDto {
     
     public AuthRegisterDto() {}
     
-    public AuthRegisterDto(String fullName, String email, String password, String phone, String address, String city, String state, String pinCode) {
-        this.fullName = fullName;
+    public AuthRegisterDto(String username, String email, String password, String phone, String address, String city, String state, String pinCode) {
+        this.username = username;
         this.email = email;
         this.password = password;
         this.phone = phone;
@@ -143,12 +137,10 @@ public class AuthRegisterDto {
         this.pinCode = pinCode;
     }
     
-    public String getFullName() { return fullName; }
-    public void setFullName(String fullName) { this.fullName = fullName; }
-    public String getEmail() { return email; }
-    public void setEmail(String email) { this.email = email; }
     public String getUsername() { return username; }
     public void setUsername(String username) { this.username = username; }
+    public String getEmail() { return email; }
+    public void setEmail(String email) { this.email = email; }
     public String getPassword() { return password; }
     public void setPassword(String password) { this.password = password; }
     public String getPhone() { return phone; }

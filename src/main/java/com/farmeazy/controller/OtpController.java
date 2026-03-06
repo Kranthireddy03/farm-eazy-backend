@@ -1,6 +1,7 @@
 package com.farmeazy.controller;
 
 import com.farmeazy.dto.OtpRequestDto;
+import com.farmeazy.dto.OtpResponseDto;
 import com.farmeazy.dto.OtpVerifyDto;
 import com.farmeazy.service.OtpService;
 import jakarta.validation.Valid;
@@ -10,6 +11,16 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.Map;
 
+/**
+ * OTP CONTROLLER
+ * 
+ * PURPOSE: REST endpoints for OTP operations
+ * 
+ * ENDPOINTS:
+ * - POST /api/otp/send - Send OTP via Email + SMS
+ * - POST /api/otp/send-detailed - Send OTP with detailed response (for popup)
+ * - POST /api/otp/verify - Verify OTP
+ */
 @RestController
 @RequestMapping("/api/otp")
 @CrossOrigin(origins = {
@@ -28,10 +39,23 @@ public class OtpController {
         this.otpService = otpService;
     }
     
+    /**
+     * Send OTP (legacy endpoint - returns simple message)
+     */
     @PostMapping("/send")
     public ResponseEntity<Map<String, String>> sendOtp(@Valid @RequestBody OtpRequestDto dto) {
         String message = otpService.generateAndSendOtp(dto);
         return ResponseEntity.ok(Map.of("message", message));
+    }
+    
+    /**
+     * Send OTP with detailed response
+     * Returns delivery channels and user-friendly message for UI popup
+     */
+    @PostMapping("/send-detailed")
+    public ResponseEntity<OtpResponseDto> sendOtpDetailed(@Valid @RequestBody OtpRequestDto dto) {
+        OtpResponseDto response = otpService.generateAndSendOtpWithDetails(dto);
+        return ResponseEntity.ok(response);
     }
     
     @PostMapping("/verify")

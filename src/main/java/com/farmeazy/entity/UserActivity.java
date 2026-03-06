@@ -144,6 +144,8 @@ public class UserActivity {
         
         PAYMENT_SUCCESS,
         SERVICE_BOOKED,
-        SERVICE_CANCELLED
+        SERVICE_CANCELLED,
+        
+        REFUND_INITIATED
     }
 }

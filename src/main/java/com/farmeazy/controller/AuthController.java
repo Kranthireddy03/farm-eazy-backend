@@ -342,6 +342,83 @@ public class AuthController {
             put("token", fullToken);
         }});
     }
+    
+    // ========== OTP-BASED LOGIN ==========
+    
+    /**
+     * REQUEST OTP FOR LOGIN
+     * 
+     * HTTP METHOD: POST
+     * ENDPOINT PATH: /api/auth/login/request-otp
+     * ACCESS: Public (no authentication required)
+     * 
+     * PURPOSE: Sends LOGIN_OTP via SMS to registered phone number.
+     * First step in OTP-based login flow.
+     * 
+     * REQUEST BODY (JSON):
+     * {
+     *     "phone": "9876543210"
+     * }
+     * 
+     * RESPONSE (200 OK):
+     * {
+     *     "success": true,
+     *     "message": "OTP sent to your registered mobile number.",
+     *     "displayMessage": "OTP sent to 98****10. Valid for 10 minutes."
+     * }
+     * 
+     * ERROR RESPONSES:
+     * - 400 BAD REQUEST: Phone format invalid
+     * - 404 NOT FOUND: Phone number not registered
+     * 
+     * @param dto Phone number request
+     * @return OTP response with send status
+     */
+    @PostMapping("/login/request-otp")
+    @Operation(summary = "Request OTP for phone login")
+    public ResponseEntity<?> requestLoginOtp(@Valid @RequestBody com.farmeazy.dto.OtpLoginRequestDto dto) {
+        com.farmeazy.dto.OtpResponseDto response = otpService.generateLoginOtp(dto.getPhone());
+        return ResponseEntity.ok(response);
+    }
+    
+    /**
+     * VERIFY OTP AND LOGIN
+     * 
+     * HTTP METHOD: POST
+     * ENDPOINT PATH: /api/auth/login/verify-otp
+     * ACCESS: Public (requires valid OTP)
+     * 
+     * PURPOSE: Verifies OTP and returns JWT token for login.
+     * Second step in OTP-based login flow.
+     * 
+     * REQUEST BODY (JSON):
+     * {
+     *     "phone": "9876543210",
+     *     "otpCode": "123456"
+     * }
+     * 
+     * RESPONSE (200 OK):
+     * {
+     *     "id": 1,
+     *     "email": "user@example.com",
+     *     "username": "farmer_1234",
+     *     "roles": ["USER"],
+     *     "token": "eyJhbGciOiJIUzUxMiJ9..."
+     * }
+     * 
+     * ERROR RESPONSES:
+     * - 400 BAD REQUEST: Invalid phone or OTP format
+     * - 401 UNAUTHORIZED: Invalid/expired OTP
+     * 
+     * @param dto Phone and OTP code
+     * @return AuthResponseDto with JWT token
+     */
+    @PostMapping("/login/verify-otp")
+    @Operation(summary = "Verify OTP and login")
+    public ResponseEntity<AuthResponseDto> verifyOtpAndLogin(@Valid @RequestBody com.farmeazy.dto.OtpLoginVerifyDto dto) {
+        AuthResponseDto response = authService.loginWithOtp(dto.getPhone(), dto.getOtpCode());
+        return ResponseEntity.ok(response);
+    }
 }
 
 

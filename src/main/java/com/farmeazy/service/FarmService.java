@@ -63,7 +63,7 @@ public class FarmService {
         try {
             String message = "New farm '" + farm.getFarmName() + "' has been successfully created. "
                     + "Location: " + farm.getLocation() + ", Area: " + farm.getAreaSize() + " acres.";
-            httpEmailService.sendNotification(user.getEmail(), user.getFullName(),
+            httpEmailService.sendNotification(user.getEmail(), user.getUsername(),
                 "New Farm Created - FarmEazy", message);
         } catch (Exception e) {
             System.err.println("Failed to send farm creation email: " + e.getMessage());
@@ -125,7 +125,7 @@ public class FarmService {
         try {
             String message = "Your farm '" + farm.getFarmName() + "' has been updated. "
                     + "Location: " + farm.getLocation() + ", Area: " + farm.getAreaSize() + " acres.";
-            httpEmailService.sendNotification(farm.getUser().getEmail(), farm.getUser().getFullName(),
+            httpEmailService.sendNotification(farm.getUser().getEmail(), farm.getUser().getUsername(),
                 "Farm Updated - FarmEazy", message);
         } catch (Exception e) {
             System.err.println("Failed to send farm update email: " + e.getMessage());
@@ -152,7 +152,7 @@ public class FarmService {
         try {
             String message = "Your farm '" + farm.getFarmName() + "' has been deleted from your FarmEazy account. "
                     + "Location: " + farm.getLocation() + ", Area: " + farm.getAreaSize() + " acres.";
-            httpEmailService.sendNotification(farm.getUser().getEmail(), farm.getUser().getFullName(),
+            httpEmailService.sendNotification(farm.getUser().getEmail(), farm.getUser().getUsername(),
                 "Farm Deleted - FarmEazy", message);
         } catch (Exception e) {
             System.err.println("Failed to send farm deletion email: " + e.getMessage());

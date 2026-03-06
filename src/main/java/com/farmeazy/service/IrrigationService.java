@@ -38,6 +38,9 @@ public class IrrigationService {
     @Autowired
     private HttpEmailService httpEmailService;
 
+    @Autowired
+    private SmsService smsService;
+
     @Transactional
     public IrrigationScheduleDto createSchedule(IrrigationScheduleDto scheduleDto, Long userId) {
         Crop crop = cropRepository.findById(scheduleDto.getCropId())
@@ -70,10 +73,24 @@ public class IrrigationService {
             String message = "Irrigation schedule has been created for crop '" + crop.getCropName() + "' on your farm '" + farm.getFarmName() + "'. "
                     + "Date: " + schedule.getIrrigationDate() + ", Start Time: " + schedule.getStartTime() 
                     + ", Duration: " + schedule.getDuration() + " minutes, Water Amount: " + schedule.getWaterAmount() + " liters.";
-            httpEmailService.sendNotification(farm.getUser().getEmail(), farm.getUser().getFullName(),
+            httpEmailService.sendNotification(farm.getUser().getEmail(), farm.getUser().getUsername(),
                 "Irrigation Schedule Created - FarmEazy", message);
         } catch (Exception e) {
             System.err.println("Failed to send irrigation schedule email: " + e.getMessage());
+        }
+        
+        // Send SMS notification for irrigation reminder
+        try {
+            String userPhone = farm.getUser().getPhone();
+            if (userPhone != null && !userPhone.isBlank()) {
+                smsService.sendIrrigationReminder(
+                    userPhone,
+                    crop.getCropName(),
+                    farm.getFarmName()
+                );
+            }
+        } catch (Exception smsEx) {
+            System.err.println("Failed to send irrigation schedule SMS: " + smsEx.getMessage());
         }
         
         return mapScheduleToDto(schedule, userId);
@@ -138,7 +155,7 @@ public class IrrigationService {
             String message = "Irrigation schedule for crop '" + schedule.getCrop().getCropName() + "' on your farm '" + schedule.getFarm().getFarmName() + "' has been updated. "
                     + "Date: " + schedule.getIrrigationDate() + ", Start Time: " + schedule.getStartTime()
                     + ", Duration: " + schedule.getDuration() + " minutes, Water Amount: " + schedule.getWaterAmount() + " liters.";
-            httpEmailService.sendNotification(schedule.getFarm().getUser().getEmail(), schedule.getFarm().getUser().getFullName(),
+            httpEmailService.sendNotification(schedule.getFarm().getUser().getEmail(), schedule.getFarm().getUser().getUsername(),
                 "Irrigation Schedule Updated - FarmEazy", message);
         } catch (Exception e) {
             System.err.println("Failed to send irrigation update email: " + e.getMessage());
@@ -181,7 +198,7 @@ public class IrrigationService {
         // Send delete email notification
         try {
             String message = "Irrigation schedule for crop '" + schedule.getCrop().getCropName() + "' on your farm '" + schedule.getFarm().getFarmName() + "' has been deleted.";
-            httpEmailService.sendNotification(schedule.getFarm().getUser().getEmail(), schedule.getFarm().getUser().getFullName(),
+            httpEmailService.sendNotification(schedule.getFarm().getUser().getEmail(), schedule.getFarm().getUser().getUsername(),
                 "Irrigation Schedule Deleted - FarmEazy", message);
         } catch (Exception e) {
             System.err.println("Failed to send irrigation deletion email: " + e.getMessage());

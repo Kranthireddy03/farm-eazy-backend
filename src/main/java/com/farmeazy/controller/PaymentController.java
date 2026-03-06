@@ -1,7 +1,10 @@
 package com.farmeazy.controller;
 
+import com.farmeazy.service.SmsService;
+import com.farmeazy.service.HttpEmailService;
 import com.razorpay.*;
 import org.json.JSONObject;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -14,6 +17,13 @@ import java.util.Map;
 @RestController
 @RequestMapping("/api/payment")
 public class PaymentController {
+    
+    @Autowired
+    private SmsService smsService;
+    
+    @Autowired
+    private HttpEmailService emailService;
+    
     @PostMapping("/webhook")
     public ResponseEntity<?> handleWebhook(@RequestBody String payload, @RequestHeader Map<String, String> headers) {
         // TODO: Validate webhook signature using Razorpay's X-Razorpay-Signature header
@@ -114,14 +124,12 @@ public class PaymentController {
             //     paymentRepository.save(payment);
             // }
 
-            // Trigger email/SMS notification (pseudo-code)
+            // Trigger email/SMS notification for payment success
+            // NOTE: SMS is sent from OrderService when order is created with FarmEazy order ID
+            // PaymentController only verifies payment, not creates order
             if (isSuccess) {
-                // EmailService.sendPaymentSuccess(email, orderId, paymentId);
-                // SmsService.sendPaymentSuccess(phone, orderId);
                 return ResponseEntity.ok(Map.of("status", "success"));
             } else {
-                // EmailService.sendPaymentFailure(email, orderId);
-                // SmsService.sendPaymentFailure(phone, orderId);
                 return ResponseEntity.ok(Map.of("status", "failure"));
             }
         } catch (Exception e) {

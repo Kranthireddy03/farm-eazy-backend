@@ -11,8 +11,11 @@ public class OtpVerification {
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
     
-    @Column(nullable = false)
+    @Column(nullable = true)
     private String email;
+    
+    @Column(nullable = true)
+    private String phone;
     
     @Column(name = "otp_code", nullable = false)
     private String otpCode;
@@ -53,6 +56,14 @@ public class OtpVerification {
     
     public void setEmail(String email) {
         this.email = email;
+    }
+    
+    public String getPhone() {
+        return phone;
+    }
+    
+    public void setPhone(String phone) {
+        this.phone = phone;
     }
     
     public String getOtpCode() {

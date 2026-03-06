@@ -87,7 +87,7 @@ public class CoinService {
             // You may want to use a dedicated method in HttpEmailService for coin notifications
             httpEmailService.sendCoinEarnedNotification(
                 user.getEmail(),
-                user.getFullName(),
+                user.getUsername(),
                 amount,
                 userCoins.getTotalCoins(),
                 reason
@@ -119,7 +119,7 @@ public class CoinService {
         try {
             httpEmailService.sendCoinSpentNotification(
                 user.getEmail(),
-                user.getFullName(),
+                user.getUsername(),
                 amount,
                 userCoins.getTotalCoins()
             );

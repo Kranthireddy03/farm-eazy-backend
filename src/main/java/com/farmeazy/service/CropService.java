@@ -60,7 +60,7 @@ public class CropService {
         try {
             String message = "New crop '" + crop.getCropName() + "' has been successfully added to your farm '" + farm.getFarmName() + "'. "
                     + "Expected harvest date: " + crop.getExpectedHarvestDate();
-            httpEmailService.sendNotification(farm.getUser().getEmail(), farm.getUser().getFullName(),
+            httpEmailService.sendNotification(farm.getUser().getEmail(), farm.getUser().getUsername(),
                 "New Crop Added - FarmEazy", message);
         } catch (Exception e) {
             System.err.println("Failed to send crop creation email: " + e.getMessage());
@@ -154,7 +154,7 @@ public class CropService {
         try {
             String message = "Crop '" + crop.getCropName() + "' in your farm '" + crop.getFarm().getFarmName() + "' has been updated. "
                     + "Expected harvest date: " + crop.getExpectedHarvestDate();
-            httpEmailService.sendNotification(crop.getFarm().getUser().getEmail(), crop.getFarm().getUser().getFullName(),
+            httpEmailService.sendNotification(crop.getFarm().getUser().getEmail(), crop.getFarm().getUser().getUsername(),
                 "Crop Updated - FarmEazy", message);
         } catch (Exception e) {
             System.err.println("Failed to send crop update email: " + e.getMessage());
@@ -178,7 +178,7 @@ public class CropService {
         // Send delete email notification
         try {
             String message = "Crop '" + crop.getCropName() + "' has been deleted from your farm '" + crop.getFarm().getFarmName() + ".";
-            httpEmailService.sendNotification(crop.getFarm().getUser().getEmail(), crop.getFarm().getUser().getFullName(),
+            httpEmailService.sendNotification(crop.getFarm().getUser().getEmail(), crop.getFarm().getUser().getUsername(),
                 "Crop Deleted - FarmEazy", message);
         } catch (Exception e) {
             System.err.println("Failed to send crop deletion email: " + e.getMessage());

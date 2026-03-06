@@ -39,6 +39,9 @@ public class OrderCreateDto {
     @Size(max = 500, message = "Notes cannot exceed 500 characters")
     private String notes;
 
+    // For Razorpay payments - if provided, payment is already verified
+    private String paymentId;
+
     public OrderCreateDto() {
     }
 
@@ -134,5 +137,12 @@ public class OrderCreateDto {
     public void setNotes(String notes) {
         this.notes = notes;
     }
-}
 
+    public String getPaymentId() {
+        return paymentId;
+    }
+
+    public void setPaymentId(String paymentId) {
+        this.paymentId = paymentId;
+    }
+}

@@ -39,8 +39,28 @@ import java.util.concurrent.CompletableFuture;
 public class HttpEmailService {
     /**
      * Send a professional notification email (order failed, payment failed, etc)
+     * Uses default sender (no-reply)
      */
     public boolean sendNotificationEmail(String userEmail, String userName, String subject, String message) {
+        String html = buildNotificationEmailHtml(userName, subject, message);
+        return sendEmail(userEmail, subject, html);
+    }
+
+    /**
+     * Send a professional notification email with specific sender type.
+     * Note: HttpEmailService currently uses Resend API with single sender.
+     * EmailType is accepted for API compatibility but sender is determined by Resend config.
+     * 
+     * @param userEmail Recipient email
+     * @param userName Recipient name
+     * @param subject Email subject
+     * @param message Email message
+     * @param emailType Type of email (NOREPLY, INFO, SUPPORT) - for future multi-sender support
+     */
+    public boolean sendNotificationEmail(String userEmail, String userName, String subject, String message, EmailType emailType) {
+        // Currently uses same sender for all types - Resend API single sender limitation
+        // EmailType is logged for tracking purposes
+        logger.info("Sending {} notification email to: {}", emailType, userEmail);
         String html = buildNotificationEmailHtml(userName, subject, message);
         return sendEmail(userEmail, subject, html);
     }
@@ -373,6 +393,558 @@ public class HttpEmailService {
             </body>
             </html>
             """, userName, amount, amount, totalCoins, appBaseUrl, appBaseUrl, appBaseUrl);
+        return sendEmail(userEmail, subject, html);
+    }
+
+    // ===========================================
+    // REFUND NOTIFICATION EMAILS
+    // ===========================================
+
+    /**
+     * Send professional refund success notification email
+     */
+    public boolean sendRefundSuccessNotification(String userEmail, String userName, Long orderId, 
+            Long coinsRefunded, java.math.BigDecimal amountRefunded, String refundId, String refundType) {
+        String subject = "✅ Refund Processed Successfully - Order #FZ" + orderId;
+        
+        String coinsHtml = "";
+        if (coinsRefunded != null && coinsRefunded > 0) {
+            coinsHtml = String.format("""
+                <tr>
+                    <td>🪙 Coins Refunded</td>
+                    <td style="color: #f59e0b; font-weight: 700;">+%d coins</td>
+                </tr>
+            """, coinsRefunded);
+        }
+        
+        String amountHtml = "";
+        if (amountRefunded != null && amountRefunded.compareTo(java.math.BigDecimal.ZERO) > 0) {
+            amountHtml = String.format("""
+                <tr>
+                    <td>💰 Amount Refunded</td>
+                    <td style="color: #22c55e; font-weight: 700; font-size: 20px;">₹%.2f</td>
+                </tr>
+                <tr>
+                    <td>🏦 Refund ID</td>
+                    <td style="font-family: monospace; color: #6b7280;">%s</td>
+                </tr>
+            """, amountRefunded, refundId != null ? refundId : "N/A");
+        }
+        
+        String html = String.format("""
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <style>
+                    body { font-family: 'Segoe UI', Arial, sans-serif; line-height: 1.6; color: #333; margin: 0; padding: 0; }
+                    .container { max-width: 650px; margin: 0 auto; background: #ffffff; }
+                    .header { background: linear-gradient(135deg, #22c55e 0%%, #16a34a 100%%); color: white; padding: 40px 30px; text-align: center; }
+                    .header h1 { margin: 0; font-size: 28px; font-weight: 700; }
+                    .header p { margin: 10px 0 0 0; opacity: 0.9; font-size: 14px; }
+                    .success-icon { font-size: 60px; margin: 20px 0; }
+                    .content { padding: 40px 30px; background: #fafafa; }
+                    .greeting { font-size: 18px; color: #111827; margin-bottom: 20px; }
+                    .message { color: #4b5563; margin-bottom: 30px; line-height: 1.8; }
+                    .details-card { background: white; border-radius: 12px; padding: 25px; margin: 25px 0; box-shadow: 0 2px 8px rgba(0,0,0,0.08); border-left: 4px solid #22c55e; }
+                    .card-title { font-size: 20px; font-weight: 700; color: #22c55e; margin: 0 0 20px 0; }
+                    table { width: 100%%; border-collapse: collapse; }
+                    td { padding: 12px 0; border-bottom: 1px solid #e5e7eb; }
+                    td:first-child { color: #6b7280; font-weight: 500; width: 45%%; }
+                    td:last-child { color: #111827; font-weight: 600; text-align: right; }
+                    tr:last-child td { border-bottom: none; }
+                    .timeline { background: #f0fdf4; border-radius: 8px; padding: 20px; margin: 25px 0; }
+                    .timeline-item { display: flex; align-items: center; margin: 10px 0; }
+                    .timeline-dot { width: 12px; height: 12px; background: #22c55e; border-radius: 50%%; margin-right: 15px; }
+                    .timeline-text { color: #16a34a; font-weight: 500; }
+                    .button { display: inline-block; background: linear-gradient(135deg, #22c55e, #16a34a); color: white; padding: 14px 32px; text-decoration: none; border-radius: 8px; margin: 25px 0; font-weight: 600; font-size: 16px; box-shadow: 0 4px 6px rgba(34, 197, 94, 0.25); }
+                    .info-box { background: #dbeafe; border-left: 4px solid #3b82f6; padding: 16px; border-radius: 6px; margin: 25px 0; }
+                    .info-box p { margin: 0; color: #1e40af; font-size: 14px; }
+                    .footer { background: #111827; color: #9ca3af; padding: 30px; text-align: center; font-size: 14px; }
+                    .footer a { color: #22c55e; text-decoration: none; }
+                </style>
+            </head>
+            <body>
+                <div class="container">
+                    <div class="header">
+                        <div class="success-icon">✅</div>
+                        <h1>Refund Successful!</h1>
+                        <p>Order #FZ%d | %s</p>
+                    </div>
+                    <div class="content">
+                        <div class="greeting">Hello %s! 👋</div>
+                        <div class="message">
+                            Great news! Your refund has been processed successfully. Please find the details below.
+                        </div>
+
+                        <div class="details-card">
+                            <h2 class="card-title">💸 Refund Details</h2>
+                            <table>
+                                <tr>
+                                    <td>📦 Order Number</td>
+                                    <td>#FZ%d</td>
+                                </tr>
+                                <tr>
+                                    <td>📋 Refund Type</td>
+                                    <td>%s</td>
+                                </tr>
+                                %s
+                                %s
+                                <tr>
+                                    <td>📅 Processed On</td>
+                                    <td>%s</td>
+                                </tr>
+                            </table>
+                        </div>
+
+                        <div class="timeline">
+                            <div class="timeline-item">
+                                <div class="timeline-dot"></div>
+                                <div class="timeline-text">Refund request received</div>
+                            </div>
+                            <div class="timeline-item">
+                                <div class="timeline-dot"></div>
+                                <div class="timeline-text">Refund approved</div>
+                            </div>
+                            <div class="timeline-item">
+                                <div class="timeline-dot"></div>
+                                <div class="timeline-text">Refund processed ✓</div>
+                            </div>
+                        </div>
+
+                        <div class="info-box">
+                            <p><strong>⏱️ Processing Time:</strong> Bank transfers typically take 3-5 business days to reflect in your account. Coins are credited instantly.</p>
+                        </div>
+
+                        <center>
+                            <a href="%s/orders" class="button">View My Orders</a>
+                        </center>
+                    </div>
+                    <div class="footer">
+                        <p><strong>FarmEazy</strong> - Smart Farm Management</p>
+                        <p style="margin-top: 10px;">
+                            <a href="%s">Visit Website</a> |
+                            <a href="%s/support">Support</a> |
+                            <a href="%s/refund-details">Refund Settings</a>
+                        </p>
+                        <p style="margin-top: 15px; font-size: 12px;">© 2026 FarmEazy. All rights reserved.</p>
+                    </div>
+                </div>
+            </body>
+            </html>
+        """, orderId, refundType, userName, orderId, refundType, coinsHtml, amountHtml, 
+            java.time.LocalDate.now().toString(), appBaseUrl, appBaseUrl, appBaseUrl, appBaseUrl);
+        
+        return sendEmail(userEmail, subject, html);
+    }
+
+    /**
+     * Send refund requested notification email
+     */
+    public boolean sendRefundRequestedNotification(String userEmail, String userName, Long orderId, 
+            String refundType, String reason) {
+        String subject = "📝 Refund Request Received - Order #FZ" + orderId;
+        String html = String.format("""
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <style>
+                    body { font-family: 'Segoe UI', Arial, sans-serif; line-height: 1.6; color: #333; margin: 0; padding: 0; }
+                    .container { max-width: 650px; margin: 0 auto; background: #ffffff; }
+                    .header { background: linear-gradient(135deg, #3b82f6 0%%, #2563eb 100%%); color: white; padding: 40px 30px; text-align: center; }
+                    .header h1 { margin: 0; font-size: 28px; font-weight: 700; }
+                    .header p { margin: 10px 0 0 0; opacity: 0.9; font-size: 14px; }
+                    .content { padding: 40px 30px; background: #fafafa; }
+                    .greeting { font-size: 18px; color: #111827; margin-bottom: 20px; }
+                    .message { color: #4b5563; margin-bottom: 30px; line-height: 1.8; }
+                    .details-card { background: white; border-radius: 12px; padding: 25px; margin: 25px 0; box-shadow: 0 2px 8px rgba(0,0,0,0.08); border-left: 4px solid #3b82f6; }
+                    .card-title { font-size: 20px; font-weight: 700; color: #3b82f6; margin: 0 0 20px 0; }
+                    table { width: 100%%; border-collapse: collapse; }
+                    td { padding: 12px 0; border-bottom: 1px solid #e5e7eb; }
+                    td:first-child { color: #6b7280; font-weight: 500; width: 35%%; }
+                    td:last-child { color: #111827; font-weight: 600; text-align: right; }
+                    tr:last-child td { border-bottom: none; }
+                    .status-badge { display: inline-block; background: #fef3c7; color: #92400e; padding: 6px 16px; border-radius: 20px; font-weight: 600; font-size: 14px; }
+                    .timeline { background: #eff6ff; border-radius: 8px; padding: 20px; margin: 25px 0; }
+                    .timeline-item { display: flex; align-items: center; margin: 10px 0; }
+                    .timeline-dot { width: 12px; height: 12px; background: #3b82f6; border-radius: 50%%; margin-right: 15px; }
+                    .timeline-dot.pending { background: #d1d5db; }
+                    .timeline-text { color: #2563eb; font-weight: 500; }
+                    .timeline-text.pending { color: #9ca3af; }
+                    .reason-box { background: #f9fafb; padding: 15px; border-radius: 8px; margin: 15px 0; border: 1px dashed #d1d5db; }
+                    .button { display: inline-block; background: linear-gradient(135deg, #3b82f6, #2563eb); color: white; padding: 14px 32px; text-decoration: none; border-radius: 8px; margin: 25px 0; font-weight: 600; font-size: 16px; }
+                    .footer { background: #111827; color: #9ca3af; padding: 30px; text-align: center; font-size: 14px; }
+                    .footer a { color: #3b82f6; text-decoration: none; }
+                </style>
+            </head>
+            <body>
+                <div class="container">
+                    <div class="header">
+                        <h1>📝 Refund Request Received</h1>
+                        <p>Order #FZ%d</p>
+                    </div>
+                    <div class="content">
+                        <div class="greeting">Hello %s! 👋</div>
+                        <div class="message">
+                            We've received your refund request and it's being processed. Here are the details:
+                        </div>
+
+                        <div class="details-card">
+                            <h2 class="card-title">📋 Request Details</h2>
+                            <table>
+                                <tr>
+                                    <td>Order Number</td>
+                                    <td>#FZ%d</td>
+                                </tr>
+                                <tr>
+                                    <td>Request Type</td>
+                                    <td>%s</td>
+                                </tr>
+                                <tr>
+                                    <td>Status</td>
+                                    <td><span class="status-badge">⏳ Processing</span></td>
+                                </tr>
+                            </table>
+                            
+                            <div class="reason-box">
+                                <strong>Reason:</strong> %s
+                            </div>
+                        </div>
+
+                        <div class="timeline">
+                            <div class="timeline-item">
+                                <div class="timeline-dot"></div>
+                                <div class="timeline-text">Request received ✓</div>
+                            </div>
+                            <div class="timeline-item">
+                                <div class="timeline-dot pending"></div>
+                                <div class="timeline-text pending">Under review</div>
+                            </div>
+                            <div class="timeline-item">
+                                <div class="timeline-dot pending"></div>
+                                <div class="timeline-text pending">Processing refund</div>
+                            </div>
+                        </div>
+
+                        <center>
+                            <a href="%s/orders" class="button">Track Request</a>
+                        </center>
+                    </div>
+                    <div class="footer">
+                        <p><strong>FarmEazy</strong> - Smart Farm Management</p>
+                        <p style="margin-top: 10px;">
+                            <a href="%s">Visit Website</a> |
+                            <a href="%s/support">Support</a>
+                        </p>
+                        <p style="margin-top: 15px; font-size: 12px;">© 2026 FarmEazy. All rights reserved.</p>
+                    </div>
+                </div>
+            </body>
+            </html>
+        """, orderId, userName, orderId, refundType, reason, appBaseUrl, appBaseUrl, appBaseUrl);
+        
+        return sendEmail(userEmail, subject, html);
+    }
+
+    /**
+     * Send refund failed notification email
+     */
+    public boolean sendRefundFailedNotification(String userEmail, String userName, Long orderId, String errorMessage) {
+        String subject = "⚠️ Refund Issue - Order #FZ" + orderId;
+        String html = String.format("""
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <style>
+                    body { font-family: 'Segoe UI', Arial, sans-serif; line-height: 1.6; color: #333; margin: 0; padding: 0; }
+                    .container { max-width: 650px; margin: 0 auto; background: #ffffff; }
+                    .header { background: linear-gradient(135deg, #f59e0b 0%%, #d97706 100%%); color: white; padding: 40px 30px; text-align: center; }
+                    .header h1 { margin: 0; font-size: 28px; font-weight: 700; }
+                    .content { padding: 40px 30px; background: #fafafa; }
+                    .greeting { font-size: 18px; color: #111827; margin-bottom: 20px; }
+                    .message { color: #4b5563; margin-bottom: 30px; line-height: 1.8; }
+                    .alert-box { background: #fef3c7; border-left: 4px solid #f59e0b; padding: 20px; border-radius: 6px; margin: 25px 0; }
+                    .alert-box p { margin: 0; color: #92400e; }
+                    .details-card { background: white; border-radius: 12px; padding: 25px; margin: 25px 0; box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
+                    .card-title { font-size: 20px; font-weight: 700; color: #d97706; margin: 0 0 20px 0; }
+                    .button { display: inline-block; background: linear-gradient(135deg, #3b82f6, #2563eb); color: white; padding: 14px 32px; text-decoration: none; border-radius: 8px; margin: 10px 5px; font-weight: 600; font-size: 16px; }
+                    .button-secondary { background: linear-gradient(135deg, #6b7280, #4b5563); }
+                    .footer { background: #111827; color: #9ca3af; padding: 30px; text-align: center; font-size: 14px; }
+                    .footer a { color: #f59e0b; text-decoration: none; }
+                </style>
+            </head>
+            <body>
+                <div class="container">
+                    <div class="header">
+                        <h1>⚠️ Refund Processing Issue</h1>
+                    </div>
+                    <div class="content">
+                        <div class="greeting">Hello %s,</div>
+                        <div class="message">
+                            We encountered an issue while processing your refund for order #FZ%d. Don't worry - our team is on it!
+                        </div>
+
+                        <div class="alert-box">
+                            <p><strong>What happened?</strong></p>
+                            <p>%s</p>
+                        </div>
+
+                        <div class="details-card">
+                            <h2 class="card-title">🔧 What's Next?</h2>
+                            <ul style="color: #4b5563; line-height: 2;">
+                                <li>Our team has been automatically notified</li>
+                                <li>We'll retry the refund within 24 hours</li>
+                                <li>You can also contact support for faster resolution</li>
+                            </ul>
+                        </div>
+
+                        <center>
+                            <a href="%s/support" class="button">Contact Support</a>
+                            <a href="%s/orders" class="button button-secondary">View Order</a>
+                        </center>
+                    </div>
+                    <div class="footer">
+                        <p><strong>FarmEazy</strong> - Smart Farm Management</p>
+                        <p style="margin-top: 10px;">
+                            <a href="%s">Visit Website</a> |
+                            <a href="%s/support">Support</a>
+                        </p>
+                        <p style="margin-top: 15px; font-size: 12px;">© 2026 FarmEazy. All rights reserved.</p>
+                    </div>
+                </div>
+            </body>
+            </html>
+        """, userName, orderId, errorMessage, appBaseUrl, appBaseUrl, appBaseUrl, appBaseUrl);
+        
+        return sendEmail(userEmail, subject, html);
+    }
+
+    /**
+     * Send order cancellation confirmation email
+     */
+    public boolean sendOrderCancellationNotification(String userEmail, String userName, Long orderId, 
+            String reason, java.math.BigDecimal refundAmount, Long coinsToRefund, boolean refundDetailsRequired) {
+        String subject = "📦 Order Cancelled - #FZ" + orderId;
+        
+        String refundSection = "";
+        if (refundDetailsRequired) {
+            refundSection = """
+                <div style="background: #fef3c7; border-left: 4px solid #f59e0b; padding: 20px; border-radius: 6px; margin: 25px 0;">
+                    <p style="margin: 0; color: #92400e;"><strong>⚠️ Action Required:</strong> Please add your bank/UPI details to receive your refund.</p>
+                    <center style="margin-top: 15px;">
+                        <a href="%s/refund-details" style="display: inline-block; background: #f59e0b; color: white; padding: 10px 20px; text-decoration: none; border-radius: 6px; font-weight: 600;">Add Refund Details</a>
+                    </center>
+                </div>
+            """.formatted(appBaseUrl);
+        } else {
+            StringBuilder refundContent = new StringBuilder();
+            if (coinsToRefund != null && coinsToRefund > 0) {
+                refundContent.append(String.format("<tr><td>Coins to Refund</td><td>+%d 🪙</td></tr>", coinsToRefund));
+            }
+            if (refundAmount != null && refundAmount.compareTo(java.math.BigDecimal.ZERO) > 0) {
+                refundContent.append(String.format("<tr><td>Amount to Refund</td><td style=\"color: #22c55e; font-weight: 700;\">₹%.2f</td></tr>", refundAmount));
+            }
+            
+            if (refundContent.length() > 0) {
+                refundSection = String.format("""
+                    <div style="background: #f0fdf4; border-left: 4px solid #22c55e; padding: 20px; border-radius: 6px; margin: 25px 0;">
+                        <p style="margin: 0 0 15px 0; color: #166534;"><strong>💰 Refund Details:</strong></p>
+                        <table style="width: 100%%; border-collapse: collapse;">
+                            %s
+                        </table>
+                        <p style="margin: 15px 0 0 0; color: #6b7280; font-size: 13px;">Refund will be processed within 3-5 business days.</p>
+                    </div>
+                """, refundContent.toString());
+            }
+        }
+        
+        String html = String.format("""
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <style>
+                    body { font-family: 'Segoe UI', Arial, sans-serif; line-height: 1.6; color: #333; margin: 0; padding: 0; }
+                    .container { max-width: 650px; margin: 0 auto; background: #ffffff; }
+                    .header { background: linear-gradient(135deg, #6b7280 0%%, #4b5563 100%%); color: white; padding: 40px 30px; text-align: center; }
+                    .header h1 { margin: 0; font-size: 28px; font-weight: 700; }
+                    .content { padding: 40px 30px; background: #fafafa; }
+                    .greeting { font-size: 18px; color: #111827; margin-bottom: 20px; }
+                    .message { color: #4b5563; margin-bottom: 30px; line-height: 1.8; }
+                    .details-card { background: white; border-radius: 12px; padding: 25px; margin: 25px 0; box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
+                    .card-title { font-size: 18px; font-weight: 700; color: #374151; margin: 0 0 15px 0; }
+                    table { width: 100%%; border-collapse: collapse; }
+                    td { padding: 10px 0; border-bottom: 1px solid #e5e7eb; }
+                    td:first-child { color: #6b7280; width: 40%%; }
+                    td:last-child { color: #111827; font-weight: 600; text-align: right; }
+                    tr:last-child td { border-bottom: none; }
+                    .reason-box { background: #f9fafb; padding: 15px; border-radius: 8px; margin-top: 15px; border: 1px dashed #d1d5db; }
+                    .button { display: inline-block; background: linear-gradient(135deg, #22c55e, #16a34a); color: white; padding: 14px 32px; text-decoration: none; border-radius: 8px; margin: 25px 0; font-weight: 600; font-size: 16px; }
+                    .footer { background: #111827; color: #9ca3af; padding: 30px; text-align: center; font-size: 14px; }
+                    .footer a { color: #22c55e; text-decoration: none; }
+                </style>
+            </head>
+            <body>
+                <div class="container">
+                    <div class="header">
+                        <h1>📦 Order Cancelled</h1>
+                    </div>
+                    <div class="content">
+                        <div class="greeting">Hello %s,</div>
+                        <div class="message">
+                            Your order #FZ%d has been successfully cancelled as requested.
+                        </div>
+
+                        <div class="details-card">
+                            <h3 class="card-title">Order Details</h3>
+                            <table>
+                                <tr>
+                                    <td>Order Number</td>
+                                    <td>#FZ%d</td>
+                                </tr>
+                                <tr>
+                                    <td>Status</td>
+                                    <td style="color: #6b7280;">Cancelled</td>
+                                </tr>
+                            </table>
+                            <div class="reason-box">
+                                <strong>Cancellation Reason:</strong> %s
+                            </div>
+                        </div>
+
+                        %s
+
+                        <center>
+                            <a href="%s/buying" class="button">Continue Shopping</a>
+                        </center>
+                    </div>
+                    <div class="footer">
+                        <p><strong>FarmEazy</strong> - Smart Farm Management</p>
+                        <p style="margin-top: 10px;">
+                            <a href="%s">Visit Website</a> |
+                            <a href="%s/support">Support</a>
+                        </p>
+                        <p style="margin-top: 15px; font-size: 12px;">© 2026 FarmEazy. All rights reserved.</p>
+                    </div>
+                </div>
+            </body>
+            </html>
+        """, userName, orderId, orderId, reason, refundSection, appBaseUrl, appBaseUrl, appBaseUrl);
+        
+        return sendEmail(userEmail, subject, html);
+    }
+
+    /**
+     * Send return request confirmation email
+     */
+    public boolean sendReturnRequestNotification(String userEmail, String userName, Long orderId, 
+            String reason, java.math.BigDecimal refundAmount, Long coinsToRefund) {
+        String subject = "📦 Return Request Received - Order #FZ" + orderId;
+        
+        StringBuilder refundDetails = new StringBuilder();
+        if (coinsToRefund != null && coinsToRefund > 0) {
+            refundDetails.append(String.format("<tr><td>Coins</td><td>%d 🪙</td></tr>", coinsToRefund));
+        }
+        if (refundAmount != null && refundAmount.compareTo(java.math.BigDecimal.ZERO) > 0) {
+            refundDetails.append(String.format("<tr><td>Amount</td><td>₹%.2f</td></tr>", refundAmount));
+        }
+        
+        String html = String.format("""
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <style>
+                    body { font-family: 'Segoe UI', Arial, sans-serif; line-height: 1.6; color: #333; margin: 0; padding: 0; }
+                    .container { max-width: 650px; margin: 0 auto; background: #ffffff; }
+                    .header { background: linear-gradient(135deg, #8b5cf6 0%%, #7c3aed 100%%); color: white; padding: 40px 30px; text-align: center; }
+                    .header h1 { margin: 0; font-size: 28px; font-weight: 700; }
+                    .content { padding: 40px 30px; background: #fafafa; }
+                    .greeting { font-size: 18px; color: #111827; margin-bottom: 20px; }
+                    .message { color: #4b5563; margin-bottom: 30px; line-height: 1.8; }
+                    .details-card { background: white; border-radius: 12px; padding: 25px; margin: 25px 0; box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
+                    .card-title { font-size: 18px; font-weight: 700; color: #7c3aed; margin: 0 0 15px 0; }
+                    table { width: 100%%; border-collapse: collapse; }
+                    td { padding: 10px 0; border-bottom: 1px solid #e5e7eb; }
+                    td:first-child { color: #6b7280; width: 40%%; }
+                    td:last-child { color: #111827; font-weight: 600; text-align: right; }
+                    tr:last-child td { border-bottom: none; }
+                    .timeline { background: #f5f3ff; border-radius: 8px; padding: 20px; margin: 25px 0; }
+                    .timeline-item { display: flex; align-items: center; margin: 10px 0; }
+                    .timeline-dot { width: 12px; height: 12px; background: #8b5cf6; border-radius: 50%%; margin-right: 15px; }
+                    .timeline-dot.pending { background: #d1d5db; }
+                    .timeline-text { color: #7c3aed; font-weight: 500; }
+                    .timeline-text.pending { color: #9ca3af; }
+                    .button { display: inline-block; background: linear-gradient(135deg, #8b5cf6, #7c3aed); color: white; padding: 14px 32px; text-decoration: none; border-radius: 8px; margin: 25px 0; font-weight: 600; font-size: 16px; }
+                    .footer { background: #111827; color: #9ca3af; padding: 30px; text-align: center; font-size: 14px; }
+                    .footer a { color: #8b5cf6; text-decoration: none; }
+                </style>
+            </head>
+            <body>
+                <div class="container">
+                    <div class="header">
+                        <h1>📦 Return Request</h1>
+                    </div>
+                    <div class="content">
+                        <div class="greeting">Hello %s! 👋</div>
+                        <div class="message">
+                            We've received your return request for order #FZ%d. Our team will review it shortly.
+                        </div>
+
+                        <div class="details-card">
+                            <h3 class="card-title">Return Details</h3>
+                            <table>
+                                <tr>
+                                    <td>Order Number</td>
+                                    <td>#FZ%d</td>
+                                </tr>
+                                <tr>
+                                    <td>Return Reason</td>
+                                    <td>%s</td>
+                                </tr>
+                            </table>
+                        </div>
+
+                        <div class="details-card">
+                            <h3 class="card-title">Expected Refund</h3>
+                            <table>
+                                %s
+                            </table>
+                        </div>
+
+                        <div class="timeline">
+                            <div class="timeline-item">
+                                <div class="timeline-dot"></div>
+                                <div class="timeline-text">Return request received ✓</div>
+                            </div>
+                            <div class="timeline-item">
+                                <div class="timeline-dot pending"></div>
+                                <div class="timeline-text pending">Return approved</div>
+                            </div>
+                            <div class="timeline-item">
+                                <div class="timeline-dot pending"></div>
+                                <div class="timeline-text pending">Item picked up</div>
+                            </div>
+                            <div class="timeline-item">
+                                <div class="timeline-dot pending"></div>
+                                <div class="timeline-text pending">Refund processed</div>
+                            </div>
+                        </div>
+
+                        <center>
+                            <a href="%s/orders" class="button">Track Return</a>
+                        </center>
+                    </div>
+                    <div class="footer">
+                        <p><strong>FarmEazy</strong> - Smart Farm Management</p>
+                        <p style="margin-top: 10px;">
+                            <a href="%s">Visit Website</a> |
+                            <a href="%s/support">Support</a>
+                        </p>
+                        <p style="margin-top: 15px; font-size: 12px;">© 2026 FarmEazy. All rights reserved.</p>
+                    </div>
+                </div>
+            </body>
+            </html>
+        """, userName, orderId, orderId, reason, refundDetails.toString(), appBaseUrl, appBaseUrl, appBaseUrl);
+        
         return sendEmail(userEmail, subject, html);
     }
 
@@ -740,6 +1312,9 @@ public class HttpEmailService {
     @Value("${farmeazy.mail.enabled:true}")
     private boolean emailEnabled;
 
+    @Value("${farmeazy.mail.local-test-mode:false}")
+    private boolean localTestMode;
+
     @Value("${farmeazy.app.base-url:https://www.farm-eazy.com}")
     private String appBaseUrl;
 
@@ -765,6 +1340,22 @@ public class HttpEmailService {
                 "EMAIL_SERVICE_DISABLED",
                 to
             );
+        }
+
+        // LOCAL TEST MODE: Log email to console instead of sending
+        if (localTestMode) {
+            logger.info("\n========== LOCAL TEST MODE - EMAIL ==========\n");
+            logger.info("TO: {}", to);
+            logger.info("SUBJECT: {}", subject);
+            logger.info("CONTENT (HTML stripped):");
+            // Extract any links from the HTML for easy testing
+            java.util.regex.Pattern linkPattern = java.util.regex.Pattern.compile("href=\"([^\"]+)\"");
+            java.util.regex.Matcher matcher = linkPattern.matcher(htmlContent);
+            while (matcher.find()) {
+                logger.info("  LINK: {}", matcher.group(1));
+            }
+            logger.info("\n==============================================\n");
+            return true; // Pretend email was sent successfully
         }
 
         String apiKey = System.getenv("RESEND_API_KEY");
