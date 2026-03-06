@@ -228,6 +228,13 @@ public class AuthService implements UserDetailsService {
             throw new DuplicateResourceException("Username '" + username + "' is already taken. Please choose another username.");
         }
 
+        // Check if phone number already exists
+        if (registerDto.getPhone() != null && !registerDto.getPhone().trim().isEmpty()) {
+            if (userRepository.existsByPhone(registerDto.getPhone())) {
+                throw new DuplicateResourceException("Phone number already registered. Please use a different number or login with OTP.");
+            }
+        }
+
         // Create new user entity
         User user = new User();
         user.setEmail(registerDto.getEmail());
