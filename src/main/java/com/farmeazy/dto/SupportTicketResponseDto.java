@@ -28,6 +28,11 @@ public class SupportTicketResponseDto {
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
     private LocalDateTime resolvedAt;
+    private Boolean important;
+    private Boolean archived;
+    private LocalDateTime slaBy;
+    private String adminNotes;
+    private Boolean overdue;
 
     public static SupportTicketResponseDto fromEntity(SupportTicket ticket) {
         SupportTicketResponseDto dto = new SupportTicketResponseDto();
@@ -46,6 +51,18 @@ public class SupportTicketResponseDto {
         dto.setCreatedAt(ticket.getCreatedAt());
         dto.setUpdatedAt(ticket.getUpdatedAt());
         dto.setResolvedAt(ticket.getResolvedAt());
+        dto.setImportant(ticket.getImportant() != null ? ticket.getImportant() : false);
+        dto.setArchived(ticket.getArchived() != null ? ticket.getArchived() : false);
+        dto.setSlaBy(ticket.getSlaBy());
+        dto.setAdminNotes(ticket.getAdminNotes());
+        // compute overdue
+        boolean overdue = false;
+        if (ticket.getSlaBy() != null) {
+            if (ticket.getStatus() != SupportTicket.TicketStatus.RESOLVED && ticket.getStatus() != SupportTicket.TicketStatus.CLOSED && ticket.getStatus() != SupportTicket.TicketStatus.CANCELLED) {
+                overdue = ticket.getSlaBy().isBefore(LocalDateTime.now());
+            }
+        }
+        dto.setOverdue(overdue);
         return dto;
     }
 
@@ -94,4 +111,18 @@ public class SupportTicketResponseDto {
 
     public LocalDateTime getResolvedAt() { return resolvedAt; }
     public void setResolvedAt(LocalDateTime resolvedAt) { this.resolvedAt = resolvedAt; }
+    public Boolean getImportant() { return important; }
+    public void setImportant(Boolean important) { this.important = important; }
+
+    public Boolean getArchived() { return archived; }
+    public void setArchived(Boolean archived) { this.archived = archived; }
+
+    public LocalDateTime getSlaBy() { return slaBy; }
+    public void setSlaBy(LocalDateTime slaBy) { this.slaBy = slaBy; }
+
+    public String getAdminNotes() { return adminNotes; }
+    public void setAdminNotes(String adminNotes) { this.adminNotes = adminNotes; }
+
+    public Boolean getOverdue() { return overdue; }
+    public void setOverdue(Boolean overdue) { this.overdue = overdue; }
 }

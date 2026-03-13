@@ -30,6 +30,9 @@ public class CropService {
     @Autowired
     private HttpEmailService httpEmailService;
 
+    @Autowired
+    private NotificationService notificationService;
+
     @Transactional
     public CropDto createCrop(CropDto cropDto, Long userId) {
         Farm farm = farmRepository.findById(cropDto.getFarmId())
@@ -55,6 +58,20 @@ public class CropService {
         
         // Log activity
         userActivityService.logActivity(farm.getUser(), com.farmeazy.entity.UserActivity.ActivityType.CROP_PLANTED, "Planted crop '" + crop.getCropName() + "' in farm '" + farm.getFarmName() + "'");
+
+        // Send in-app notification for crop creation
+        try {
+            notificationService.createForUser(
+                farm.getUser(),
+                com.farmeazy.entity.Notification.NotificationType.FARM,
+                "Crop Added: " + crop.getCropName(),
+                "New crop '" + crop.getCropName() + "' planted in '" + farm.getFarmName() + "'. Expected harvest: " + crop.getExpectedHarvestDate(),
+                "/farms/" + farm.getId(),
+                com.farmeazy.entity.Notification.NotificationPriority.NORMAL
+            );
+        } catch (Exception e) {
+            System.err.println("Failed to send crop creation notification: " + e.getMessage());
+        }
         
         // Send notification email using HTTP service (works on Render)
         try {

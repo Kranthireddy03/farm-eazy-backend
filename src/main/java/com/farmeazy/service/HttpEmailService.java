@@ -1305,9 +1305,22 @@ public class HttpEmailService {
     @Value("${resend.api.key:}")
     private String resendApiKey;
 
-    // Use verified domain email - must match domain verified in Resend dashboard
+    // Default from email (used when no specific type is provided)
     @Value("${resend.from.email:FarmEazy <no-reply@farm-eazy.com>}")
     private String fromEmail;
+
+    // Multi-sender email addresses (domain verified in Resend - can use any @farm-eazy.com)
+    @Value("${resend.from.noreply:FarmEazy <no-reply@farm-eazy.com>}")
+    private String fromNoReply;
+
+    @Value("${resend.from.info:FarmEazy Info <info@farm-eazy.com>}")
+    private String fromInfo;
+
+    @Value("${resend.from.support:FarmEazy Support <support@farm-eazy.com>}")
+    private String fromSupport;
+
+    @Value("${resend.from.orders:FarmEazy Orders <orders@farm-eazy.com>}")
+    private String fromOrders;
 
     @Value("${farmeazy.mail.enabled:true}")
     private boolean emailEnabled;
@@ -1320,6 +1333,28 @@ public class HttpEmailService {
 
     private final RestTemplate restTemplate;
 
+    /**
+     * Email sender type enum for selecting appropriate from address
+     */
+    public enum SenderType {
+        NOREPLY,  // Automated notifications, OTP, verifications - users should NOT reply
+        INFO,     // Informational emails, welcome, product listings, updates
+        SUPPORT,  // Support-related emails, password reset, bank issues, help
+        ORDERS    // Order confirmations, shipping updates, invoices
+    }
+
+    /**
+     * Get the appropriate sender email based on type
+     */
+    private String getSenderEmail(SenderType type) {
+        return switch (type) {
+            case NOREPLY -> fromNoReply;
+            case INFO -> fromInfo;
+            case SUPPORT -> fromSupport;
+            case ORDERS -> fromOrders;
+        };
+    }
+
     public HttpEmailService() {
         // Configure RestTemplate with timeouts to prevent long waits
         SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
@@ -1329,12 +1364,26 @@ public class HttpEmailService {
     }
 
     /**
-     * Send email using Resend HTTP API
+     * Send email using Resend HTTP API with default sender (no-reply)
      * @throws EmailDeliveryException if email sending fails
      */
     public boolean sendEmail(String to, String subject, String htmlContent) {
+        return sendEmail(to, subject, htmlContent, SenderType.NOREPLY);
+    }
+
+    /**
+     * Send email using Resend HTTP API with specified sender type
+     * @param to Recipient email address
+     * @param subject Email subject
+     * @param htmlContent HTML email body
+     * @param senderType Type of sender (NOREPLY, INFO, SUPPORT, ORDERS)
+     * @throws EmailDeliveryException if email sending fails
+     */
+    public boolean sendEmail(String to, String subject, String htmlContent, SenderType senderType) {
+        String sender = getSenderEmail(senderType);
+        
         if (!emailEnabled) {
-            logger.info("Email sending is disabled. Would have sent to: {}", to);
+            logger.info("Email sending is disabled. Would have sent to: {} from: {}", to, sender);
             throw new EmailDeliveryException(
                 "Email service is currently disabled. Please contact support.",
                 "EMAIL_SERVICE_DISABLED",
@@ -1345,6 +1394,7 @@ public class HttpEmailService {
         // LOCAL TEST MODE: Log email to console instead of sending
         if (localTestMode) {
             logger.info("\n========== LOCAL TEST MODE - EMAIL ==========\n");
+            logger.info("FROM: {}", sender);
             logger.info("TO: {}", to);
             logger.info("SUBJECT: {}", subject);
             logger.info("CONTENT (HTML stripped):");
@@ -1378,7 +1428,7 @@ public class HttpEmailService {
             headers.setBearerAuth(apiKey);
 
             Map<String, Object> emailData = new HashMap<>();
-            emailData.put("from", fromEmail);
+            emailData.put("from", sender);
             emailData.put("to", List.of(to));
             emailData.put("subject", subject);
             emailData.put("html", htmlContent);
@@ -1393,11 +1443,11 @@ public class HttpEmailService {
             );
 
             if (response.getStatusCode().is2xxSuccessful()) {
-                logger.info("EMAIL_SENT: to={}, subject={}", to, subject);
+                logger.info("Email sent successfully to: {} from: {}", to, sender);
                 return true;
             } else {
-                logger.error("EMAIL_FAILED: to={}, status={}, error={}", 
-                    to, response.getStatusCode(), response.getBody());
+                logger.error("Failed to send email. Status: {}, Body: {}", 
+                    response.getStatusCode(), response.getBody());
                 throw new EmailDeliveryException(
                     "Failed to send email. Please try again later.",
                     "EMAIL_DELIVERY_FAILED",
@@ -1407,7 +1457,7 @@ public class HttpEmailService {
 
         } catch (HttpClientErrorException e) {
             // Handle 4xx errors (domain not verified, invalid API key, etc.)
-            logger.error("EMAIL_API_ERROR: to={}, status={}, error={}", to, e.getStatusCode(), e.getResponseBodyAsString());
+            logger.error("Email API client error for {}: {} - {}", to, e.getStatusCode(), e.getResponseBodyAsString());
             String errorMessage = parseResendErrorMessage(e.getResponseBodyAsString());
             throw new EmailDeliveryException(
                 errorMessage != null ? errorMessage : "Email service configuration error. Please contact support.",
@@ -1416,7 +1466,7 @@ public class HttpEmailService {
             );
         } catch (HttpServerErrorException e) {
             // Handle 5xx errors (service unavailable)
-            logger.error("EMAIL_SERVER_ERROR: to={}, status={}, error={}", to, e.getStatusCode(), e.getResponseBodyAsString());
+            logger.error("Email API server error for {}: {} - {}", to, e.getStatusCode(), e.getResponseBodyAsString());
             throw new EmailDeliveryException(
                 "Email service is temporarily unavailable. Please try again later.",
                 "EMAIL_SERVICE_UNAVAILABLE",
@@ -1426,7 +1476,7 @@ public class HttpEmailService {
             // Re-throw our own exceptions
             throw e;
         } catch (Exception e) {
-            logger.error("EMAIL_ERROR: to={}, error={}", to, e.getMessage());
+            logger.error("Error sending email to {}: {}", to, e.getMessage());
             throw new EmailDeliveryException(
                 "Unable to send email at this time. Please try again later.",
                 to,
@@ -1481,22 +1531,78 @@ public class HttpEmailService {
 
     /**
      * Send welcome email to new user
+     * Uses INFO sender - informational email for new users
      */
     public boolean sendWelcomeEmail(String userEmail, String userName) {
         String subject = "Welcome to FarmEazy! 🌾";
         String html = buildWelcomeEmailHtml(userName);
-        return sendEmail(userEmail, subject, html);
+        return sendEmail(userEmail, subject, html, SenderType.INFO);
     }
 
     /**
      * Send password reset email (this one should be sync to ensure delivery before response)
+     * Uses SUPPORT sender - user-initiated support request
      */
     public boolean sendPasswordResetEmail(String userEmail, String shortCode) {
         String subject = "Reset Your FarmEazy Password";
         // Use the redirect URL with short code - the frontend will resolve it to the full JWT token
         String resetLink = appBaseUrl + "/r/" + shortCode;
         String html = buildPasswordResetEmailHtml(resetLink);
-        return sendEmail(userEmail, subject, html);
+        return sendEmail(userEmail, subject, html, SenderType.SUPPORT);
+    }
+
+    /**
+     * Send password changed confirmation email
+     * Uses SUPPORT sender - security notification
+     */
+    public boolean sendPasswordChangedConfirmation(String userEmail, String userName) {
+        String subject = "Your FarmEazy Password Has Been Changed";
+        String html = buildPasswordChangedEmailHtml(userName);
+        return sendEmail(userEmail, subject, html, SenderType.SUPPORT);
+    }
+
+    /**
+     * Build password changed confirmation email HTML
+     */
+    private String buildPasswordChangedEmailHtml(String userName) {
+        return """
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <style>
+                    body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
+                    .container { max-width: 600px; margin: 0 auto; padding: 20px; }
+                    .header { background: linear-gradient(135deg, #22c55e, #16a34a); padding: 30px; text-align: center; border-radius: 10px 10px 0 0; }
+                    .header h1 { color: white; margin: 0; font-size: 24px; }
+                    .content { background: #f9fafb; padding: 30px; border-radius: 0 0 10px 10px; }
+                    .success-box { background: #dcfce7; border-left: 4px solid #22c55e; padding: 15px; margin: 20px 0; border-radius: 4px; }
+                    .warning-box { background: #fef3c7; border-left: 4px solid #f59e0b; padding: 15px; margin: 20px 0; border-radius: 4px; }
+                    .footer { text-align: center; margin-top: 20px; color: #6b7280; font-size: 14px; }
+                </style>
+            </head>
+            <body>
+                <div class="container">
+                    <div class="header">
+                        <h1>🔐 Password Changed Successfully</h1>
+                    </div>
+                    <div class="content">
+                        <p>Hello, %s! 👋</p>
+                        <div class="success-box">
+                            <strong>✅ Your password has been successfully changed.</strong>
+                        </div>
+                        <p>You can now use your new password to log in to FarmEazy.</p>
+                        <div class="warning-box">
+                            <strong>⚠️ If you didn't make this change:</strong>
+                            <p style="margin: 5px 0 0 0;">Please contact our support team immediately at support@farm-eazy.com</p>
+                        </div>
+                    </div>
+                    <div class="footer">
+                        <p>© 2026 FarmEazy. Smart Farm Management.</p>
+                    </div>
+                </div>
+            </body>
+            </html>
+            """.formatted(userName);
     }
 
     /**
@@ -1605,19 +1711,21 @@ public class HttpEmailService {
 
     /**
      * Send general notification email
+     * Uses NOREPLY sender - automated notification, users should not reply
      */
     public boolean sendNotification(String userEmail, String userName, String subject, String message) {
         String html = buildNotificationEmailHtml(userName, subject, message);
-        return sendEmail(userEmail, subject, html);
+        return sendEmail(userEmail, subject, html, SenderType.NOREPLY);
     }
 
     /**
      * Send OTP email
+     * Uses NOREPLY sender - automated verification code
      */
     public boolean sendOtpEmail(String userEmail, String userName, String otpCode, String purpose) {
         String subject = "Your FarmEazy OTP Code - " + purpose;
         String html = buildOtpEmailHtml(userName, otpCode, purpose);
-        return sendEmail(userEmail, subject, html);
+        return sendEmail(userEmail, subject, html, SenderType.NOREPLY);
     }
 
     /**
@@ -1663,11 +1771,12 @@ public class HttpEmailService {
 
     /**
      * Send order confirmation email with detailed breakdown
+     * Uses ORDERS sender - order-related communications
      */
     public boolean sendOrderConfirmationEmail(String userEmail, String userName, Long orderId, String subtotal, String coinsDiscount, String taxAmount, String finalAmount) {
         String subject = "Order Confirmed #FZ" + orderId + " - FarmEazy";
         String html = buildOrderConfirmationEmailHtml(userName, orderId, subtotal, coinsDiscount, taxAmount, finalAmount);
-        return sendEmail(userEmail, subject, html);
+        return sendEmail(userEmail, subject, html, SenderType.ORDERS);
     }
 
     /**

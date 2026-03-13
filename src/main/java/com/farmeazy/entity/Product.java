@@ -8,6 +8,22 @@ import java.util.List;
 @Entity
 @Table(name = "products")
 public class Product {
+        @Column(name = "image_urls", columnDefinition = "TEXT")
+        private String imageUrls;
+        @Column(name = "video_urls", columnDefinition = "TEXT")
+        private String videoUrls;
+        public String getImageUrls() {
+            return imageUrls;
+        }
+        public void setImageUrls(String imageUrls) {
+            this.imageUrls = imageUrls;
+        }
+        public String getVideoUrls() {
+            return videoUrls;
+        }
+        public void setVideoUrls(String videoUrls) {
+            this.videoUrls = videoUrls;
+        }
     
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -52,11 +68,43 @@ public class Product {
     @Column(nullable = false)
     private String status; // ACTIVE, OUT_OF_STOCK, DISCONTINUED
     
-    @Column(name = "image_urls", columnDefinition = "TEXT")
-    private String imageUrls;
-    
-    @Column(name = "video_urls", columnDefinition = "TEXT")
-    private String videoUrls;
+    // Removed imageUrls and videoUrls; use ProductMedia
+
+        // Vendor Transparency Fields
+        @Column(name = "vendor_id")
+        private Long vendorId;
+        @Column(name = "vendor_name")
+        private String vendorName;
+        @Column(name = "vendor_location")
+        private String vendorLocation;
+        @Column(name = "vendor_type")
+        private String vendorType;
+        
+            // Vendor Transparency Getters/Setters
+            public Long getVendorId() {
+                return vendorId;
+            }
+            public void setVendorId(Long vendorId) {
+                this.vendorId = vendorId;
+            }
+            public String getVendorName() {
+                return vendorName;
+            }
+            public void setVendorName(String vendorName) {
+                this.vendorName = vendorName;
+            }
+            public String getVendorLocation() {
+                return vendorLocation;
+            }
+            public void setVendorLocation(String vendorLocation) {
+                this.vendorLocation = vendorLocation;
+            }
+            public String getVendorType() {
+                return vendorType;
+            }
+            public void setVendorType(String vendorType) {
+                this.vendorType = vendorType;
+            }
 
     @Column(name = "contact_email")
     private String contactEmail;
@@ -231,22 +279,6 @@ public class Product {
     
     public void setStatus(String status) {
         this.status = status;
-    }
-    
-    public String getImageUrls() {
-        return imageUrls;
-    }
-    
-    public void setImageUrls(String imageUrls) {
-        this.imageUrls = imageUrls;
-    }
-    
-    public String getVideoUrls() {
-        return videoUrls;
-    }
-    
-    public void setVideoUrls(String videoUrls) {
-        this.videoUrls = videoUrls;
     }
 
     public String getContactEmail() {

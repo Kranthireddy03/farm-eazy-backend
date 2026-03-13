@@ -69,6 +69,16 @@ public class ServiceListing {
     @Column(name = "minimum_hours")
     private Integer minimumHours = 1;
 
+        // Vendor Transparency Fields
+        @Column(name = "vendor_id")
+        private Long vendorId;
+        @Column(name = "vendor_name")
+        private String vendorName;
+        @Column(name = "vendor_location")
+        private String vendorLocation;
+        @Column(name = "vendor_type")
+        private String vendorType;
+
     @Column(name = "maximum_hours")
     private Integer maximumHours;
 

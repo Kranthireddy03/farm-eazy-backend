@@ -5,113 +5,83 @@ import com.farmeazy.dto.SupportTicketResponseDto;
 import com.farmeazy.service.SupportTicketService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
-import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
+import jakarta.validation.Valid;
 import java.util.List;
-import java.util.Map;
 
-/**
- * SUPPORT TICKET CONTROLLER
- * 
- * PURPOSE: REST API for customer support ticket management.
- * 
- * ENDPOINTS:
- * - POST /api/support-tickets: Create a new ticket
- * - GET /api/support-tickets: Get user's tickets
- * - GET /api/support-tickets/{displayId}: Get specific ticket
- * - POST /api/support-tickets/{displayId}/cancel: Cancel a ticket
- * - POST /api/support-tickets/{displayId}/respond: Add response to ticket
- */
 @RestController
-@RequestMapping("/api/support-tickets")
-@CrossOrigin(origins = {"http://localhost:3000", "http://localhost:4200"})
-@Tag(name = "Support Tickets", description = "Customer support ticket management")
+@RequestMapping("/support-tickets")
+@CrossOrigin(origins = {"http://localhost:3000", "http://localhost:4200", "http://localhost:5173"})
+@Tag(name = "Support Tickets", description = "Endpoints for users to create and manage their own support tickets")
 public class SupportTicketController {
+    @PostMapping("/guest")
+    @Operation(summary = "Create guest ticket", description = "Create a new support ticket for a guest user (no authentication required)")
+    public ResponseEntity<SupportTicketResponseDto> createGuestTicket(@Valid @RequestBody SupportTicketDto dto) {
+        if (dto.getContactEmail() == null || dto.getContactEmail().isBlank()) {
+            throw new com.farmeazy.exception.ResourceNotFoundException("Contact email is required for guest ticket");
+        }
+        SupportTicketResponseDto created = supportTicketService.createGuestTicket(dto);
+        return ResponseEntity.ok(created);
+    }
 
     @Autowired
-    private SupportTicketService ticketService;
+    private SupportTicketService supportTicketService;
 
-    /**
-     * Create a new support ticket
-     */
     @PostMapping
-    @Operation(summary = "Create support ticket", description = "Submit a new customer support ticket")
-    public ResponseEntity<SupportTicketResponseDto> createTicket(
-            Authentication auth,
-            @Valid @RequestBody SupportTicketDto dto) {
-        String userEmail = auth.getName();
-        SupportTicketResponseDto ticket = ticketService.createTicket(userEmail, dto);
-        return ResponseEntity.status(HttpStatus.CREATED).body(ticket);
+    @Operation(summary = "Create ticket", description = "Create a new support ticket for the authenticated user")
+    public ResponseEntity<SupportTicketResponseDto> createTicket(@Valid @RequestBody SupportTicketDto dto, Authentication authentication) {
+        String email = authentication.getName();
+        SupportTicketResponseDto created = supportTicketService.createTicket(email, dto);
+        return ResponseEntity.ok(created);
     }
 
-    /**
-     * Get all tickets for the authenticated user
-     */
     @GetMapping
-    @Operation(summary = "Get user's tickets", description = "Retrieve all support tickets for the current user")
-    public ResponseEntity<List<SupportTicketResponseDto>> getUserTickets(Authentication auth) {
-        String userEmail = auth.getName();
-        List<SupportTicketResponseDto> tickets = ticketService.getUserTickets(userEmail);
-        return ResponseEntity.ok(tickets);
-    }
-
-    /**
-     * Get a specific ticket by display ID
-     */
-    @GetMapping("/{displayId}")
-    @Operation(summary = "Get ticket details", description = "Retrieve details of a specific support ticket")
-    public ResponseEntity<SupportTicketResponseDto> getTicket(
-            Authentication auth,
-            @PathVariable String displayId) {
-        String userEmail = auth.getName();
-        SupportTicketResponseDto ticket = ticketService.getTicketByDisplayId(userEmail, displayId);
-        return ResponseEntity.ok(ticket);
-    }
-
-    /**
-     * Cancel a ticket
-     */
-    @PostMapping("/{displayId}/cancel")
-    @Operation(summary = "Cancel ticket", description = "Cancel an open support ticket")
-    public ResponseEntity<SupportTicketResponseDto> cancelTicket(
-            Authentication auth,
-            @PathVariable String displayId) {
-        String userEmail = auth.getName();
-        SupportTicketResponseDto ticket = ticketService.cancelTicket(userEmail, displayId);
-        return ResponseEntity.ok(ticket);
-    }
-
-    /**
-     * Add a response to a ticket
-     */
-    @PostMapping("/{displayId}/respond")
-    @Operation(summary = "Add response", description = "Add a response or additional info to a ticket")
-    public ResponseEntity<SupportTicketResponseDto> addResponse(
-            Authentication auth,
-            @PathVariable String displayId,
-            @RequestBody Map<String, String> request) {
-        String userEmail = auth.getName();
-        String response = request.get("response");
-        if (response == null || response.trim().isEmpty()) {
-            return ResponseEntity.badRequest().build();
+    @Operation(summary = "List tickets", description = "List tickets for the authenticated user; SUPERADMIN sees all tickets")
+    public ResponseEntity<?> listTickets(Authentication authentication) {
+        boolean isSuper = authentication.getAuthorities().stream().anyMatch(a -> a.getAuthority().equals("ROLE_SUPERADMIN"));
+        if (isSuper) {
+            List<SupportTicketResponseDto> all = supportTicketService.getAllTickets();
+            return ResponseEntity.ok(all);
         }
-        SupportTicketResponseDto ticket = ticketService.addResponse(userEmail, displayId, response);
-        return ResponseEntity.ok(ticket);
+        List<SupportTicketResponseDto> userTickets = supportTicketService.getUserTickets(authentication.getName());
+        return ResponseEntity.ok(userTickets);
     }
 
-    /**
-     * Get count of active tickets
-     */
+    @GetMapping("/{displayId}")
+    @Operation(summary = "Get ticket", description = "Get ticket details. Users can only access their own tickets; SUPERADMIN can access any ticket")
+    public ResponseEntity<SupportTicketResponseDto> getTicket(@PathVariable String displayId, Authentication authentication) {
+        boolean isSuper = authentication.getAuthorities().stream().anyMatch(a -> a.getAuthority().equals("ROLE_SUPERADMIN"));
+        if (isSuper) {
+            return ResponseEntity.ok(supportTicketService.getTicketByDisplayIdAdmin(displayId));
+        }
+        return ResponseEntity.ok(supportTicketService.getTicketByDisplayId(authentication.getName(), displayId));
+    }
+
+    @PostMapping("/{displayId}/respond")
+    @Operation(summary = "User respond", description = "Add a user response to their own ticket")
+    public ResponseEntity<SupportTicketResponseDto> respondToTicket(@PathVariable String displayId, @RequestBody java.util.Map<String, String> body, Authentication authentication) {
+        String resp = body.getOrDefault("response", "");
+        SupportTicketResponseDto updated = supportTicketService.addResponse(authentication.getName(), displayId, resp);
+        return ResponseEntity.ok(updated);
+    }
+
+    @PostMapping("/{displayId}/cancel")
+    @Operation(summary = "Cancel ticket", description = "Cancel a ticket owned by the authenticated user")
+    public ResponseEntity<SupportTicketResponseDto> cancelTicket(@PathVariable String displayId, Authentication authentication) {
+        SupportTicketResponseDto updated = supportTicketService.cancelTicket(authentication.getName(), displayId);
+        return ResponseEntity.ok(updated);
+    }
+
     @GetMapping("/count/active")
-    @Operation(summary = "Get active ticket count", description = "Get count of open/in-progress tickets")
-    public ResponseEntity<Map<String, Long>> getActiveCount(Authentication auth) {
-        String userEmail = auth.getName();
-        long count = ticketService.getActiveTicketCount(userEmail);
-        return ResponseEntity.ok(Map.of("activeTickets", count));
+    @Operation(summary = "Active ticket count", description = "Return count of active tickets for the authenticated user")
+    public ResponseEntity<java.util.Map<String, Object>> activeCount(Authentication authentication) {
+        long c = supportTicketService.getActiveTicketCount(authentication.getName());
+        java.util.Map<String, Object> m = new java.util.HashMap<>();
+        m.put("activeTickets", c);
+        return ResponseEntity.ok(m);
     }
 }

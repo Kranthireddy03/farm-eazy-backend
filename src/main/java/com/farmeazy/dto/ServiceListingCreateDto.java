@@ -60,6 +60,14 @@ public class ServiceListingCreateDto {
     @Email(message = "Invalid email format")
     private String contactEmail;
 
+        // Vendor Transparency Fields
+        private Long vendorId;
+        private String vendorName;
+        @NotBlank(message = "Vendor location is required")
+        private String vendorLocation;
+        @NotBlank(message = "Vendor type is required")
+        private String vendorType;
+
     @NotBlank(message = "Availability is required")
     private String availability;
 

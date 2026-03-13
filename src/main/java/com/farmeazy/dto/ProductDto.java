@@ -24,11 +24,27 @@ public class ProductDto {
     private String specifications;
     private String warrantyInfo;
     private String status;
-    private String imageUrls;
-    private String videoUrls;
+    private String imageUrls; // Comma-separated image URLs for frontend
+    private String videoUrls; // Comma-separated video URLs for frontend
     private String contactEmail;
     private String contactPhone;
     private List<String> mediaUrls;
+    private Long vendorId;
+    private String vendorName;
+    private String vendorLocation;
+    private String vendorType;
+        public String getImageUrls() {
+            return imageUrls;
+        }
+        public void setImageUrls(String imageUrls) {
+            this.imageUrls = imageUrls;
+        }
+        public String getVideoUrls() {
+            return videoUrls;
+        }
+        public void setVideoUrls(String videoUrls) {
+            this.videoUrls = videoUrls;
+        }
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
     
@@ -184,22 +200,6 @@ public class ProductDto {
     public void setStatus(String status) {
         this.status = status;
     }
-    
-    public String getImageUrls() {
-        return imageUrls;
-    }
-    
-    public void setImageUrls(String imageUrls) {
-        this.imageUrls = imageUrls;
-    }
-    
-    public String getVideoUrls() {
-        return videoUrls;
-    }
-    
-    public void setVideoUrls(String videoUrls) {
-        this.videoUrls = videoUrls;
-    }
 
     public String getContactEmail() {
         return contactEmail;
@@ -224,6 +224,31 @@ public class ProductDto {
     public void setMediaUrls(List<String> mediaUrls) {
         this.mediaUrls = mediaUrls;
     }
+
+        public Long getVendorId() {
+            return vendorId;
+        }
+        public void setVendorId(Long vendorId) {
+            this.vendorId = vendorId;
+        }
+        public String getVendorName() {
+            return vendorName;
+        }
+        public void setVendorName(String vendorName) {
+            this.vendorName = vendorName;
+        }
+        public String getVendorLocation() {
+            return vendorLocation;
+        }
+        public void setVendorLocation(String vendorLocation) {
+            this.vendorLocation = vendorLocation;
+        }
+        public String getVendorType() {
+            return vendorType;
+        }
+        public void setVendorType(String vendorType) {
+            this.vendorType = vendorType;
+        }
 
     public LocalDateTime getCreatedAt() {
         return createdAt;

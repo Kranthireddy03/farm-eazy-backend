@@ -4,6 +4,8 @@ import com.farmeazy.dto.ProductCreateDto;
 import com.farmeazy.dto.ProductDto;
 import com.farmeazy.service.FileStorageService;
 import com.farmeazy.service.ProductService;
+import com.farmeazy.entity.User;
+import com.farmeazy.service.UserService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.io.Resource;
@@ -51,11 +53,13 @@ public class ProductController {
     
     private final ProductService productService;
     private final FileStorageService fileStorageService;
+    private final UserService userService;
     
     @Autowired
-    public ProductController(ProductService productService, FileStorageService fileStorageService) {
+    public ProductController(ProductService productService, FileStorageService fileStorageService, UserService userService) {
         this.productService = productService;
         this.fileStorageService = fileStorageService;
+        this.userService = userService;
     }
     
     @PostMapping(consumes = {MediaType.MULTIPART_FORM_DATA_VALUE})
@@ -64,6 +68,10 @@ public class ProductController {
         ProductCreateDto dto = objectMapper.readValue(productStr, ProductCreateDto.class);
         
         String email = authentication.getName();
+        // Set vendor fields
+        User seller = userService.findByEmail(email);
+        dto.setVendorId(seller.getId());
+        dto.setVendorName(seller.getUsername());
         ProductDto createdProduct = productService.createProduct(dto, email, files);
         return new ResponseEntity<>(createdProduct, HttpStatus.CREATED);
     }
@@ -72,8 +80,16 @@ public class ProductController {
     @ResponseBody
     public ResponseEntity<Resource> serveFile(@PathVariable String filename) {
         Resource file = fileStorageService.loadAsResource(filename);
-        return ResponseEntity.ok().header(HttpHeaders.CONTENT_DISPOSITION,
-                "inline; filename=\"" + file.getFilename() + "\"").body(file);
+        String contentType = "application/octet-stream";
+        if (filename.endsWith(".png")) contentType = "image/png";
+        else if (filename.endsWith(".jpg") || filename.endsWith(".jpeg")) contentType = "image/jpeg";
+        else if (filename.endsWith(".webp")) contentType = "image/webp";
+        else if (filename.endsWith(".mp4")) contentType = "video/mp4";
+        else if (filename.endsWith(".webm")) contentType = "video/webm";
+        return ResponseEntity.ok()
+            .header(HttpHeaders.CONTENT_DISPOSITION, "inline; filename=\"" + file.getFilename() + "\"")
+            .contentType(org.springframework.http.MediaType.parseMediaType(contentType))
+            .body(file);
     }
     
     @GetMapping
@@ -113,8 +129,7 @@ public class ProductController {
         ObjectMapper objectMapper = new ObjectMapper();
         ProductCreateDto dto = objectMapper.readValue(productStr, ProductCreateDto.class);
         String email = authentication.getName();
-        // Note: The update logic in service needs to handle file updates.
-        ProductDto updatedProduct = productService.updateProduct(id, dto, email);
+        ProductDto updatedProduct = productService.updateProductWithFiles(id, dto, email, files);
         return ResponseEntity.ok(updatedProduct);
     }
     

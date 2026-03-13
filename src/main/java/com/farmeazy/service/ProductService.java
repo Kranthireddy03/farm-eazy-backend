@@ -21,6 +21,70 @@ import java.util.stream.Collectors;
 
 @Service
 public class ProductService {
+            /**
+             * Update product with new files (images/videos)
+             */
+            @Transactional
+            public ProductDto updateProductWithFiles(Long id, ProductCreateDto dto, String email, List<MultipartFile> files) {
+                Product product = productRepository.findById(id)
+                    .orElseThrow(() -> new ResourceNotFoundException("Product not found with id: " + id));
+                if (!product.getSeller().getEmail().equals(email)) {
+                    throw new UnauthorizedException("You are not authorized to update this product");
+                }
+                product.setProductName(dto.getProductName());
+                product.setCategory(dto.getCategory());
+                product.setDescription(dto.getDescription());
+                product.setPrice(dto.getPrice());
+                product.setDiscountPercentage(dto.getDiscountPercentage() != null ? dto.getDiscountPercentage() : 0.0);
+                product.setQuantity(dto.getQuantity());
+                product.setUnit(dto.getUnit());
+                product.setWeight(dto.getWeight());
+                product.setSpecifications(dto.getSpecifications());
+                product.setWarrantyInfo(dto.getWarrantyInfo());
+                product.setContactEmail(dto.getContactEmail());
+                product.setContactPhone(dto.getContactPhone());
+                product.setVendorId(dto.getVendorId());
+                product.setVendorName(dto.getVendorName());
+                product.setVendorLocation(dto.getVendorLocation());
+                product.setVendorType(dto.getVendorType());
+                product.setSellerEmail(product.getSeller().getEmail());
+                product.setSellerPhone(product.getSeller().getPhone());
+                // Handle new files
+                product.getMediaFiles().clear();
+                String imageUrl = null;
+                String videoUrl = null;
+                boolean hasImage = false;
+                boolean hasVideo = false;
+                if (files != null && !files.isEmpty()) {
+                    for (MultipartFile file : files) {
+                        String fileName = fileStorageService.store(file);
+                        String fileDownloadUri = ServletUriComponentsBuilder.fromCurrentContextPath()
+                                .path("/api/products/media/")
+                                .path(fileName)
+                                .toUriString();
+                        String mediaType = file.getContentType().startsWith("image") ? "IMAGE" : "VIDEO";
+                        ProductMedia media = new ProductMedia(fileDownloadUri, mediaType, product);
+                        product.getMediaFiles().add(media);
+                        if (mediaType.equals("IMAGE")) {
+                            hasImage = true;
+                            imageUrl = fileDownloadUri;
+                        }
+                        if (mediaType.equals("VIDEO")) {
+                            hasVideo = true;
+                            videoUrl = fileDownloadUri;
+                        }
+                    }
+                }
+                // If no image file uploaded, ensure a ProductMedia entry for image is null
+                // REMOVED: Do not add ProductMedia with null mediaUrl (SQL constraint)
+                // If no video file uploaded, ensure a ProductMedia entry for video is null
+                // REMOVED: Do not add ProductMedia with null mediaUrl (SQL constraint)
+                // Store URLs in product table (do not expect from frontend)
+                product.setImageUrls(imageUrl);
+                product.setVideoUrls(videoUrl);
+                Product updatedProduct = productRepository.save(product);
+                return convertToDto(updatedProduct);
+            }
         /**
          * Reserve product quantity for cart
          */
@@ -93,7 +157,19 @@ public class ProductService {
         product.setStatus("ACTIVE");
         product.setContactEmail(dto.getContactEmail());
         product.setContactPhone(dto.getContactPhone());
+        // Vendor Transparency
+        product.setVendorId(dto.getVendorId());
+        product.setVendorName(dto.getVendorName());
+        product.setVendorLocation(dto.getVendorLocation());
+        product.setVendorType(dto.getVendorType());
+        // Seller info from User
+        product.setSellerEmail(seller.getEmail());
+        product.setSellerPhone(seller.getPhone());
         
+        String imageUrl = null;
+        String videoUrl = null;
+        boolean hasImage = false;
+        boolean hasVideo = false;
         if (files != null && !files.isEmpty()) {
             for (MultipartFile file : files) {
                 String fileName = fileStorageService.store(file);
@@ -105,8 +181,23 @@ public class ProductService {
                 String mediaType = file.getContentType().startsWith("image") ? "IMAGE" : "VIDEO";
                 ProductMedia media = new ProductMedia(fileDownloadUri, mediaType, product);
                 product.getMediaFiles().add(media);
+                if (mediaType.equals("IMAGE")) {
+                    hasImage = true;
+                    imageUrl = fileDownloadUri;
+                }
+                if (mediaType.equals("VIDEO")) {
+                    hasVideo = true;
+                    videoUrl = fileDownloadUri;
+                }
             }
         }
+        // If no image file uploaded, ensure a ProductMedia entry for image is null
+        // REMOVED: Do not add ProductMedia with null mediaUrl (SQL constraint)
+        // If no video file uploaded, ensure a ProductMedia entry for video is null
+        // REMOVED: Do not add ProductMedia with null mediaUrl (SQL constraint)
+        // Store URLs in product table (do not expect from frontend)
+        product.setImageUrls(imageUrl);
+        product.setVideoUrls(videoUrl);
         
         Product savedProduct = productRepository.save(product);
 
@@ -193,6 +284,14 @@ public class ProductService {
         product.setWarrantyInfo(dto.getWarrantyInfo());
         product.setContactEmail(dto.getContactEmail());
         product.setContactPhone(dto.getContactPhone());
+        // Vendor Transparency
+        product.setVendorId(dto.getVendorId());
+        product.setVendorName(dto.getVendorName());
+        product.setVendorLocation(dto.getVendorLocation());
+        product.setVendorType(dto.getVendorType());
+        // Seller info from User
+        product.setSellerEmail(product.getSeller().getEmail());
+        product.setSellerPhone(product.getSeller().getPhone());
         
         Product updatedProduct = productRepository.save(product);
         
@@ -289,11 +388,31 @@ public class ProductService {
         dto.setStatus(product.getStatus());
         dto.setContactEmail(product.getContactEmail());
         dto.setContactPhone(product.getContactPhone());
+        // Vendor Transparency
+        dto.setVendorId(product.getVendorId());
+        dto.setVendorName(product.getVendorName());
+        dto.setVendorLocation(product.getVendorLocation());
+        dto.setVendorType(product.getVendorType());
         
+        // Set mediaUrls for gallery
         if (product.getMediaFiles() != null) {
             dto.setMediaUrls(product.getMediaFiles().stream()
                 .map(ProductMedia::getMediaUrl)
+                .filter(url -> url != null && !url.isEmpty())
                 .collect(Collectors.toList()));
+        }
+        // Set imageUrls as comma-separated string (for frontend compatibility)
+        if (product.getMediaFiles() != null) {
+            String imageUrls = product.getMediaFiles().stream()
+                .filter(media -> "IMAGE".equals(media.getMediaType()) && media.getMediaUrl() != null && !media.getMediaUrl().isEmpty())
+                .map(ProductMedia::getMediaUrl)
+                .collect(Collectors.joining(","));
+            dto.setImageUrls(imageUrls);
+            String videoUrls = product.getMediaFiles().stream()
+                .filter(media -> "VIDEO".equals(media.getMediaType()) && media.getMediaUrl() != null && !media.getMediaUrl().isEmpty())
+                .map(ProductMedia::getMediaUrl)
+                .collect(Collectors.joining(","));
+            dto.setVideoUrls(videoUrls);
         }
 
         dto.setCreatedAt(product.getCreatedAt());

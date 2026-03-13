@@ -3,6 +3,10 @@ package com.farmeazy.dto;
 import com.farmeazy.entity.ServiceListing.ServiceType;
 
 public class ServiceListingDto {
+        private Long vendorId;
+        private String vendorName;
+        private String vendorLocation;
+        private String vendorType;
     private Long id;
     private String serviceName;
     private String description;
@@ -16,6 +20,31 @@ public class ServiceListingDto {
     private String contactEmail;
 
     public ServiceListingDto() {
+    }
+
+    public Long getVendorId() {
+        return vendorId;
+    }
+    public void setVendorId(Long vendorId) {
+        this.vendorId = vendorId;
+    }
+    public String getVendorName() {
+        return vendorName;
+    }
+    public void setVendorName(String vendorName) {
+        this.vendorName = vendorName;
+    }
+    public String getVendorLocation() {
+        return vendorLocation;
+    }
+    public void setVendorLocation(String vendorLocation) {
+        this.vendorLocation = vendorLocation;
+    }
+    public String getVendorType() {
+        return vendorType;
+    }
+    public void setVendorType(String vendorType) {
+        this.vendorType = vendorType;
     }
 
     public ServiceListingDto(Long id, String serviceName, String description, double price, Long providerId,

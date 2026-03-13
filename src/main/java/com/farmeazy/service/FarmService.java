@@ -33,6 +33,9 @@ public class FarmService {
     @Autowired
     private CoinService coinService;
 
+    @Autowired
+    private NotificationService notificationService;
+
     @Transactional
     public FarmDto createFarm(FarmDto farmDto, Long userId) {
         User user = userRepository.findById(userId)
@@ -57,6 +60,20 @@ public class FarmService {
             coinService.addCoins(user.getEmail(), 10, "Created farm: " + farm.getFarmName());
         } catch (Exception e) {
             System.err.println("Failed to award coins for farm creation: " + e.getMessage());
+        }
+
+        // Send in-app notification for farm creation
+        try {
+            notificationService.createForUser(
+                user,
+                com.farmeazy.entity.Notification.NotificationType.FARM,
+                "Farm Created Successfully!",
+                "Your farm '" + farm.getFarmName() + "' has been created at " + farm.getLocation() + " (" + farm.getAreaSize() + " acres).",
+                "/farms/" + farm.getId(),
+                com.farmeazy.entity.Notification.NotificationPriority.NORMAL
+            );
+        } catch (Exception e) {
+            System.err.println("Failed to send farm creation notification: " + e.getMessage());
         }
 
         // Send notification email using HTTP service (works on Render)

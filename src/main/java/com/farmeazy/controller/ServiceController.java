@@ -45,6 +45,9 @@ public class ServiceController {
     @PostMapping("/listings")
     public ResponseEntity<ServiceListingDto> createServiceListing(@Valid @RequestBody ServiceListingDto serviceListingDto, Principal principal) {
         User user = userService.findByEmail(principal.getName());
+        // Set vendor fields
+        serviceListingDto.setVendorId(user.getId());
+        serviceListingDto.setVendorName(user.getUsername());
         ServiceListingDto createdListing = serviceService.createServiceListing(user, serviceListingDto);
         return new ResponseEntity<>(createdListing, HttpStatus.CREATED);
     }

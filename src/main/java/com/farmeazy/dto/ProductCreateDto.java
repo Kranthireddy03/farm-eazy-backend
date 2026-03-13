@@ -3,6 +3,37 @@ package com.farmeazy.dto;
 import jakarta.validation.constraints.*;
 
 public class ProductCreateDto {
+                // Seller Transparency Fields
+                @NotBlank(message = "Seller email is required")
+                @Email(message = "Invalid seller email format")
+                private String sellerEmail;
+
+                @Pattern(regexp = "^[0-9]{10}$", message = "Seller phone must be 10 digits")
+                private String sellerPhone;
+            public String getVendorLocation() {
+                return vendorLocation;
+            }
+            public void setVendorLocation(String vendorLocation) {
+                this.vendorLocation = vendorLocation;
+            }
+            public String getVendorType() {
+                return vendorType;
+            }
+            public void setVendorType(String vendorType) {
+                this.vendorType = vendorType;
+            }
+        public Long getVendorId() {
+            return vendorId;
+        }
+        public void setVendorId(Long vendorId) {
+            this.vendorId = vendorId;
+        }
+        public String getVendorName() {
+            return vendorName;
+        }
+        public void setVendorName(String vendorName) {
+            this.vendorName = vendorName;
+        }
     
     @NotBlank(message = "Product name is required")
     @Size(min = 3, max = 255, message = "Product name must be between 3 and 255 characters")
@@ -31,8 +62,15 @@ public class ProductCreateDto {
     private String weight;
     private String specifications;
     private String warrantyInfo;
-    private String imageUrls;
-    private String videoUrls;
+    // Removed imageUrls and videoUrls; only upload files
+
+        // Vendor Transparency Fields
+        private Long vendorId;
+        private String vendorName;
+        @NotBlank(message = "Vendor location is required")
+        private String vendorLocation;
+        @NotBlank(message = "Vendor type is required")
+        private String vendorType;
 
     @NotBlank(message = "Contact email is required")
     @Email(message = "Invalid email format")
@@ -43,6 +81,18 @@ public class ProductCreateDto {
     private String contactPhone;
     
     // Getters and Setters
+        public String getSellerEmail() {
+            return sellerEmail;
+        }
+        public void setSellerEmail(String sellerEmail) {
+            this.sellerEmail = sellerEmail;
+        }
+        public String getSellerPhone() {
+            return sellerPhone;
+        }
+        public void setSellerPhone(String sellerPhone) {
+            this.sellerPhone = sellerPhone;
+        }
     public String getProductName() {
         return productName;
     }
@@ -121,22 +171,6 @@ public class ProductCreateDto {
     
     public void setWarrantyInfo(String warrantyInfo) {
         this.warrantyInfo = warrantyInfo;
-    }
-    
-    public String getImageUrls() {
-        return imageUrls;
-    }
-    
-    public void setImageUrls(String imageUrls) {
-        this.imageUrls = imageUrls;
-    }
-    
-    public String getVideoUrls() {
-        return videoUrls;
-    }
-    
-    public void setVideoUrls(String videoUrls) {
-        this.videoUrls = videoUrls;
     }
 
     public String getContactEmail() {

@@ -8,6 +8,7 @@ public class OrderItemDetailDto {
     private int quantity;
     private BigDecimal price;
     private BigDecimal totalPrice;
+    private java.util.List<String> mediaUrls;
 
     public OrderItemDetailDto() {
     }
@@ -18,6 +19,7 @@ public class OrderItemDetailDto {
         this.quantity = quantity;
         this.price = price;
         this.totalPrice = totalPrice;
+        this.mediaUrls = new java.util.ArrayList<>();
     }
 
     public Long getProductId() {
@@ -54,6 +56,14 @@ public class OrderItemDetailDto {
 
     public BigDecimal getTotalPrice() {
         return totalPrice;
+    }
+
+    public java.util.List<String> getMediaUrls() {
+        return mediaUrls;
+    }
+
+    public void setMediaUrls(java.util.List<String> mediaUrls) {
+        this.mediaUrls = mediaUrls;
     }
 
     public void setTotalPrice(BigDecimal totalPrice) {

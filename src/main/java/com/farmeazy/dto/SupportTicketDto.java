@@ -11,6 +11,8 @@ import jakarta.validation.constraints.Size;
  * PURPOSE: Transfer object for creating support tickets.
  */
 public class SupportTicketDto {
+    // For guest ticket creation, contactEmail is required if user is not present
+    // Validation will be handled in controller/service
 
     @NotBlank(message = "Subject is required")
     @Size(max = 200, message = "Subject must not exceed 200 characters")

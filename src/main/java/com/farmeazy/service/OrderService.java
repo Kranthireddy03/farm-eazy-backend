@@ -538,6 +538,14 @@ public class OrderService {
         dto.setQuantity(item.getQuantity());
         dto.setPrice(item.getPricePerUnit());
         dto.setTotalPrice(item.getTotalPrice());
+        // Add media URLs for gallery
+        if (item.getProduct().getMediaFiles() != null) {
+            java.util.List<String> mediaUrls = item.getProduct().getMediaFiles().stream()
+                .map(com.farmeazy.entity.ProductMedia::getMediaUrl)
+                .filter(url -> url != null && !url.isEmpty())
+                .collect(java.util.stream.Collectors.toList());
+            dto.setMediaUrls(mediaUrls);
+        }
         return dto;
     }
 }

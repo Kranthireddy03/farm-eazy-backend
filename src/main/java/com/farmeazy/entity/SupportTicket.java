@@ -25,7 +25,7 @@ public class SupportTicket {
     private String displayId;
 
     @ManyToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "user_id", nullable = false)
+    @JoinColumn(name = "user_id", nullable = true)
     private User user;
 
     @Column(nullable = false, length = 200)
@@ -78,6 +78,15 @@ public class SupportTicket {
 
     @Column(name = "closed_at")
     private LocalDateTime closedAt;
+
+    @Column(name = "is_important")
+    private Boolean important = false;
+
+    @Column(name = "is_archived")
+    private Boolean archived = false;
+
+    @Column(name = "sla_by")
+    private LocalDateTime slaBy;
 
     public enum TicketCategory {
         GENERAL,
@@ -280,5 +289,29 @@ public class SupportTicket {
 
     public void setClosedAt(LocalDateTime closedAt) {
         this.closedAt = closedAt;
+    }
+
+    public Boolean getImportant() {
+        return important;
+    }
+
+    public void setImportant(Boolean important) {
+        this.important = important;
+    }
+
+    public Boolean getArchived() {
+        return archived;
+    }
+
+    public void setArchived(Boolean archived) {
+        this.archived = archived;
+    }
+
+    public LocalDateTime getSlaBy() {
+        return slaBy;
+    }
+
+    public void setSlaBy(LocalDateTime slaBy) {
+        this.slaBy = slaBy;
     }
 }
