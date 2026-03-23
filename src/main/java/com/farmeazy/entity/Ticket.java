@@ -11,7 +11,7 @@ import com.farmeazy.model.TicketStatus;
 import com.farmeazy.model.TicketCategory;
 
 @Entity
-@Table(name = "support_tickets")
+@Table(name = "tickets")
 public class Ticket {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
