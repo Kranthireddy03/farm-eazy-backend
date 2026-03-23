@@ -6,10 +6,12 @@ import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
+import org.springframework.jdbc.CannotGetJdbcConnectionException;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
 import org.springframework.web.context.request.WebRequest;
 
 import java.time.LocalDateTime;
@@ -114,6 +116,30 @@ public class GlobalExceptionHandler {
         );
         return new ResponseEntity<>(errorResponse, HttpStatus.BAD_REQUEST);
     }
+
+        @ExceptionHandler(NoResourceFoundException.class)
+        public ResponseEntity<ErrorResponse> handleNoResourceFoundException(
+                        NoResourceFoundException ex, HttpServletRequest request) {
+                ErrorResponse errorResponse = new ErrorResponse(
+                                HttpStatus.NOT_FOUND.value(),
+                                "Requested file/resource was not found",
+                                LocalDateTime.now(),
+                                request.getRequestURI()
+                );
+                return new ResponseEntity<>(errorResponse, HttpStatus.NOT_FOUND);
+        }
+
+        @ExceptionHandler(CannotGetJdbcConnectionException.class)
+        public ResponseEntity<ErrorResponse> handleCannotGetJdbcConnectionException(
+                        CannotGetJdbcConnectionException ex, HttpServletRequest request) {
+                ErrorResponse errorResponse = new ErrorResponse(
+                                HttpStatus.SERVICE_UNAVAILABLE.value(),
+                                "Database is temporarily busy or unavailable. Please try again in a few moments.",
+                                LocalDateTime.now(),
+                                request.getRequestURI()
+                );
+                return new ResponseEntity<>(errorResponse, HttpStatus.SERVICE_UNAVAILABLE);
+        }
 
     @ExceptionHandler(Exception.class)
         public ResponseEntity<Object> handleGlobalException(

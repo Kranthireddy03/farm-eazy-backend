@@ -13,6 +13,9 @@ public class OtpVerifyDto {
     
     @NotBlank(message = "Purpose is required")
     private String purpose;
+
+    // Optional: phone for phone-based registration
+    private String phone;
     
     // Getters and Setters
     public String getEmail() {
@@ -37,5 +40,13 @@ public class OtpVerifyDto {
     
     public void setPurpose(String purpose) {
         this.purpose = purpose;
+    }
+
+    public String getPhone() {
+        return phone;
+    }
+
+    public void setPhone(String phone) {
+        this.phone = phone;
     }
 }

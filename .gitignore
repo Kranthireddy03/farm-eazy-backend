@@ -12,6 +12,9 @@
 /server_run.log
 /verbose_server.log
 /build.log
+/build_error_log.txt
+/logs/
+/tmpclaude-*-cwd/
 
 # Local data/uploads
 /data/

@@ -1,8 +1,13 @@
 package com.farmeazy.config;
 
 import org.springframework.context.annotation.Configuration;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.web.servlet.config.annotation.CorsRegistry;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
+
+import java.util.Arrays;
+import java.util.List;
+import java.util.stream.Collectors;
 
 /**
  * WEB CONFIGURATION - MVC AND CORS SETUP
@@ -132,6 +137,9 @@ import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 @Configuration
 public class WebConfig implements WebMvcConfigurer {
 
+    @Value("${cors.allowed-origins:https://support.farm-eazy.com,https://admin.farm-eazy.com,https://www.farm-eazy.com}")
+    private String corsAllowedOrigins;
+
     /**
      * Configure CORS for API endpoints.
      * 
@@ -150,17 +158,13 @@ public class WebConfig implements WebMvcConfigurer {
      */
     @Override
     public void addCorsMappings(CorsRegistry registry) {
+        List<String> originPatterns = Arrays.stream(corsAllowedOrigins.split(","))
+                .map(String::trim)
+                .filter(s -> !s.isBlank())
+                .collect(Collectors.toList());
+
         registry.addMapping("/api/**")
-                .allowedOriginPatterns(
-                    "https://farm-eazy.com",
-                    "https://www.farm-eazy.com",
-                    "https://*.vercel.app",
-                    "https://farm-eazy-backend.onrender.com",
-                    "http://localhost:4200",
-                    "http://localhost:3000",
-                    "http://localhost:3001",
-                    "http://localhost:5173"
-                )
+                .allowedOriginPatterns(originPatterns.toArray(new String[0]))
                 .allowedMethods("GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH", "HEAD")
                 .allowedHeaders("*")
                 .exposedHeaders("Authorization", "Content-Type")

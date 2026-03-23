@@ -35,6 +35,10 @@ public class SupportTicketDto {
 
     private Long serviceId;
 
+    private String source;
+
+    private String roleRequest;
+
     // Constructors
     public SupportTicketDto() {}
 
@@ -62,4 +66,10 @@ public class SupportTicketDto {
 
     public Long getServiceId() { return serviceId; }
     public void setServiceId(Long serviceId) { this.serviceId = serviceId; }
+
+    public String getSource() { return source; }
+    public void setSource(String source) { this.source = source; }
+
+    public String getRoleRequest() { return roleRequest; }
+    public void setRoleRequest(String roleRequest) { this.roleRequest = roleRequest; }
 }

@@ -220,19 +220,19 @@ public class IrrigationService {
     public DashboardStatsDto getDashboardStats(Long userId) {
         List<Farm> farms = farmRepository.findByUserId(userId);
         
-        long totalFarms = farms.size();
+            int totalFarms = farms.size();
         
-        long totalCrops = farms.stream()
+            int totalCrops = (int) farms.stream()
                 .flatMap(farm -> cropRepository.findByFarmId(farm.getId()).stream())
                 .count();
         
-        long totalIrrigations = farms.stream()
+            int totalIrrigations = (int) farms.stream()
                 .flatMap(farm -> irrigationRepository.findByFarmId(farm.getId()).stream())
                 .count();
         
-        long upcomingIrrigations = farms.stream()
+            int upcomingIrrigations = (int) farms.stream()
                 .flatMap(farm -> irrigationRepository.findByIrrigationDateAfter(LocalDate.now()).stream()
-                        .filter(s -> s.getFarm().getId().equals(farm.getId())))
+                    .filter(s -> s.getFarm().getId().equals(farm.getId())))
                 .count();
 
         return new DashboardStatsDto(totalFarms, totalCrops, totalIrrigations, upcomingIrrigations);

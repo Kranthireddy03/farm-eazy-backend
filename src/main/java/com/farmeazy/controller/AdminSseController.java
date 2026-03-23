@@ -2,6 +2,7 @@ package com.farmeazy.controller;
 
 import com.farmeazy.service.NotificationSseService;
 import org.springframework.http.HttpStatus;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
@@ -21,6 +22,7 @@ public class AdminSseController {
     }
 
     @PostMapping("/stream-token")
+    @PreAuthorize("hasAnyRole('ADMIN','SUPERADMIN')")
     public Map<String, Object> createStreamToken() {
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
         if (auth == null || !auth.isAuthenticated()) {
@@ -34,9 +36,10 @@ public class AdminSseController {
 
     @GetMapping("/stream")
     public SseEmitter stream(@RequestParam(name = "token", required = true) String token) {
-        if (!notificationSseService.validateAndConsumeToken(token)) {
+        java.util.Optional<String> owner = notificationSseService.validateAndConsumeToken(token);
+        if (owner.isEmpty()) {
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED, "Invalid or expired SSE token");
         }
-        return notificationSseService.createEmitter();
+        return notificationSseService.createEmitter(owner.get());
     }
 }

@@ -116,6 +116,12 @@ public class SupportTicket {
         CANCELLED
     }
 
+    @Column(name = "source", length = 50)
+    private String source;
+
+    @Column(name = "role_request", length = 30)
+    private String roleRequest;
+
     public SupportTicket() {}
 
     @PrePersist
@@ -155,6 +161,19 @@ public class SupportTicket {
         }
     }
 
+        public String getSource() {
+            return source;
+        }
+        public void setSource(String source) {
+            this.source = source;
+        }
+    public String getRoleRequest() {
+        return roleRequest;
+    }
+
+    public void setRoleRequest(String roleRequest) {
+        this.roleRequest = roleRequest;
+    }
     public User getUser() {
         return user;
     }

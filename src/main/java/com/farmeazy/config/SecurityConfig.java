@@ -31,6 +31,10 @@ import org.springframework.security.web.context.RequestAttributeSecurityContextR
 import lombok.RequiredArgsConstructor;
 
 import java.util.Arrays;
+import java.util.List;
+import java.util.stream.Collectors;
+
+import org.springframework.beans.factory.annotation.Value;
 
 import static org.springframework.security.config.Customizer.withDefaults;
 @Configuration
@@ -39,6 +43,9 @@ public class SecurityConfig {
     private final JwtAuthenticationEntryPoint jwtAuthenticationEntryPoint;
     private final JwtUtil jwtUtil;
     private final RateLimitingFilter rateLimitingFilter;
+
+    @Value("${cors.allowed-origins:https://support.farm-eazy.com,https://admin.farm-eazy.com,https://www.farm-eazy.com}")
+    private String corsAllowedOrigins;
 
     public SecurityConfig(JwtAuthenticationEntryPoint jwtAuthenticationEntryPoint,
                           JwtUtil jwtUtil,
@@ -82,11 +89,24 @@ public class SecurityConfig {
                 .requestMatchers("/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html", "/swagger-ui/*.css", "/swagger-ui/*.js", "/swagger-ui/*.png").permitAll()
                 .requestMatchers("/h2-console/**").permitAll()
                 .requestMatchers(HttpMethod.GET, "/api/public/**").permitAll()
+                .requestMatchers(HttpMethod.POST, "/api/public/**").permitAll()
+                .requestMatchers(HttpMethod.POST, "/api/public/support-message").permitAll()
                 .requestMatchers(HttpMethod.GET, "/api/products/media/**").permitAll()
+                .requestMatchers(HttpMethod.GET, "/uploads/**").denyAll()
                 .requestMatchers(HttpMethod.GET, "/api/faq-questions").permitAll()
+                .requestMatchers(HttpMethod.GET, "/api/faq-question/**").permitAll()
+                .requestMatchers(HttpMethod.POST, "/api/faq-question/**").permitAll()
                 .requestMatchers(HttpMethod.GET, "/api/admin/faq-questions/stream").permitAll()
                 .requestMatchers(HttpMethod.POST, "/support-tickets/guest").permitAll()
+                .requestMatchers(HttpMethod.GET, "/support-tickets/public/**").permitAll()
+                .requestMatchers(HttpMethod.POST, "/support-tickets/public/**").permitAll()
+                .requestMatchers(HttpMethod.GET, "/api/support-tickets/public/**").permitAll()
+                .requestMatchers(HttpMethod.POST, "/api/support-tickets/public/**").permitAll()
+                // Frontends may prefix the API with /api; allow both variants for guest ticket creation
+                .requestMatchers(HttpMethod.POST, "/api/support-tickets/guest").permitAll()
                 .requestMatchers(HttpMethod.POST, "/api/faq/question").permitAll()
+                .requestMatchers(HttpMethod.POST, "/api/public/faq-question").permitAll()
+                .requestMatchers("/api/test-email/**").permitAll()
                 .anyRequest().authenticated()
             );
 
@@ -121,16 +141,11 @@ public class SecurityConfig {
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();
-        configuration.setAllowedOriginPatterns(Arrays.asList(
-            "https://farm-eazy.com",
-            "https://www.farm-eazy.com",
-            "https://*.vercel.app",
-            "https://farm-eazy-backend.onrender.com",
-            "http://localhost:4200",
-            "http://localhost:3000",
-            "http://localhost:3001",
-            "http://localhost:5173"
-        ));
+        List<String> originPatterns = Arrays.stream(corsAllowedOrigins.split(","))
+            .map(String::trim)
+            .filter(s -> !s.isBlank())
+            .collect(Collectors.toList());
+        configuration.setAllowedOriginPatterns(originPatterns);
         configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH", "HEAD"));
         configuration.setAllowedHeaders(Arrays.asList("*"));
         configuration.setExposedHeaders(Arrays.asList("Authorization", "Content-Type"));

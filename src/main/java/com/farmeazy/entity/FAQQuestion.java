@@ -3,11 +3,16 @@ package com.farmeazy.entity;
 
 import jakarta.persistence.*;
 import lombok.Data;
-import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
 
 @Entity
 // ...existing code...
 public class FAQQuestion {
+        // Source of the question (e.g., FAQ_PUBLIC_PAGE, ADMIN, etc.)
+        private String source;
+
+        public String getSource() { return source; }
+        public void setSource(String source) { this.source = source; }
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
@@ -16,13 +21,14 @@ public class FAQQuestion {
     @Column(nullable = false)
     private String email;
     private String userId;
+    @Lob
     private String answer;
     private boolean addedToFAQ = false;
     // whether admin notification for this question has been marked read
-    @Column(name = "notification_read", insertable = false, updatable = false)
-    private boolean notificationRead = false;
-    private LocalDateTime submittedAt;
-    private LocalDateTime answeredAt;
+    @Column(name = "notification_read", nullable = false)
+    private Boolean notificationRead = false;
+    private OffsetDateTime submittedAt;
+    private OffsetDateTime answeredAt;
 
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
@@ -36,10 +42,10 @@ public class FAQQuestion {
     public void setAnswer(String answer) { this.answer = answer; }
     public boolean isAddedToFAQ() { return addedToFAQ; }
     public void setAddedToFAQ(boolean addedToFAQ) { this.addedToFAQ = addedToFAQ; }
-    public boolean isNotificationRead() { return notificationRead; }
-    public void setNotificationRead(boolean notificationRead) { this.notificationRead = notificationRead; }
-    public LocalDateTime getSubmittedAt() { return submittedAt; }
-    public void setSubmittedAt(LocalDateTime submittedAt) { this.submittedAt = submittedAt; }
-    public LocalDateTime getAnsweredAt() { return answeredAt; }
-    public void setAnsweredAt(LocalDateTime answeredAt) { this.answeredAt = answeredAt; }
+    public Boolean isNotificationRead() { return notificationRead; }
+    public void setNotificationRead(Boolean notificationRead) { this.notificationRead = notificationRead; }
+    public OffsetDateTime getSubmittedAt() { return submittedAt; }
+    public void setSubmittedAt(OffsetDateTime submittedAt) { this.submittedAt = submittedAt; }
+    public OffsetDateTime getAnsweredAt() { return answeredAt; }
+    public void setAnsweredAt(OffsetDateTime answeredAt) { this.answeredAt = answeredAt; }
 }

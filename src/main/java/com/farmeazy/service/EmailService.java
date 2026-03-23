@@ -62,7 +62,16 @@ public class EmailService {
     private static final Logger logger = LoggerFactory.getLogger(EmailService.class);
 
     @Autowired(required = false)
-    private JavaMailSender mailSender;
+    @org.springframework.beans.factory.annotation.Qualifier("noReplyMailSender")
+    private JavaMailSender noReplyMailSender;
+
+    @Autowired(required = false)
+    @org.springframework.beans.factory.annotation.Qualifier("supportMailSender")
+    private JavaMailSender supportMailSender;
+
+    @Autowired(required = false)
+    @org.springframework.beans.factory.annotation.Qualifier("infoMailSender")
+    private JavaMailSender infoMailSender;
 
     @Value("${farmeazy.mail.from}")
     private String fromEmail;
@@ -127,6 +136,16 @@ public class EmailService {
         }
 
         String senderEmail = getSenderEmail(emailType);
+        JavaMailSender selectedSender = null;
+        if (senderEmail.equalsIgnoreCase(noReplyEmail)) {
+            selectedSender = noReplyMailSender;
+        } else if (senderEmail.equalsIgnoreCase(supportEmail)) {
+            selectedSender = supportMailSender;
+        } else if (senderEmail.equalsIgnoreCase(infoEmail)) {
+            selectedSender = infoMailSender;
+        } else {
+            selectedSender = noReplyMailSender;
+        }
         int attempts = 0;
         boolean sent = false;
         Exception lastException = null;
@@ -137,9 +156,14 @@ public class EmailService {
                 message.setTo(to);
                 message.setSubject(subject);
                 message.setText(body);
-                mailSender.send(message);
-                logger.info("Email sent successfully to: {} from: {}", to, senderEmail);
-                sent = true;
+                if (selectedSender != null) {
+                    selectedSender.send(message);
+                    logger.info("Email sent successfully to: {} from: {}", to, senderEmail);
+                    sent = true;
+                } else {
+                    logger.error("No JavaMailSender bean found for sender {}", senderEmail);
+                    throw new RuntimeException("No JavaMailSender bean found for sender " + senderEmail);
+                }
             } catch (Exception e) {
                 attempts++;
                 lastException = e;
@@ -177,16 +201,24 @@ public class EmailService {
         }
 
         String senderEmail = getSenderEmail(emailType);
+        JavaMailSender selectedSender = null;
+        if (senderEmail.equalsIgnoreCase(noReplyEmail)) {
+            selectedSender = noReplyMailSender;
+        } else if (senderEmail.equalsIgnoreCase(supportEmail)) {
+            selectedSender = supportMailSender;
+        } else if (senderEmail.equalsIgnoreCase(infoEmail)) {
+            selectedSender = infoMailSender;
+        } else {
+            selectedSender = noReplyMailSender;
+        }
         try {
-            MimeMessage message = mailSender.createMimeMessage();
+            MimeMessage message = selectedSender.createMimeMessage();
             MimeMessageHelper helper = new MimeMessageHelper(message, true, "UTF-8");
-            
             helper.setFrom(senderEmail);
             helper.setTo(to);
             helper.setSubject(subject);
             helper.setText(htmlBody, true); // true = isHtml
-            
-            mailSender.send(message);
+            selectedSender.send(message);
             logger.info("HTML email sent successfully to: {} from: {}", to, senderEmail);
         } catch (MessagingException e) {
             logger.error("Failed to send HTML email to: {} from: {}", to, senderEmail, e);

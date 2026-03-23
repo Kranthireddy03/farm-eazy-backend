@@ -61,6 +61,9 @@ public class ServiceService {
     @Autowired
     private CropRepository cropRepository;
 
+    @Autowired
+    private SmsService smsService;
+
     @Value("${farmeazy.platform.fee.percentage:5.00}")
     private BigDecimal platformFeePercentage;
 
@@ -281,6 +284,20 @@ public class ServiceService {
             );
         } catch (Exception e) {
             System.err.println("Failed to send booking approval email: " + e.getMessage());
+        }
+
+        // Send Service Started SMS
+        try {
+            String userPhone = booking.getUser().getPhone();
+            if (userPhone != null && !userPhone.isBlank()) {
+                smsService.sendServiceStarted(
+                    userPhone,
+                    booking.getUser().getUsername(),
+                    String.valueOf(booking.getId())
+                );
+            }
+        } catch (Exception smsEx) {
+            System.err.println("Failed to send service started SMS: " + smsEx.getMessage());
         }
 
         return toBookingDto(updated);
@@ -580,6 +597,21 @@ public class ServiceService {
         booking.setCompletedAt(LocalDateTime.now());
 
         ServiceBooking saved = serviceBookingRepository.save(booking);
+
+        // Send Service Completed SMS
+        try {
+            String userPhone = booking.getUser().getPhone();
+            if (userPhone != null && !userPhone.isBlank()) {
+                smsService.sendServiceCompleted(
+                    userPhone,
+                    booking.getUser().getUsername(),
+                    String.valueOf(booking.getId())
+                );
+            }
+        } catch (Exception smsEx) {
+            System.err.println("Failed to send service completed SMS: " + smsEx.getMessage());
+        }
+
         return toEnhancedBookingDto(saved);
     }
 

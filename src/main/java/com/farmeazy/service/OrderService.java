@@ -276,6 +276,12 @@ public class OrderService {
                             savedOrder.getFinalAmount().toPlainString(),
                             "ORD" + savedOrder.getId()
                         );
+                            // Booking confirmation SMS
+                            smsService.sendBookingConfirm(
+                                user.getPhone(),
+                                user.getUsername(),
+                                "ORD" + savedOrder.getId()
+                            );
                     }
                 } catch (Exception smsEx) {
                     log.warn("Failed to send order confirmation SMS for order {}: {}", savedOrder.getId(), smsEx.getMessage());
@@ -446,6 +452,19 @@ public class OrderService {
         );
 
         log.info("Order cancelled: {}", orderId);
+
+                    // Booking cancelled SMS
+                    try {
+                        if (user.getPhone() != null && !user.getPhone().isBlank()) {
+                            smsService.sendBookingCancelled(
+                                user.getPhone(),
+                                user.getUsername(),
+                                "ORD" + orderId
+                            );
+                        }
+                    } catch (Exception smsEx) {
+                        log.warn("Failed to send booking cancelled SMS for order {}: {}", orderId, smsEx.getMessage());
+                    }
     }
 
     /**

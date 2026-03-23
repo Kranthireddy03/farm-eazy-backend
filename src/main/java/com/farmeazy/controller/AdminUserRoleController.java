@@ -7,6 +7,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.HashSet;
@@ -22,19 +23,15 @@ public class AdminUserRoleController {
     @Autowired
     private UserRepository userRepository;
 
+    @Autowired
+    private com.farmeazy.service.RoleService roleService;
+
     @PutMapping("/{email}/role")
     @PreAuthorize("hasRole('ADMIN') or hasRole('SUPERADMIN')")
     @Operation(summary = "Assign role to user", description = "Add or update a role for a user by email")
     public ResponseEntity<?> assignRole(@PathVariable String email, @RequestParam String role) {
-        Optional<User> userOpt = userRepository.findByEmail(email);
-        if (userOpt.isEmpty()) {
-            return ResponseEntity.notFound().build();
-        }
-        User user = userOpt.get();
-        Set<String> roles = user.getRoles() != null ? user.getRoles() : new HashSet<>();
-        roles.add(role);
-        user.setRoles(roles);
-        userRepository.save(user);
+        // New behavior: log assignment and keep immutable audit history via RoleAuditLog
+        roleService.assignUserRole(email, role, SecurityContextHolder.getContext().getAuthentication().getName());
         return ResponseEntity.ok("Role assigned: " + role);
     }
 }

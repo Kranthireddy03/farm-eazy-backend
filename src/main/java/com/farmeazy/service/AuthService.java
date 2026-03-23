@@ -3,6 +3,8 @@ package com.farmeazy.service;
 import com.farmeazy.dto.AuthLoginDto;
 import com.farmeazy.dto.AuthRegisterDto;
 import com.farmeazy.dto.AuthResponseDto;
+import com.farmeazy.dto.OtpRequestDto;
+import com.farmeazy.dto.SmsResponseDto;
 import com.farmeazy.entity.PasswordResetToken;
 import com.farmeazy.entity.User;
 import com.farmeazy.entity.UserActivity.ActivityType;
@@ -12,6 +14,7 @@ import com.farmeazy.repository.PasswordResetTokenRepository;
 import com.farmeazy.repository.UserRepository;
 import com.farmeazy.service.OtpService;
 import com.farmeazy.service.NotificationService;
+import com.farmeazy.sms.SmsTemplate;
 import com.farmeazy.security.JwtUtil;
 import com.farmeazy.service.UserActivityService;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -81,6 +84,10 @@ import java.util.Set;
  */
 @Service
 public class AuthService implements UserDetailsService {
+    @Autowired
+    private com.farmeazy.service.SmsService smsService;
+
+    private static final org.slf4j.Logger logger = org.slf4j.LoggerFactory.getLogger(AuthService.class);
 
     @Autowired
     private OtpService otpService;
@@ -105,6 +112,32 @@ public class AuthService implements UserDetailsService {
         httpEmailService.sendPasswordChangedConfirmation(user.getEmail(), user.getUsername());
         // Log activity
         userActivityService.logActivity(user, com.farmeazy.entity.UserActivity.ActivityType.PASSWORD_CHANGED, "Password changed successfully");
+    }
+
+    @Transactional
+    public void changePasswordWithOtp(String phone, String otpCode, String newPassword) {
+        // Verify OTP via existing phone-based login OTP flow
+        otpService.verifyLoginOtp(phone, otpCode);
+
+        var user = userRepository.findByPhone(phone)
+                .orElseThrow(() -> new com.farmeazy.exception.ResourceNotFoundException("User not found with this phone number"));
+
+        if (user.getActive() == null || !user.getActive()) {
+            throw new com.farmeazy.exception.UnauthorizedException("User account is inactive");
+        }
+
+        // Only admin users allowed to change password via admin settings OTP path
+        if (user.getRoles() == null || !user.getRoles().contains("ADMIN")) {
+            throw new com.farmeazy.exception.UnauthorizedException("Only admin users can use this endpoint");
+        }
+
+        user.setPassword(passwordEncoder.encode(newPassword));
+        userRepository.save(user);
+
+        httpEmailService.sendPasswordChangedConfirmation(user.getEmail(), user.getUsername());
+
+        userActivityService.logActivity(user, com.farmeazy.entity.UserActivity.ActivityType.PASSWORD_CHANGED,
+                "Password changed via OTP from settings");
     }
 
     @Autowired
@@ -226,7 +259,7 @@ public class AuthService implements UserDetailsService {
         if (username == null || username.trim().isEmpty()) {
             throw new IllegalArgumentException("Username is required");
         }
-        
+
         // Check if username already exists
         if (userRepository.existsByUsername(username)) {
             throw new DuplicateResourceException("Username '" + username + "' is already taken. Please choose another username.");
@@ -258,14 +291,13 @@ public class AuthService implements UserDetailsService {
         // Save user to database (use saveAndFlush to ensure ID is generated immediately)
         user = userRepository.saveAndFlush(user);
 
-        // Send welcome email asynchronously (optional)
-        httpEmailService.sendWelcomeEmailAsync(user.getEmail(), user.getUsername());
 
-        // Send in-app welcome notification
+        // Send in-app welcome notification (optional, not SMS/email)
         try {
             notificationService.sendWelcomeNotification(user);
         } catch (Exception e) {
-            System.err.println("Failed to send welcome notification: " + e.getMessage());
+            // Only log if external API call fails
+            logger.warn("Failed to send welcome notification for user {}: {}", user.getEmail(), e.getMessage(), e);
         }
 
         // Log registration activity (only if user has valid ID)
@@ -277,11 +309,32 @@ public class AuthService implements UserDetailsService {
                         "Registered a new account (instant registration)"
                 );
             } catch (Exception e) {
-                System.err.println("Failed to log registration activity: " + e.getMessage());
+                // Only log if external API call fails
+                logger.warn("Failed to log registration activity for {}: {}", user.getEmail(), e.getMessage(), e);
             }
         }
 
-        // Return response with user info and JWT token (no OTP required)
+        // ---------- Trigger welcome communications ----------
+        try {
+            logger.info("Triggering welcome email for new user: {} <{}>", user.getUsername(), user.getEmail());
+            httpEmailService.sendWelcomeEmailAsync(user.getEmail(), user.getUsername());
+        } catch (Exception e) {
+            logger.warn("Failed to trigger welcome email for {}: {}", user.getEmail(), e.getMessage(), e);
+        }
+
+        try {
+            if (user.getPhone() != null && !user.getPhone().isEmpty()) {
+                logger.info("Triggering welcome SMS for new user: {} (phone={})", user.getUsername(), user.getPhone());
+                SmsResponseDto smsResponse = smsService.sendWelcome(user.getPhone(), user.getUsername());
+                if (!smsResponse.isSuccess()) {
+                    logger.warn("Welcome SMS failed for {}: {} (display: {})", user.getPhone(), smsResponse.getMessage(), smsResponse.getDisplayMessage());
+                }
+            }
+        } catch (Exception e) {
+            logger.warn("Failed to send welcome SMS to {}: {}", user.getPhone(), e.getMessage(), e);
+        }
+
+        // Return response with user info and JWT token
         UserDetails userDetails = loadUserByUsername(user.getEmail());
         String token = jwtUtil.generateToken(userDetails);
         return mapUserToAuthResponseDto(user, token);
@@ -697,9 +750,20 @@ public class AuthService implements UserDetailsService {
      */
     @Transactional
     public AuthResponseDto loginWithOtp(String phone, String otpCode) {
+        // Create a trace identifier to link OTP verification -> welcome email -> welcome SMS
+        String traceId = java.util.UUID.randomUUID().toString();
+        org.slf4j.MDC.put("traceId", traceId);
+
         // Verify OTP (throws UnauthorizedException if invalid)
-        otpService.verifyLoginOtp(phone, otpCode);
-        
+        try {
+            logger.info("[traceId={}] Verifying OTP for phone {}", traceId, phone);
+            otpService.verifyLoginOtp(phone, otpCode);
+            logger.info("[traceId={}] OTP verified successfully for phone {}", traceId, phone);
+        } catch (UnauthorizedException ue) {
+            logger.warn("[traceId={}] OTP verification failed for phone {}: {}", traceId, phone, ue.getMessage());
+            throw ue;
+        }
+
         // Find user by phone
         User user = userRepository.findByPhone(phone)
             .orElseThrow(() -> new UnauthorizedException("User not found with this phone number"));
@@ -713,7 +777,7 @@ public class AuthService implements UserDetailsService {
         UserDetails userDetails = loadUserByUsername(user.getEmail());
         String token = jwtUtil.generateToken(userDetails);
         
-        // Log activity
+        // Log login activity
         try {
             userActivityService.logActivity(
                 user,
@@ -721,11 +785,29 @@ public class AuthService implements UserDetailsService {
                 "Logged in via OTP"
             );
         } catch (Exception e) {
-            System.err.println("Failed to log OTP login activity: " + e.getMessage());
+            logger.warn("Failed to log OTP login activity for {}: {}", user.getEmail(), e.getMessage(), e);
         }
-        
+
+        // If user was just created (e.g., registration flow + OTP), send welcome communications
+        try {
+            if (user.getCreatedAt() != null && user.getCreatedAt().isAfter(java.time.LocalDateTime.now().minusMinutes(10))) {
+                logger.info("[traceId={}] New user detected via OTP login (created recently). Sending welcome email/sms: {}", traceId, user.getEmail());
+                httpEmailService.sendWelcomeEmailAsync(user.getEmail(), user.getUsername());
+                if (user.getPhone() != null && !user.getPhone().isEmpty()) {
+                    smsService.sendWelcome(user.getPhone(), user.getUsername());
+                }
+            }
+        } catch (Exception e) {
+            logger.warn("[traceId={}] Failed to send welcome communications after OTP login for {}: {}", traceId, user.getEmail(), e.getMessage(), e);
+        }
+
         // Return response
-        return mapUserToAuthResponseDto(user, token);
+        try {
+            return mapUserToAuthResponseDto(user, token);
+        } finally {
+            // Clear trace ID after request is finished
+            org.slf4j.MDC.remove("traceId");
+        }
     }
 }
 

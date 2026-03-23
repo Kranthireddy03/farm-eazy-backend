@@ -5,6 +5,7 @@ import jakarta.mail.internet.MimeMessage;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.*;
 import org.springframework.mail.javamail.JavaMailSender;
@@ -71,8 +72,23 @@ public class UnifiedEmailService {
     @Value("${farmeazy.mail.local-test-mode:false}")
     private boolean localTestMode;
 
-    @Value("${farmeazy.app.base-url:https://www.farm-eazy.com}")
+    @Value("${farmeazy.app.support-base-url:${FARMEAZY_SUPPORT_BASE_URL:https://support.farm-eazy.com}}")
+    private String supportAppBaseUrl;
+
+    @Value("${farmeazy.app.public-base-url:${FARMEAZY_PUBLIC_BASE_URL:https://www.farm-eazy.com}}")
+    private String publicAppBaseUrl;
+
+    @Value("${farmeazy.app.base-url:${farmeazy.app.public-base-url:${FARMEAZY_PUBLIC_BASE_URL:https://www.farm-eazy.com}}}")
     private String appBaseUrl;
+
+    private String resolveEmailUrl(String option, String path) {
+        String base = null;
+        if ("support".equalsIgnoreCase(option)) base = supportAppBaseUrl;
+        else if ("public".equalsIgnoreCase(option)) base = publicAppBaseUrl;
+        if (base == null || base.isBlank()) base = appBaseUrl;
+        if (base == null || base.isBlank()) base = "https://www.farm-eazy.com";
+        return base.replaceAll("/$", "") + path;
+    }
 
     // Resend configuration
     @Value("${resend.api.key:}")
@@ -104,7 +120,16 @@ public class UnifiedEmailService {
     private String zohoOrders;
 
     @Autowired(required = false)
-    private JavaMailSender mailSender;
+    @Qualifier("noReplyMailSender")
+    private JavaMailSender noReplyMailSender;
+
+    @Autowired(required = false)
+    @Qualifier("supportMailSender")
+    private JavaMailSender supportMailSender;
+
+    @Autowired(required = false)
+    @Qualifier("infoMailSender")
+    private JavaMailSender infoMailSender;
 
     private final RestTemplate restTemplate;
 
@@ -148,6 +173,7 @@ public class UnifiedEmailService {
                 case ORDERS -> resendOrders;
             };
         } else {
+            // Use sender type for Zoho
             return switch (type) {
                 case NOREPLY -> zohoNoReply;
                 case INFO -> zohoInfo;
@@ -181,14 +207,23 @@ public class UnifiedEmailService {
             return true;
         }
 
-        // Delegate to appropriate provider
-        if (isResendProvider()) {
-            return sendViaResend(to, subject, htmlContent, sender);
-        } else if (isZohoProvider()) {
-            return sendViaZoho(to, subject, htmlContent, sender);
+        // Try Zoho first
+        boolean zohoResult = sendViaZoho(to, subject, htmlContent, sender);
+        if (zohoResult) {
+            logger.info("UnifiedEmailService: Email sent via Zoho to {}", to);
+            logger.info("UnifiedEmailService: Provider used = ZOHO for {}", to);
+            return true;
         } else {
-            logger.error("Unknown email provider: {}. Use 'resend' or 'zoho'", provider);
-            return false;
+            logger.warn("UnifiedEmailService: Zoho failed for {}. Retrying with Resend...", to);
+            boolean resendResult = sendViaResend(to, subject, htmlContent, sender);
+            if (resendResult) {
+                logger.info("UnifiedEmailService: Email sent via Resend to {}", to);
+                logger.info("UnifiedEmailService: Provider used = RESEND for {}", to);
+                return true;
+            } else {
+                logger.error("UnifiedEmailService: Both Zoho and Resend failed for {}", to);
+                return false;
+            }
         }
     }
 
@@ -247,24 +282,31 @@ public class UnifiedEmailService {
      * Send email via Zoho SMTP
      */
     private boolean sendViaZoho(String to, String subject, String htmlContent, String sender) {
-        if (mailSender == null) {
-            logger.error("[ZOHO] JavaMailSender not configured. Check spring.mail.* properties.");
+        JavaMailSender selectedSender = null;
+        if (sender.equalsIgnoreCase(zohoNoReply)) {
+            selectedSender = noReplyMailSender;
+        } else if (sender.equalsIgnoreCase(zohoSupport)) {
+            selectedSender = supportMailSender;
+        } else if (sender.equalsIgnoreCase(zohoInfo)) {
+            selectedSender = infoMailSender;
+        } else {
+            // fallback
+            selectedSender = noReplyMailSender;
+        }
+        if (selectedSender == null) {
+            logger.error("[ZOHO] JavaMailSender not configured for sender {}. Check spring.mail.* properties.", sender);
             return false;
         }
-
         try {
-            MimeMessage message = mailSender.createMimeMessage();
+            MimeMessage message = selectedSender.createMimeMessage();
             MimeMessageHelper helper = new MimeMessageHelper(message, true, "UTF-8");
-
             helper.setFrom(sender);
             helper.setTo(to);
             helper.setSubject(subject);
             helper.setText(htmlContent, true);
-
-            mailSender.send(message);
+            selectedSender.send(message);
             logger.info("[ZOHO] Email sent to: {} from: {}", to, sender);
             return true;
-
         } catch (MessagingException e) {
             logger.error("[ZOHO] Failed to send to {}: {}", to, e.getMessage());
             return false;
@@ -321,7 +363,7 @@ public class UnifiedEmailService {
      */
     public boolean sendPasswordResetEmail(String userEmail, String shortCode) {
         String subject = "Reset Your FarmEazy Password";
-        String resetLink = appBaseUrl + "/r/" + shortCode;
+        String resetLink = resolveEmailUrl("support", "/r/" + shortCode);
         String html = buildPasswordResetEmailHtml(resetLink);
         return sendEmail(userEmail, subject, html, SenderType.SUPPORT);
     }

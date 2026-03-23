@@ -8,6 +8,12 @@ import org.springframework.http.*;
 import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.scheduling.annotation.Async;
 import org.springframework.stereotype.Service;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.mail.javamail.JavaMailSender;
+import org.springframework.mail.SimpleMailMessage;
+import com.farmeazy.dto.CommunicationPreferenceResponseDto;
+import com.farmeazy.entity.CommunicationPreference;
 import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.HttpServerErrorException;
 import org.springframework.web.client.RestTemplate;
@@ -37,34 +43,107 @@ import java.util.concurrent.CompletableFuture;
  */
 @Service
 public class HttpEmailService {
+                /**
+                 * Legacy method for compatibility: sendNotificationEmail(String userEmail, String userName, String subject, String message)
+                 */
+                public boolean sendNotificationEmail(String userEmail, String userName, String subject, String message) {
+                    // Default: use no-reply sender
+                    return sendNoReplyMail(userEmail, subject, message);
+                }
+
+                /**
+                 * Legacy method for compatibility: sendNotificationEmail(String userEmail, String userName, String subject, String message, EmailType emailType)
+                 */
+                public boolean sendNotificationEmail(String userEmail, String userName, String subject, String message, EmailType emailType) {
+                    // Use sender based on EmailType
+                    switch (emailType) {
+                        case SUPPORT:
+                            return sendSupportMail(userEmail, subject, message);
+                        case INFO:
+                            return sendInfoMail(userEmail, subject, message);
+                        case NOREPLY:
+                        default:
+                            return sendNoReplyMail(userEmail, subject, message);
+                    }
+                }
+            @Autowired
+            private CommunicationPreferenceService communicationPreferenceService;
+        private static final Logger auditLogger = LoggerFactory.getLogger("AUDIT_LOGGER");
+    @Autowired
+    @Qualifier("noReplyMailSender")
+    private JavaMailSender noReplySender;
+
+    @Autowired
+    @Qualifier("supportMailSender")
+    private JavaMailSender supportSender;
+
     /**
-     * Send a professional notification email (order failed, payment failed, etc)
-     * Uses default sender (no-reply)
+     * Select appropriate JavaMailSender based on sender type.
+     * Uses NOREPLY sender by default, and SUPPORT sender for support-related emails.
      */
-    public boolean sendNotificationEmail(String userEmail, String userName, String subject, String message) {
-        String html = buildNotificationEmailHtml(userName, subject, message);
-        return sendEmail(userEmail, subject, html);
+    private JavaMailSender getJavaMailSender(SenderType senderType) {
+        return senderType == SenderType.SUPPORT ? supportSender : noReplySender;
+    }
+
+    @Autowired
+    @Qualifier("infoMailSender")
+    private JavaMailSender infoSender;
+
+    /**
+     * Send notification email using no-reply sender
+     */
+    public boolean sendNoReplyMail(String to, String subject, String body) {
+        try {
+            SimpleMailMessage msg = new SimpleMailMessage();
+            msg.setFrom("no-reply@farm-eazy.com");
+            msg.setTo(to);
+            msg.setSubject(subject);
+            msg.setText(body);
+            noReplySender.send(msg);
+            return true;
+        } catch (Exception e) {
+            auditLogger.error("Failed to send no-reply mail", e);
+            return false;
+        }
     }
 
     /**
-     * Send a professional notification email with specific sender type.
-     * Note: HttpEmailService currently uses Resend API with single sender.
-     * EmailType is accepted for API compatibility but sender is determined by Resend config.
-     * 
-     * @param userEmail Recipient email
-     * @param userName Recipient name
-     * @param subject Email subject
-     * @param message Email message
-     * @param emailType Type of email (NOREPLY, INFO, SUPPORT) - for future multi-sender support
+     * Send support email using support sender
      */
-    public boolean sendNotificationEmail(String userEmail, String userName, String subject, String message, EmailType emailType) {
-        // Currently uses same sender for all types - Resend API single sender limitation
-        // EmailType is logged for tracking purposes
-        logger.info("Sending {} notification email to: {}", emailType, userEmail);
-        String html = buildNotificationEmailHtml(userName, subject, message);
-        return sendEmail(userEmail, subject, html);
+    public boolean sendSupportMail(String to, String subject, String body) {
+        try {
+            SimpleMailMessage msg = new SimpleMailMessage();
+            msg.setFrom("support@farm-eazy.com");
+            msg.setTo(to);
+            msg.setSubject(subject);
+            msg.setText(body);
+            supportSender.send(msg);
+            return true;
+        } catch (Exception e) {
+            auditLogger.error("Failed to send support mail", e);
+            return false;
+        }
     }
 
+    /**
+     * Send info email using info sender
+     */
+    public boolean sendInfoMail(String to, String subject, String body) {
+        try {
+            SimpleMailMessage msg = new SimpleMailMessage();
+            msg.setFrom("info@farm-eazy.com");
+            msg.setTo(to);
+            msg.setSubject(subject);
+            msg.setText(body);
+            infoSender.send(msg);
+            return true;
+        } catch (Exception e) {
+            auditLogger.error("Failed to send info mail", e);
+            return false;
+        }
+    }
+
+    // ...existing code...
     // --- STUBS FOR MISSING NOTIFICATION METHODS ---
     public boolean sendProductUpdateConfirmation(String userEmail, String userName, String productName, String category, Double price, Integer quantity, String unit) {
         String subject = "Product Updated Successfully - " + productName;
@@ -130,15 +209,12 @@ public class HttpEmailService {
                                 </tr>
                             </table>
                         </div>
-
                         <div class="info-box">
                             <p><strong>💡 Tip:</strong> Keep your product details updated to attract more buyers!</p>
                         </div>
-
                         <center>
                             <a href="%s/selling" class="button">View My Listings</a>
                         </center>
-
                         <div class="message" style="margin-top: 30px; font-size: 14px; color: #6b7280;">
                             Your product is now live on the marketplace. Buyers searching for "%s" will find your listing.
                         </div>
@@ -154,7 +230,7 @@ public class HttpEmailService {
                 </div>
             </body>
             </html>
-            """, userName, productName, category, price, quantity, unit, appBaseUrl, category, appBaseUrl, appBaseUrl);
+            """, userName, productName, category, price, quantity, unit, appBaseUrl, appBaseUrl, appBaseUrl);
         return sendEmail(userEmail, subject, html);
     }
 
@@ -406,7 +482,7 @@ public class HttpEmailService {
     public boolean sendRefundSuccessNotification(String userEmail, String userName, Long orderId, 
             Long coinsRefunded, java.math.BigDecimal amountRefunded, String refundId, String refundType) {
         String subject = "✅ Refund Processed Successfully - Order #FZ" + orderId;
-        
+        auditLogger.info("EMAIL REQUEST: RefundSuccess | to={}, subject={}, orderId={}, coinsRefunded={}, amountRefunded={}, refundId={}, refundType={}", userEmail, subject, orderId, coinsRefunded, amountRefunded, refundId, refundType);
         String coinsHtml = "";
         if (coinsRefunded != null && coinsRefunded > 0) {
             coinsHtml = String.format("""
@@ -543,6 +619,7 @@ public class HttpEmailService {
     public boolean sendRefundRequestedNotification(String userEmail, String userName, Long orderId, 
             String refundType, String reason) {
         String subject = "📝 Refund Request Received - Order #FZ" + orderId;
+        auditLogger.info("EMAIL REQUEST: RefundRequested | to={}, subject={}, orderId={}, refundType={}, reason={}", userEmail, subject, orderId, refundType, reason);
         String html = String.format("""
             <!DOCTYPE html>
             <html>
@@ -860,7 +937,7 @@ public class HttpEmailService {
                     .greeting { font-size: 18px; color: #111827; margin-bottom: 20px; }
                     .message { color: #4b5563; margin-bottom: 30px; line-height: 1.8; }
                     .details-card { background: white; border-radius: 12px; padding: 25px; margin: 25px 0; box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
-                    .card-title { font-size: 18px; font-weight: 700; color: #7c3aed; margin: 0 0 15px 0; }
+                    .card-title { font-size: 18px; font-weight: 700; color: #8b5cf6; margin: 0 0 15px 0; }
                     table { width: 100%%; border-collapse: collapse; }
                     td { padding: 10px 0; border-bottom: 1px solid #e5e7eb; }
                     td:first-child { color: #6b7280; width: 40%%; }
@@ -1298,6 +1375,11 @@ public class HttpEmailService {
     // --- END STUBS ---
 
     private static final Logger logger = LoggerFactory.getLogger(HttpEmailService.class);
+
+    private String getTraceId() {
+        String traceId = org.slf4j.MDC.get("traceId");
+        return traceId != null ? traceId : "<no-trace>";
+    }
     private static final String RESEND_API_URL = "https://api.resend.com/emails";
     private static final int CONNECT_TIMEOUT_MS = 5000;  // 5 seconds
     private static final int READ_TIMEOUT_MS = 10000;    // 10 seconds
@@ -1328,8 +1410,23 @@ public class HttpEmailService {
     @Value("${farmeazy.mail.local-test-mode:false}")
     private boolean localTestMode;
 
-    @Value("${farmeazy.app.base-url:https://www.farm-eazy.com}")
+    @Value("${farmeazy.app.support-base-url:${FARMEAZY_SUPPORT_BASE_URL:https://support.farm-eazy.com}}")
+    private String supportAppBaseUrl;
+
+    @Value("${farmeazy.app.public-base-url:${FARMEAZY_PUBLIC_BASE_URL:https://www.farm-eazy.com}}")
+    private String publicAppBaseUrl;
+
+    @Value("${farmeazy.app.base-url:${farmeazy.app.public-base-url:${FARMEAZY_PUBLIC_BASE_URL:https://www.farm-eazy.com}}}")
     private String appBaseUrl;
+
+    private String resolveEmailUrl(String option, String path) {
+        String base = null;
+        if ("support".equalsIgnoreCase(option)) base = supportAppBaseUrl;
+        else if ("public".equalsIgnoreCase(option)) base = publicAppBaseUrl;
+        if (base == null || base.isBlank()) base = appBaseUrl;
+        if (base == null || base.isBlank()) base = "https://www.farm-eazy.com";
+        return base.replaceAll("/$", "") + path;
+    }
 
     private final RestTemplate restTemplate;
 
@@ -1381,7 +1478,9 @@ public class HttpEmailService {
      */
     public boolean sendEmail(String to, String subject, String htmlContent, SenderType senderType) {
         String sender = getSenderEmail(senderType);
-        
+        String traceId = getTraceId();
+        logger.info("[traceId={}] EMAIL SEND START | Primary=Zoho | SenderType={} | From={} | To={} | Subject={}", traceId, senderType, sender, to, subject);
+
         if (!emailEnabled) {
             logger.info("Email sending is disabled. Would have sent to: {} from: {}", to, sender);
             throw new EmailDeliveryException(
@@ -1391,28 +1490,34 @@ public class HttpEmailService {
             );
         }
 
-        // LOCAL TEST MODE: Log email to console instead of sending
-        if (localTestMode) {
-            logger.info("\n========== LOCAL TEST MODE - EMAIL ==========\n");
-            logger.info("FROM: {}", sender);
-            logger.info("TO: {}", to);
-            logger.info("SUBJECT: {}", subject);
-            logger.info("CONTENT (HTML stripped):");
-            // Extract any links from the HTML for easy testing
-            java.util.regex.Pattern linkPattern = java.util.regex.Pattern.compile("href=\"([^\"]+)\"");
-            java.util.regex.Matcher matcher = linkPattern.matcher(htmlContent);
-            while (matcher.find()) {
-                logger.info("  LINK: {}", matcher.group(1));
-            }
-            logger.info("\n==============================================\n");
-            return true; // Pretend email was sent successfully
+        // ---- Primary Provider: Zoho SMTP (JavaMailSender) ----
+        JavaMailSender mailSender = getJavaMailSender(senderType);
+        logger.info("[traceId={}] EMAIL SEND (Zoho) - Using mail sender bean for {}", traceId, senderType);
+
+        try {
+            logger.info("[traceId={}] EMAIL SEND (Zoho) - Attempting SMTP send to {}", traceId, to);
+            jakarta.mail.internet.MimeMessage mimeMessage = mailSender.createMimeMessage();
+            org.springframework.mail.javamail.MimeMessageHelper helper = new org.springframework.mail.javamail.MimeMessageHelper(mimeMessage, true, "UTF-8");
+            helper.setFrom(sender);
+            helper.setTo(to);
+            helper.setSubject(subject);
+            helper.setText(htmlContent, true);
+
+            mailSender.send(mimeMessage);
+            logger.info("[traceId={}] EMAIL SEND (Zoho) - Success | To={} | From={}", traceId, to, sender);
+            logger.info("[traceId={}] EMAIL PROVIDER: Zoho | Status=SUCCESS | Recipient={}", traceId, to);
+            return true;
+        } catch (Exception zohoEx) {
+            logger.warn("[traceId={}] EMAIL SEND (Zoho) - Failed for {} | Error={}", traceId, to, zohoEx.getMessage(), zohoEx);
+            logger.info("[traceId={}] EMAIL PROVIDER: Zoho | Status=FAIL | Reason={}", traceId, zohoEx.getMessage());
+            logger.info("[traceId={}] EMAIL SEND - Falling back to Resend for {}", traceId, to);
         }
 
+        // ---- Fallback Provider: Resend HTTP API ----
         String apiKey = System.getenv("RESEND_API_KEY");
         if (apiKey == null || apiKey.isEmpty()) {
             apiKey = resendApiKey;
         }
-
         if (apiKey == null || apiKey.isEmpty()) {
             logger.warn("RESEND_API_KEY not configured. Email not sent to: {}", to);
             throw new EmailDeliveryException(
@@ -1426,14 +1531,15 @@ public class HttpEmailService {
             HttpHeaders headers = new HttpHeaders();
             headers.setContentType(MediaType.APPLICATION_JSON);
             headers.setBearerAuth(apiKey);
-
             Map<String, Object> emailData = new HashMap<>();
             emailData.put("from", sender);
             emailData.put("to", List.of(to));
             emailData.put("subject", subject);
             emailData.put("html", htmlContent);
-
             HttpEntity<Map<String, Object>> request = new HttpEntity<>(emailData, headers);
+
+            logger.info("[traceId={}] EMAIL SEND (Resend) - Sending request to {} | To={} | Subject={}", traceId, RESEND_API_URL, to, subject);
+            logger.debug("[traceId={}] EMAIL SEND (Resend) - Request payload: {}", traceId, emailData);
 
             ResponseEntity<String> response = restTemplate.exchange(
                 RESEND_API_URL,
@@ -1442,45 +1548,28 @@ public class HttpEmailService {
                 String.class
             );
 
+            logger.info("[traceId={}] EMAIL SEND (Resend) - Response Status: {} | To={}", traceId, response.getStatusCode(), to);
+            logger.debug("[traceId={}] EMAIL SEND (Resend) - Response Body: {}", traceId, response.getBody());
+
             if (response.getStatusCode().is2xxSuccessful()) {
-                logger.info("Email sent successfully to: {} from: {}", to, sender);
+                logger.info("[traceId={}] Email sent successfully to: {} from: {}", traceId, to, sender);
+                logger.info("[traceId={}] EMAIL PROVIDER: Resend | Status=SUCCESS | Response={}", traceId, response.getBody());
                 return true;
             } else {
-                logger.error("Failed to send email. Status: {}, Body: {}", 
-                    response.getStatusCode(), response.getBody());
+                logger.error("[traceId={}] Failed to send email. Status: {}, Body: {}", traceId, response.getStatusCode(), response.getBody());
+                logger.error("[traceId={}] EMAIL PROVIDER: Resend | Status=FAIL | Response={}", traceId, response.getBody());
                 throw new EmailDeliveryException(
                     "Failed to send email. Please try again later.",
                     "EMAIL_DELIVERY_FAILED",
                     to
                 );
             }
-
-        } catch (HttpClientErrorException e) {
-            // Handle 4xx errors (domain not verified, invalid API key, etc.)
-            logger.error("Email API client error for {}: {} - {}", to, e.getStatusCode(), e.getResponseBodyAsString());
-            String errorMessage = parseResendErrorMessage(e.getResponseBodyAsString());
-            throw new EmailDeliveryException(
-                errorMessage != null ? errorMessage : "Email service configuration error. Please contact support.",
-                "EMAIL_API_ERROR",
-                to
-            );
-        } catch (HttpServerErrorException e) {
-            // Handle 5xx errors (service unavailable)
-            logger.error("Email API server error for {}: {} - {}", to, e.getStatusCode(), e.getResponseBodyAsString());
-            throw new EmailDeliveryException(
-                "Email service is temporarily unavailable. Please try again later.",
-                "EMAIL_SERVICE_UNAVAILABLE",
-                to
-            );
-        } catch (EmailDeliveryException e) {
-            // Re-throw our own exceptions
-            throw e;
-        } catch (Exception e) {
-            logger.error("Error sending email to {}: {}", to, e.getMessage());
+        } catch (Exception resendEx) {
+            logger.error("[traceId={}] EMAIL SEND (Resend) - Failed for {} | Error={}", traceId, to, resendEx.getMessage(), resendEx);
             throw new EmailDeliveryException(
                 "Unable to send email at this time. Please try again later.",
                 to,
-                e
+                resendEx
             );
         }
     }
@@ -1545,8 +1634,8 @@ public class HttpEmailService {
      */
     public boolean sendPasswordResetEmail(String userEmail, String shortCode) {
         String subject = "Reset Your FarmEazy Password";
-        // Use the redirect URL with short code - the frontend will resolve it to the full JWT token
-        String resetLink = appBaseUrl + "/r/" + shortCode;
+        // Use the support portal URL for reset link so password reset opens admin/support flow.
+        String resetLink = resolveEmailUrl("support", "/r/" + shortCode);
         String html = buildPasswordResetEmailHtml(resetLink);
         return sendEmail(userEmail, subject, html, SenderType.SUPPORT);
     }
@@ -1575,8 +1664,7 @@ public class HttpEmailService {
                     .header { background: linear-gradient(135deg, #22c55e, #16a34a); padding: 30px; text-align: center; border-radius: 10px 10px 0 0; }
                     .header h1 { color: white; margin: 0; font-size: 24px; }
                     .content { background: #f9fafb; padding: 30px; border-radius: 0 0 10px 10px; }
-                    .success-box { background: #dcfce7; border-left: 4px solid #22c55e; padding: 15px; margin: 20px 0; border-radius: 4px; }
-                    .warning-box { background: #fef3c7; border-left: 4px solid #f59e0b; padding: 15px; margin: 20px 0; border-radius: 4px; }
+                    .button { display: inline-block; background: #22c55e; color: white; padding: 12px 30px; text-decoration: none; border-radius: 5px; margin: 20px 0; }
                     .footer { text-align: center; margin-top: 20px; color: #6b7280; font-size: 14px; }
                 </style>
             </head>
@@ -1665,9 +1753,10 @@ public class HttpEmailService {
                     .container { max-width: 600px; margin: 0 auto; padding: 20px; }
                     .header { background: linear-gradient(135deg, #3b82f6, #1d4ed8); padding: 30px; text-align: center; border-radius: 10px 10px 0 0; }
                     .header h1 { color: white; margin: 0; font-size: 24px; }
-                    .content { background: #f9fafb; padding: 30px; border-radius: 0 0 10px 10px; }
-                    .button { display: inline-block; background: #3b82f6; color: white; padding: 12px 30px; text-decoration: none; border-radius: 5px; margin: 20px 0; }
-                    .warning { background: #fef3c7; border-left: 4px solid #f59e0b; padding: 10px 15px; margin: 15px 0; }
+                    .content { background: #f9fafb; padding: 30px; border-radius: 0 0 10px 10px; text-align: center; }
+                    .otp-box { background: white; padding: 20px; border-radius: 8px; margin: 20px 0; }
+                    .otp-code { font-size: 36px; font-weight: bold; color: #8b5cf6; letter-spacing: 8px; }
+                    .warning { background: #fef3c7; border-left: 4px solid #f59e0b; padding: 10px 15px; margin: 15px 0; text-align: left; }
                     .footer { text-align: center; margin-top: 20px; color: #6b7280; font-size: 14px; }
                 </style>
             </head>
@@ -1977,7 +2066,7 @@ public class HttpEmailService {
             ? String.format("<div class=\"price-row discount\"><span>Coin Discount:</span><span>- ₹%s</span></div>", coinsDiscount)
             : "";
 
-        return """
+        return String.format("""
             <!DOCTYPE html>
             <html>
             <head>
@@ -2039,7 +2128,7 @@ public class HttpEmailService {
                 </div>
             </body>
             </html>
-            """.formatted(userName, orderId, subtotal, discountDisplay, taxAmount, finalAmount);
+            """, userName, orderId, subtotal, discountDisplay, taxAmount, finalAmount);
     }
 }
 

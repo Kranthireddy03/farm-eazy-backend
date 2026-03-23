@@ -36,7 +36,7 @@ public class TicketServiceImpl implements TicketService {
         if (ticket.getDisplayId() == null) {
             ticket.setDisplayId("TCK-" + System.currentTimeMillis());
         }
-        if (ticket.getStatus() == null) ticket.setStatus(TicketStatus.OPEN);
+        if (ticket.getStatus() == null) ticket.setStatus("OPEN");
         ticket.setCreatedAt(OffsetDateTime.now());
         ticket.setUpdatedAt(OffsetDateTime.now());
         return ticketRepository.save(ticket);
@@ -98,7 +98,7 @@ public class TicketServiceImpl implements TicketService {
     @Transactional
     public Ticket updateStatus(Long ticketId, TicketStatus status) {
         Ticket ticket = ticketRepository.findById(ticketId).orElseThrow(() -> new RuntimeException("Ticket not found"));
-        ticket.setStatus(status);
+        ticket.setStatus(status != null ? status.name() : null);
         ticket.setUpdatedAt(OffsetDateTime.now());
         return ticketRepository.save(ticket);
     }
@@ -108,7 +108,7 @@ public class TicketServiceImpl implements TicketService {
     public Ticket assign(Long ticketId, Long userId) {
         Ticket ticket = ticketRepository.findById(ticketId).orElseThrow(() -> new RuntimeException("Ticket not found"));
         ticket.setAssignedTo(userId);
-        ticket.setStatus(TicketStatus.ASSIGNED);
+        ticket.setStatus("ASSIGNED");
         ticket.setUpdatedAt(OffsetDateTime.now());
         return ticketRepository.save(ticket);
     }

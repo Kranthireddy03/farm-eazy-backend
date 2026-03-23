@@ -3,7 +3,7 @@ package com.farmeazy.entity;
 
 import jakarta.persistence.*;
 import lombok.Data;
-import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
 
 @Entity
 @Data
@@ -18,11 +18,12 @@ public class FAQCommunication {
     private String recipientEmail;
     @Column(nullable = false)
     private String subject;
-    @Column(nullable = false, length = 4000)
+    @Lob
+    @Column(nullable = false)
     private String body;
     @Column(nullable = false)
     private String purpose; // e.g. "FAQ Addition Notification", "Answer Notification"
-    private LocalDateTime sentAt;
+    private OffsetDateTime sentAt;
 
     public Long getId() { return id; }
     public void setId(Long id) { this.id = id; }
@@ -36,6 +37,6 @@ public class FAQCommunication {
     public void setBody(String body) { this.body = body; }
     public String getPurpose() { return purpose; }
     public void setPurpose(String purpose) { this.purpose = purpose; }
-    public LocalDateTime getSentAt() { return sentAt; }
-    public void setSentAt(LocalDateTime sentAt) { this.sentAt = sentAt; }
+    public OffsetDateTime getSentAt() { return sentAt; }
+    public void setSentAt(OffsetDateTime sentAt) { this.sentAt = sentAt; }
 }

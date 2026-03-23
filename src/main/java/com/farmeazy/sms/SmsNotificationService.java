@@ -42,8 +42,8 @@ public class SmsNotificationService {
         Optional<CommunicationPreference> prefOpt = preferenceRepository.findByUserId(userId);
         
         if (prefOpt.isEmpty()) {
-            logger.debug("No communication preferences found for user {}. Defaulting to email-only.", userId);
-            return false;
+            logger.debug("No communication preferences found for user {}. Defaulting to send SMS (both channels).", userId);
+            return true;
         }
         
         CommunicationPreference pref = prefOpt.get();

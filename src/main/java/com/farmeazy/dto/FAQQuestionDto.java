@@ -7,6 +7,15 @@ import lombok.Data;
 
 @Data
 public class FAQQuestionDto {
+        // Source of the question (e.g., FAQ_PUBLIC_PAGE, ADMIN, etc.)
+        private String source;
+
+        public String getSource() {
+            return source;
+        }
+        public void setSource(String source) {
+            this.source = source;
+        }
     @NotBlank(message = "Question is required")
     @Size(min = 10, max = 1000, message = "Question must be between 10 and 1000 characters")
     private String question;
@@ -18,9 +27,11 @@ public class FAQQuestionDto {
     private String userId;
     // Answer (optional) when question is published to FAQ
     private String answer;
+    private Boolean addedToFAQ;
+    private java.time.OffsetDateTime answeredAt;
     // Database id
     private Long id;
-    private java.time.LocalDateTime submittedAt;
+    private java.time.OffsetDateTime submittedAt;
 
     public String getQuestion() {
         return question;
@@ -62,11 +73,60 @@ public class FAQQuestionDto {
         this.id = id;
     }
 
-    public java.time.LocalDateTime getSubmittedAt() {
+    public java.time.OffsetDateTime getSubmittedAt() {
         return submittedAt;
     }
 
-    public void setSubmittedAt(java.time.LocalDateTime submittedAt) {
+    public void setSubmittedAt(java.time.OffsetDateTime submittedAt) {
         this.submittedAt = submittedAt;
+    }
+
+    public Boolean getAddedToFAQ() {
+        return addedToFAQ;
+    }
+
+    public void setAddedToFAQ(Boolean addedToFAQ) {
+        this.addedToFAQ = addedToFAQ;
+    }
+
+    public java.time.OffsetDateTime getAnsweredAt() {
+        return answeredAt;
+    }
+
+    public void setAnsweredAt(java.time.OffsetDateTime answeredAt) {
+        this.answeredAt = answeredAt;
+    }
+
+    // notificationRead field to match entity
+    private Boolean notificationRead;
+
+    // Conversation history for public detail view
+    private java.util.List<FAQCommunicationDto> communications;
+
+    // Computed workflow status for admin queue handling: PENDING, RESOLVED, REJECTED
+    private String workflowStatus;
+
+    public Boolean isNotificationRead() {
+        return notificationRead;
+    }
+
+    public void setNotificationRead(Boolean notificationRead) {
+        this.notificationRead = notificationRead;
+    }
+
+    public java.util.List<FAQCommunicationDto> getCommunications() {
+        return communications;
+    }
+
+    public void setCommunications(java.util.List<FAQCommunicationDto> communications) {
+        this.communications = communications;
+    }
+
+    public String getWorkflowStatus() {
+        return workflowStatus;
+    }
+
+    public void setWorkflowStatus(String workflowStatus) {
+        this.workflowStatus = workflowStatus;
     }
 }

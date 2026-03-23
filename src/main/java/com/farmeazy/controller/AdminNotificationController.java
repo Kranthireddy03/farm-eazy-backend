@@ -196,7 +196,7 @@ public class AdminNotificationController {
      * GET /api/admin/dashboard/stats
      * Get admin dashboard statistics
      */
-    @GetMapping("/dashboard/stats")
+    @GetMapping("/dashboard/notification-stats")
     public ResponseEntity<Map<String, Object>> getDashboardStats() {
         verifyAdminAndGetUser();
 

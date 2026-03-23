@@ -1,5 +1,6 @@
 package com.farmeazy.controller;
 
+import com.farmeazy.dto.AdminRegisterRequestDto;
 import com.farmeazy.dto.SupportTicketDto;
 import com.farmeazy.dto.SupportTicketResponseDto;
 import com.farmeazy.entity.User;
@@ -11,10 +12,17 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.Authentication;
+import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
+import jakarta.validation.Valid;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.List;
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.Map;
 import java.util.Optional;
 
 @RestController
@@ -23,21 +31,73 @@ import java.util.Optional;
 @Tag(name = "Admin Ticketing Dashboard", description = "Admin dashboard for ticket management and user role control")
 public class AdminTicketingDashboardController {
 
+    private static final Logger logger = LoggerFactory.getLogger(AdminTicketingDashboardController.class);
+
+    private String normalizeStatusOrNull(String status) {
+        if (status == null) return null;
+        String normalized = status.trim().toUpperCase();
+        if (normalized.isEmpty()) return null;
+        try {
+            com.farmeazy.entity.SupportTicket.TicketStatus.valueOf(normalized);
+            return normalized;
+        } catch (IllegalArgumentException ex) {
+            return null;
+        }
+    }
+
     @Autowired
     private SupportTicketService supportTicketService;
 
     @Autowired
     private UserRepository userRepository;
 
+    @Autowired
+    private PasswordEncoder passwordEncoder;
+
     // Register new admin/superadmin (SUPERADMIN only)
     @PostMapping("/register")
     @PreAuthorize("hasRole('SUPERADMIN')")
     @Operation(summary = "Register admin/superadmin", description = "Register a new admin or superadmin with email and password")
-    public ResponseEntity<?> registerAdmin(@RequestBody User user, Authentication authentication) {
-        // Registration logic (validate, encrypt password, assign role, save)
-        user.getRoles().add("ADMIN");
-        userRepository.save(user);
-        return ResponseEntity.ok("Admin registered: " + user.getEmail());
+    public ResponseEntity<?> registerAdmin(@Valid @RequestBody AdminRegisterRequestDto request, Authentication authentication) {
+        String requesterEmail = authentication.getName();
+        String email = request.getEmail().trim().toLowerCase();
+        String username = request.getUsername().trim();
+        String role = request.getRole().trim().toUpperCase();
+
+        if (!"ADMIN".equals(role) && !"SUPERADMIN".equals(role)) {
+            return ResponseEntity.badRequest().body(Map.of("message", "Invalid role. Allowed roles: ADMIN, SUPERADMIN"));
+        }
+
+        if (userRepository.existsByEmail(email)) {
+            return ResponseEntity.badRequest().body(Map.of("message", "Email already exists"));
+        }
+        if (userRepository.existsByUsername(username)) {
+            return ResponseEntity.badRequest().body(Map.of("message", "Username already exists"));
+        }
+        if (request.getPhone() != null && !request.getPhone().isBlank() && userRepository.existsByPhone(request.getPhone().trim())) {
+            return ResponseEntity.badRequest().body(Map.of("message", "Phone already exists"));
+        }
+
+        User user = new User();
+        user.setEmail(email);
+        user.setUsername(username);
+        user.setPassword(passwordEncoder.encode(request.getPassword()));
+        user.setPhone(request.getPhone() != null ? request.getPhone().trim() : null);
+        user.setActive(true);
+
+        java.util.Set<String> roles = new HashSet<>();
+        roles.add(role);
+        user.setRoles(roles);
+
+        User saved = userRepository.save(user);
+        logger.info("AUDIT: Superadmin {} created admin account {} with role {} (userId={})", requesterEmail, saved.getEmail(), role, saved.getId());
+
+        return ResponseEntity.ok(Map.of(
+                "message", "Admin account created successfully",
+                "email", saved.getEmail(),
+                "username", saved.getUsername(),
+                "role", role
+        ));
     }
 
     // Get all tickets
@@ -152,58 +212,64 @@ public class AdminTicketingDashboardController {
     @PreAuthorize("hasAnyRole('ADMIN','SUPERADMIN')")
     @Operation(summary = "Reply with optional attachment", description = "Admin reply with optional file upload")
     public ResponseEntity<SupportTicketResponseDto> replyWithAttachment(@PathVariable String displayId,
-                                                                         @RequestParam(value = "message", required = false) String message,
-                                                                         @RequestParam(value = "file", required = false) MultipartFile file,
-                                                                         Authentication authentication) {
+                                                                        @RequestParam(value = "message", required = false) String message,
+                                                                        @RequestParam(value = "status", required = false) String status,
+                                                                        @RequestParam(value = "file", required = false) MultipartFile file,
+                                                                        @RequestParam(value = "files", required = false) List<MultipartFile> files,
+                                                                        Authentication authentication) {
+        String normalizedStatus = normalizeStatusOrNull(status);
+        if (normalizedStatus == null) {
+            return ResponseEntity.badRequest().body(null);
+        }
         String adminEmail = authentication.getName();
-        return ResponseEntity.ok(supportTicketService.adminReplyWithAttachment(adminEmail, displayId, message, file));
+        List<MultipartFile> attachments = new ArrayList<>();
+        if (files != null) {
+            attachments.addAll(files.stream().filter(f -> f != null && !f.isEmpty()).toList());
+        }
+        if (file != null && !file.isEmpty()) {
+            attachments.add(file);
+        }
+        SupportTicketResponseDto updated = supportTicketService.adminReplyWithAttachments(adminEmail, displayId, message, attachments);
+        try {
+            updated = supportTicketService.setStatusAdmin(displayId, normalizedStatus);
+        } catch (Exception ex) {
+            return ResponseEntity.badRequest().body(null);
+        }
+        return ResponseEntity.ok(updated);
+    }
+
+    @PostMapping(path = "/{displayId}/reply", consumes = {"application/json"})
+    @PreAuthorize("hasAnyRole('ADMIN','SUPERADMIN')")
+    @Operation(summary = "Reply without attachment", description = "Admin reply using JSON body")
+    public ResponseEntity<SupportTicketResponseDto> replyNoAttachment(@PathVariable String displayId,
+                                                                      @RequestBody java.util.Map<String, String> body,
+                                                                      Authentication authentication) {
+        String adminEmail = authentication.getName();
+        String message = body != null ? body.get("message") : null;
+        String status = body != null ? body.get("status") : null;
+        String normalizedStatus = normalizeStatusOrNull(status);
+        if (message == null || message.isBlank()) {
+            return ResponseEntity.badRequest().body(null);
+        }
+        if (normalizedStatus == null) {
+            return ResponseEntity.badRequest().body(null);
+        }
+        SupportTicketResponseDto updated = supportTicketService.adminReplyToTicket(adminEmail, displayId, message);
+        try {
+            updated = supportTicketService.setStatusAdmin(displayId, normalizedStatus);
+        } catch (Exception ex) {
+            return ResponseEntity.badRequest().body(null);
+        }
+        return ResponseEntity.ok(updated);
     }
 
     @GetMapping("/{displayId}/messages")
     @PreAuthorize("hasAnyRole('ADMIN','SUPERADMIN')")
     @Operation(summary = "Get ticket messages", description = "Return conversation messages for a ticket")
     public ResponseEntity<?> getMessages(@PathVariable String displayId) {
-        SupportTicketResponseDto dto = supportTicketService.getTicketByDisplayIdAdmin(displayId);
-        java.util.List<java.util.Map<String, Object>> messages = new java.util.ArrayList<>();
-
-        // User initial message
-        java.util.Map<String, Object> userMsg = new java.util.HashMap<>();
-        userMsg.put("id", "user-" + dto.getDisplayId());
-        userMsg.put("senderName", dto.getContactEmail());
-        userMsg.put("message", dto.getDescription());
-        userMsg.put("createdAt", dto.getCreatedAt());
-        userMsg.put("attachments", java.util.Collections.emptyList());
-        messages.add(userMsg);
-
-        // Admin notes
-        if (dto.getAdminNotes() != null && !dto.getAdminNotes().isBlank()) {
-            java.util.Map<String, Object> adminMsg = new java.util.HashMap<>();
-            adminMsg.put("id", "admin-" + dto.getDisplayId());
-            adminMsg.put("senderName", "Admin");
-            adminMsg.put("message", dto.getAdminNotes());
-            adminMsg.put("createdAt", dto.getUpdatedAt());
-            // Simple parse for attachment lines added by adminUploadAttachment
-            java.util.List<java.util.Map<String, String>> atts = new java.util.ArrayList<>();
-            String[] lines = dto.getAdminNotes().split("\\r?\\n");
-            for (String line : lines) {
-                line = line.trim();
-                if (line.startsWith("Attachment:")) {
-                    // format: Attachment: filename (/uploads/uuid-name)
-                    int paren = line.indexOf('(');
-                    String filename = line.substring("Attachment:".length(), paren > 0 ? paren : line.length()).trim();
-                    String url = paren > 0 ? line.substring(paren + 1, line.length() - 1) : null;
-                    java.util.Map<String, String> m = new java.util.HashMap<>();
-                    m.put("filename", filename);
-                    m.put("url", url != null ? url : "");
-                    atts.add(m);
-                }
-            }
-            adminMsg.put("attachments", atts);
-            messages.add(adminMsg);
-        }
-
+        java.util.List<com.farmeazy.dto.SupportTicketMessageDto> msgs = supportTicketService.getTicketMessages(displayId);
         java.util.Map<String, Object> resp = new java.util.HashMap<>();
-        resp.put("messages", messages);
+        resp.put("messages", msgs);
         return ResponseEntity.ok(resp);
     }
 

@@ -419,6 +419,15 @@ public class AuthController {
         AuthResponseDto response = authService.loginWithOtp(dto.getPhone(), dto.getOtpCode());
         return ResponseEntity.ok(response);
     }
+
+    @PostMapping("/login/change-password-otp")
+    @Operation(summary = "Change password for admin via phone OTP")
+    public ResponseEntity<?> changePasswordWithOtp(@Valid @RequestBody com.farmeazy.dto.ChangePasswordWithOtpDto dto) {
+        authService.changePasswordWithOtp(dto.getPhone(), dto.getOtpCode(), dto.getNewPassword());
+        return ResponseEntity.ok(new java.util.HashMap<String, String>() {{
+            put("message", "Password changed successfully");
+        }});
+    }
 }
 
 

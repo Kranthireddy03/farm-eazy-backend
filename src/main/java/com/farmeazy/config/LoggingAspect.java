@@ -27,6 +27,8 @@ import org.springframework.stereotype.Component;
 @Aspect
 @Component
 public class LoggingAspect {
+    // Track user entry logs per session
+    private static final java.util.Set<String> loggedSessions = java.util.Collections.synchronizedSet(new java.util.HashSet<>());
 
     private static final Logger log = LoggerFactory.getLogger(LoggingAspect.class);
 
@@ -49,18 +51,40 @@ public class LoggingAspect {
     public Object logControllerMethod(ProceedingJoinPoint joinPoint) throws Throwable {
         String className = joinPoint.getSignature().getDeclaringType().getSimpleName();
         String methodName = joinPoint.getSignature().getName();
-        
-        log.info("API_ENTER: {}.{}", className, methodName);
+        Object[] args = joinPoint.getArgs();
+        String user = "anonymous";
+        try {
+            org.springframework.security.core.Authentication auth = org.springframework.security.core.context.SecurityContextHolder.getContext().getAuthentication();
+            if (auth != null && auth.getName() != null) {
+                user = auth.getName();
+            }
+        } catch (Exception ignore) {}
+        // Log user entry only once per session (register/login)
+        if (methodName.equals("register") || methodName.equals("login")) {
+            String sessionId = null;
+            try {
+                org.springframework.web.context.request.RequestAttributes attrs = org.springframework.web.context.request.RequestContextHolder.getRequestAttributes();
+                if (attrs instanceof org.springframework.web.context.request.ServletRequestAttributes) {
+                    org.springframework.web.context.request.ServletRequestAttributes sra = (org.springframework.web.context.request.ServletRequestAttributes) attrs;
+                    sessionId = sra.getSessionId();
+                }
+            } catch (Exception ignore) {}
+            if (sessionId != null && !loggedSessions.contains(sessionId)) {
+                log.info("API_REQUEST: {}.{} user={} args={}", className, methodName, user, java.util.Arrays.toString(args));
+                loggedSessions.add(sessionId);
+            } else if (sessionId == null) {
+                log.info("API_REQUEST: {}.{} user={} args={}", className, methodName, user, java.util.Arrays.toString(args));
+            }
+        }
         long startTime = System.currentTimeMillis();
-        
         try {
             Object result = joinPoint.proceed();
             long duration = System.currentTimeMillis() - startTime;
-            log.info("API_EXIT: {}.{} ({}ms) SUCCESS", className, methodName, duration);
+            log.info("API_RESPONSE: {}.{} user={} duration={}ms", className, methodName, user, duration);
             return result;
         } catch (Throwable ex) {
             long duration = System.currentTimeMillis() - startTime;
-            log.error("API_EXIT: {}.{} ({}ms) FAILED: {}", className, methodName, duration, ex.getMessage());
+            log.error("API_ERROR: {}.{} user={} duration={}ms error={}", className, methodName, user, duration, ex.getMessage());
             throw ex;
         }
     }
@@ -78,17 +102,24 @@ public class LoggingAspect {
             return joinPoint.proceed();
         }
         
-        log.debug("SVC_ENTER: {}.{}", className, methodName);
+        Object[] args = joinPoint.getArgs();
+        String user = "anonymous";
+        try {
+            org.springframework.security.core.Authentication auth = org.springframework.security.core.context.SecurityContextHolder.getContext().getAuthentication();
+            if (auth != null && auth.getName() != null) {
+                user = auth.getName();
+            }
+        } catch (Exception ignore) {}
+        log.info("SERVICE_REQUEST: {}.{} user={} args={}", className, methodName, user, java.util.Arrays.toString(args));
         long startTime = System.currentTimeMillis();
-        
         try {
             Object result = joinPoint.proceed();
             long duration = System.currentTimeMillis() - startTime;
-            log.debug("SVC_EXIT: {}.{} ({}ms) SUCCESS", className, methodName, duration);
+            log.info("SERVICE_RESPONSE: {}.{} user={} duration={}ms", className, methodName, user, duration);
             return result;
         } catch (Throwable ex) {
             long duration = System.currentTimeMillis() - startTime;
-            log.warn("SVC_EXIT: {}.{} ({}ms) FAILED: {}", className, methodName, duration, ex.getMessage());
+            log.error("SERVICE_ERROR: {}.{} user={} duration={}ms error={}", className, methodName, user, duration, ex.getMessage());
             throw ex;
         }
     }

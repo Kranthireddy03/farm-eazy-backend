@@ -7,6 +7,7 @@ import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
+import org.springframework.data.domain.Pageable;
 
 import java.time.LocalDateTime;
 import java.util.List;
@@ -71,12 +72,11 @@ public interface NotificationRepository extends JpaRepository<Notification, Long
     @Query("SELECT n FROM Notification n WHERE " +
            "(n.user = :user OR (n.isBroadcast = true AND (n.dismissedBy IS NULL OR n.dismissedBy NOT LIKE CONCAT('%', :userId, '%')))) " +
            "AND n.expiresAt > :now " +
-           "ORDER BY n.createdAt DESC " +
-           "LIMIT :limit")
+           "ORDER BY n.createdAt DESC")
     List<Notification> findRecentForUser(@Param("user") User user, 
                                          @Param("userId") String userId,
                                          @Param("now") LocalDateTime now,
-                                         @Param("limit") int limit);
+                                         Pageable pageable);
 
     /**
      * Mark all as read for user

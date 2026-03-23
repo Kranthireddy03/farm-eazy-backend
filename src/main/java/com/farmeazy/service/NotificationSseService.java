@@ -1,47 +1,66 @@
 package com.farmeazy.service;
 
+import com.farmeazy.entity.User;
+import com.farmeazy.repository.UserRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
-import org.springframework.web.server.ResponseStatusException;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
 import java.io.IOException;
 import java.time.Instant;
 import java.util.*;
-import java.util.concurrent.CopyOnWriteArraySet;
 
 @Service
 public class NotificationSseService {
     private static final Logger log = LoggerFactory.getLogger(NotificationSseService.class);
+    private static final java.util.Set<String> ADMIN_ROLES = java.util.Set.of("ADMIN", "SUPERADMIN");
+
     private final Map<String, EmitterInfo> emitters = new java.util.concurrent.ConcurrentHashMap<>();
     private final ObjectMapper mapper = new ObjectMapper();
+    private final UserRepository userRepository;
+
     // last payload sent (JSON string) for debugging
     private volatile String lastPayloadJson = "";
 
-    // token -> expiryEpochMillis
-    private final Map<String, Long> tokenStore = Collections.synchronizedMap(new HashMap<>());
+    // token -> token metadata
+    private final Map<String, TokenInfo> tokenStore = Collections.synchronizedMap(new HashMap<>());
+
+    public NotificationSseService(UserRepository userRepository) {
+        this.userRepository = userRepository;
+    }
+
+    private static class TokenInfo {
+        final String username;
+        final long expiryEpochMillis;
+
+        TokenInfo(String username, long expiryEpochMillis) {
+            this.username = username;
+            this.expiryEpochMillis = expiryEpochMillis;
+        }
+    }
 
     private static class EmitterInfo {
         final String id;
         final SseEmitter emitter;
+        final String owner;
         final long createdAt;
         volatile long lastSentAt;
 
-        EmitterInfo(String id, SseEmitter emitter) {
+        EmitterInfo(String id, SseEmitter emitter, String owner) {
             this.id = id;
             this.emitter = emitter;
+            this.owner = owner;
             this.createdAt = Instant.now().toEpochMilli();
             this.lastSentAt = 0L;
         }
     }
 
-    public SseEmitter createEmitter() {
+    public SseEmitter createEmitter(String ownerUsername) {
         SseEmitter emitter = new SseEmitter(Long.MAX_VALUE);
         String id = UUID.randomUUID().toString();
-        EmitterInfo info = new EmitterInfo(id, emitter);
+        EmitterInfo info = new EmitterInfo(id, emitter, ownerUsername);
         emitters.put(id, info);
 
         emitter.onCompletion(() -> {
@@ -61,23 +80,35 @@ public class NotificationSseService {
     }
 
     public String createTokenForUser(String username, long ttlMillis) {
+        cleanupExpiredTokens();
         String token = UUID.randomUUID().toString();
         long expiry = Instant.now().toEpochMilli() + ttlMillis;
-        tokenStore.put(token, expiry);
+        tokenStore.put(token, new TokenInfo(username, expiry));
         return token;
     }
 
-    public boolean validateAndConsumeToken(String token) {
-        if (token == null) return false;
-        Long expiry = tokenStore.get(token);
-        if (expiry == null) return false;
-        if (Instant.now().toEpochMilli() > expiry) {
-            tokenStore.remove(token);
-            return false;
-        }
-        // consume token so it cannot be reused
-        tokenStore.remove(token);
-        return true;
+    private void cleanupExpiredTokens() {
+        long now = Instant.now().toEpochMilli();
+        tokenStore.entrySet().removeIf(entry -> entry.getValue() == null || now > entry.getValue().expiryEpochMillis);
+    }
+
+    public java.util.Optional<String> validateAndConsumeToken(String token) {
+        if (token == null || token.isBlank()) return java.util.Optional.empty();
+
+        TokenInfo info = tokenStore.remove(token); // consume token so it cannot be reused
+        if (info == null) return java.util.Optional.empty();
+        if (Instant.now().toEpochMilli() > info.expiryEpochMillis) return java.util.Optional.empty();
+
+        java.util.Optional<User> userOpt = userRepository.findByEmail(info.username);
+        if (userOpt.isEmpty()) return java.util.Optional.empty();
+
+        User user = userOpt.get();
+        if (!Boolean.TRUE.equals(user.getActive())) return java.util.Optional.empty();
+
+        boolean hasAdminRole = user.getRoles() != null && user.getRoles().stream().anyMatch(ADMIN_ROLES::contains);
+        if (!hasAdminRole) return java.util.Optional.empty();
+
+        return java.util.Optional.of(info.username);
     }
 
     public void sendNotifications(Object payload) {
@@ -120,6 +151,7 @@ public class NotificationSseService {
         for (EmitterInfo info : emitters.values()) {
             details.add(Map.of(
                     "id", info.id,
+                    "owner", info.owner,
                     "createdAt", info.createdAt,
                     "lastSentAt", info.lastSentAt
             ));

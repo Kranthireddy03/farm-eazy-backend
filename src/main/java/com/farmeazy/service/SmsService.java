@@ -7,6 +7,9 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.*;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
+import org.springframework.beans.factory.annotation.Autowired;
+import com.farmeazy.dto.CommunicationPreferenceResponseDto;
+import com.farmeazy.entity.CommunicationPreference;
 
 /**
  * SMS SERVICE - FarmEazy SMS Communication Hub
@@ -38,15 +41,20 @@ import org.springframework.web.client.RestTemplate;
  */
 @Service
 public class SmsService {
+        @Autowired
+        private CommunicationPreferenceService communicationPreferenceService;
+    private static final Logger auditLogger = LoggerFactory.getLogger("AUDIT_LOGGER");
 
     private static final Logger logger = LoggerFactory.getLogger(SmsService.class);
 
     @Value("${msg91.authKey:}")
     private String authKey;
 
-    // Sender IDs - FRMZOT for OTP, FMEAZY for transactional
-    private static final String SENDER_ID_OTP = "FRMZOT";
-    private static final String SENDER_ID_TRANSACTIONAL = "FMEAZY";
+    // Sender IDs - configurable via application.properties
+    @Value("${msg91.senderId.otp:FRMZOT}")
+    private String SENDER_ID_OTP;
+    @Value("${msg91.senderId.transactional:FMEAZY}")
+    private String SENDER_ID_TRANSACTIONAL;
 
     // ========== TEMPLATE IDs (8 DLT-Approved Templates) ==========
     
@@ -123,14 +131,32 @@ public class SmsService {
      * Variables: otp, time
      */
     public SmsResponseDto sendOtp(String phoneNumber, String otp) {
+        // Allow SMS for registration even if user preferences are missing
+        StackTraceElement[] stack = Thread.currentThread().getStackTrace();
+        boolean isRegistration = false;
+        for (StackTraceElement elem : stack) {
+            if (elem.getClassName().contains("OtpService") && elem.getMethodName().contains("generateAndSendOtpWithDetails")) {
+                isRegistration = true;
+                break;
+            }
+        }
+        if (!isRegistration) {
+            CommunicationPreferenceResponseDto prefs = communicationPreferenceService.getPreferences(phoneNumber);
+            if (prefs == null || !prefs.getOtpChannel().equals(CommunicationPreference.CommunicationChannel.SMS_ONLY) && !prefs.getOtpChannel().equals(CommunicationPreference.CommunicationChannel.BOTH)) {
+                logger.info("SMS not sent due to user preference (OTP)");
+                return SmsResponseDto.failure("OTP", "User preference: SMS not allowed for OTP", "SMS not allowed for OTP");
+            }
+        }
         return sendOtp(phoneNumber, otp, "10"); // Default 10 minutes validity
     }
 
     public SmsResponseDto sendOtp(String phoneNumber, String otp, String validityMinutes) {
-        logger.info("SMS_LOGIN_OTP: Sending OTP to {}", maskPhone(phoneNumber));
-        String variables = String.format("{\"otp\":\"%s\",\"time\":\"%s\"}", 
-            sanitize(otp), sanitize(validityMinutes));
-        return sendFlowSms(phoneNumber, otpTemplateId, variables, "LOGIN_OTP", SENDER_ID_OTP);
+        logger.info("SMS_LOGIN_OTP: Sending OTP to {} | message='Your FARMEAZY OTP is {}. It is valid for {} minutes. Do not share.' | params={{otp={}, time={}}}", maskPhone(phoneNumber), sanitize(otp), sanitize(validityMinutes), sanitize(otp), sanitize(validityMinutes));
+        String variables = String.format("{\"otp\":\"%s\",\"time\":\"%s\"}", sanitize(otp), sanitize(validityMinutes));
+        auditLogger.info("SMS REQUEST: LOGIN_OTP | phone={}, variables={}", maskPhone(phoneNumber), variables);
+        SmsResponseDto response = sendFlowSms(phoneNumber, otpTemplateId, variables, "LOGIN_OTP", SENDER_ID_OTP);
+        auditLogger.info("SMS RESPONSE: LOGIN_OTP | phone={}, success={}, message={}", maskPhone(phoneNumber), response.isSuccess(), response.getMessage());
+        return response;
     }
 
     /**
@@ -139,10 +165,12 @@ public class SmsService {
      * Variables: otp, time
      */
     public SmsResponseDto sendPasswordResetOtp(String phoneNumber, String otp, String validityMinutes) {
-        logger.info("SMS_PASSWORD_RESET: Sending password reset OTP to {}", maskPhone(phoneNumber));
-        String variables = String.format("{\"otp\":\"%s\",\"time\":\"%s\"}", 
-            sanitize(otp), sanitize(validityMinutes));
-        return sendFlowSms(phoneNumber, passwordResetTemplateId, variables, "PASSWORD_RESET_OTP", SENDER_ID_OTP);
+        logger.info("SMS_PASSWORD_RESET: Sending password reset OTP to {} | message='Your FARMEAZY password reset OTP is {}. It is valid for {} minutes.' | params={{otp={}, time={}}}", maskPhone(phoneNumber), sanitize(otp), sanitize(validityMinutes), sanitize(otp), sanitize(validityMinutes));
+        String variables = String.format("{\"otp\":\"%s\",\"time\":\"%s\"}", sanitize(otp), sanitize(validityMinutes));
+        auditLogger.info("SMS REQUEST: PASSWORD_RESET_OTP | phone={}, variables={}", maskPhone(phoneNumber), variables);
+        SmsResponseDto response = sendFlowSms(phoneNumber, passwordResetTemplateId, variables, "PASSWORD_RESET_OTP", SENDER_ID_OTP);
+        auditLogger.info("SMS RESPONSE: PASSWORD_RESET_OTP | phone={}, success={}, message={}", maskPhone(phoneNumber), response.isSuccess(), response.getMessage());
+        return response;
     }
 
     /**
@@ -151,10 +179,17 @@ public class SmsService {
      * Variables: user, rupees, orderID
      */
     public SmsResponseDto sendPaymentSuccess(String phoneNumber, String userName, String amount, String orderId) {
-        logger.info("SMS_PAYMENT_SUCCESS: ₹{} for order {} to {}", amount, orderId, maskPhone(phoneNumber));
-        String variables = String.format("{\"user\":\"%s\",\"rupees\":\"%s\",\"orderID\":\"%s\"}", 
-            sanitize(userName), sanitize(amount), sanitize(orderId));
-        return sendFlowSms(phoneNumber, paymentSuccessTemplateId, variables, "PAYMENT_SUCCESS", SENDER_ID_TRANSACTIONAL);
+        CommunicationPreferenceResponseDto prefs = communicationPreferenceService.getPreferences(phoneNumber);
+        if (prefs == null || !prefs.getOrderChannel().equals(CommunicationPreference.CommunicationChannel.SMS_ONLY) && !prefs.getOrderChannel().equals(CommunicationPreference.CommunicationChannel.BOTH)) {
+            logger.info("SMS not sent due to user preference (PAYMENT_SUCCESS)");
+            return SmsResponseDto.failure("PAYMENT_SUCCESS", "User preference: SMS not allowed for PAYMENT_SUCCESS", "SMS not allowed for PAYMENT_SUCCESS");
+        }
+        logger.info("SMS_PAYMENT_SUCCESS: ₹{} for order {} to {} | message='Hi {}, payment of Rs {} for order {} was successful.' | params={{user={}, rupees={}, orderID={}}}", sanitize(amount), sanitize(orderId), maskPhone(phoneNumber), sanitize(userName), sanitize(amount), sanitize(orderId), sanitize(userName), sanitize(amount), sanitize(orderId));
+        String variables = String.format("{\"user\":\"%s\",\"rupees\":\"%s\",\"orderID\":\"%s\"}", sanitize(userName), sanitize(amount), sanitize(orderId));
+        auditLogger.info("SMS REQUEST: PAYMENT_SUCCESS | phone={}, variables={}", maskPhone(phoneNumber), variables);
+        SmsResponseDto response = sendFlowSms(phoneNumber, paymentSuccessTemplateId, variables, "PAYMENT_SUCCESS", SENDER_ID_TRANSACTIONAL);
+        auditLogger.info("SMS RESPONSE: PAYMENT_SUCCESS | phone={}, success={}, message={}", maskPhone(phoneNumber), response.isSuccess(), response.getMessage());
+        return response;
     }
 
     /**
@@ -163,10 +198,12 @@ public class SmsService {
      * Variables: user, orderID
      */
     public SmsResponseDto sendPaymentFailed(String phoneNumber, String userName, String orderId) {
-        logger.info("SMS_PAYMENT_FAILED: Order {} failed for {}", orderId, maskPhone(phoneNumber));
-        String variables = String.format("{\"user\":\"%s\",\"orderID\":\"%s\"}", 
-            sanitize(userName), sanitize(orderId));
-        return sendFlowSms(phoneNumber, paymentFailedTemplateId, variables, "PAYMENT_FAILED", SENDER_ID_TRANSACTIONAL);
+        logger.info("SMS_PAYMENT_FAILED: Order {} failed for {} | message='Hi {}, your payment for order {} could not be completed.' | params={{user={}, orderID={}}}", sanitize(orderId), maskPhone(phoneNumber), sanitize(userName), sanitize(orderId), sanitize(userName), sanitize(orderId));
+        String variables = String.format("{\"user\":\"%s\",\"orderID\":\"%s\"}", sanitize(userName), sanitize(orderId));
+        auditLogger.info("SMS REQUEST: PAYMENT_FAILED | phone={}, variables={}", maskPhone(phoneNumber), variables);
+        SmsResponseDto response = sendFlowSms(phoneNumber, paymentFailedTemplateId, variables, "PAYMENT_FAILED", SENDER_ID_TRANSACTIONAL);
+        auditLogger.info("SMS RESPONSE: PAYMENT_FAILED | phone={}, success={}, message={}", maskPhone(phoneNumber), response.isSuccess(), response.getMessage());
+        return response;
     }
 
     /**
@@ -175,9 +212,17 @@ public class SmsService {
      * Variables: user
      */
     public SmsResponseDto sendWelcome(String phoneNumber, String userName) {
-        logger.info("SMS_WELCOME: Sending welcome to {}", maskPhone(phoneNumber));
+        CommunicationPreferenceResponseDto prefs = communicationPreferenceService.getPreferences(phoneNumber);
+        if (prefs == null || !prefs.getMarketingChannel().equals(CommunicationPreference.CommunicationChannel.SMS_ONLY) && !prefs.getMarketingChannel().equals(CommunicationPreference.CommunicationChannel.BOTH)) {
+            logger.info("SMS not sent due to user preference (WELCOME)");
+            return SmsResponseDto.failure("WELCOME", "User preference: SMS not allowed for WELCOME", "SMS not allowed for WELCOME");
+        }
+        logger.info("SMS_WELCOME: Sending welcome to {} | message='Welcome to FARMEAZY, {}! Your account has been created successfully.' | params={{user={}}}", maskPhone(phoneNumber), sanitize(userName), sanitize(userName));
         String variables = String.format("{\"user\":\"%s\"}", sanitize(userName));
-        return sendFlowSms(phoneNumber, welcomeTemplateId, variables, "WELCOME", SENDER_ID_TRANSACTIONAL);
+        auditLogger.info("SMS REQUEST: WELCOME | phone={}, variables={}", maskPhone(phoneNumber), variables);
+        SmsResponseDto response = sendFlowSms(phoneNumber, welcomeTemplateId, variables, "WELCOME", SENDER_ID_TRANSACTIONAL);
+        auditLogger.info("SMS RESPONSE: WELCOME | phone={}, success={}, message={}", maskPhone(phoneNumber), response.isSuccess(), response.getMessage());
+        return response;
     }
 
     /**
@@ -186,10 +231,12 @@ public class SmsService {
      * Variables: user, BookingID
      */
     public SmsResponseDto sendBookingCancelled(String phoneNumber, String userName, String bookingId) {
-        logger.info("SMS_BOOKING_CANCELLED: Booking {} cancelled for {}", bookingId, maskPhone(phoneNumber));
-        String variables = String.format("{\"user\":\"%s\",\"BookingID\":\"%s\"}", 
-            sanitize(userName), sanitize(bookingId));
-        return sendFlowSms(phoneNumber, bookingCancelledTemplateId, variables, "BOOKING_CANCELLED", SENDER_ID_TRANSACTIONAL);
+        logger.info("SMS_BOOKING_CANCELLED: Booking {} cancelled for {} | message='Hi {}, your booking {} has been cancelled. Please contact support.' | params={{user={}, BookingID={}}}", sanitize(bookingId), maskPhone(phoneNumber), sanitize(userName), sanitize(bookingId), sanitize(userName), sanitize(bookingId));
+        String variables = String.format("{\"user\":\"%s\",\"BookingID\":\"%s\"}", sanitize(userName), sanitize(bookingId));
+        auditLogger.info("SMS REQUEST: BOOKING_CANCELLED | phone={}, variables={}", maskPhone(phoneNumber), variables);
+        SmsResponseDto response = sendFlowSms(phoneNumber, bookingCancelledTemplateId, variables, "BOOKING_CANCELLED", SENDER_ID_TRANSACTIONAL);
+        auditLogger.info("SMS RESPONSE: BOOKING_CANCELLED | phone={}, success={}, message={}", maskPhone(phoneNumber), response.isSuccess(), response.getMessage());
+        return response;
     }
 
     /**
@@ -198,10 +245,12 @@ public class SmsService {
      * Variables: user, serviceId
      */
     public SmsResponseDto sendServiceCompleted(String phoneNumber, String userName, String serviceId) {
-        logger.info("SMS_SERVICE_COMPLETED: Service {} completed for {}", serviceId, maskPhone(phoneNumber));
-        String variables = String.format("{\"user\":\"%s\",\"serviceId\":\"%s\"}", 
-            sanitize(userName), sanitize(serviceId));
-        return sendFlowSms(phoneNumber, serviceCompletedTemplateId, variables, "SERVICE_COMPLETED", SENDER_ID_TRANSACTIONAL);
+        logger.info("SMS_SERVICE_COMPLETED: Service {} completed for {} | message='Hi {}, your service {} has been completed successfully.' | params={{user={}, serviceId={}}}", sanitize(serviceId), maskPhone(phoneNumber), sanitize(userName), sanitize(serviceId), sanitize(userName), sanitize(serviceId));
+        String variables = String.format("{\"user\":\"%s\",\"serviceId\":\"%s\"}", sanitize(userName), sanitize(serviceId));
+        auditLogger.info("SMS REQUEST: SERVICE_COMPLETED | phone={}, variables={}", maskPhone(phoneNumber), variables);
+        SmsResponseDto response = sendFlowSms(phoneNumber, serviceCompletedTemplateId, variables, "SERVICE_COMPLETED", SENDER_ID_TRANSACTIONAL);
+        auditLogger.info("SMS RESPONSE: SERVICE_COMPLETED | phone={}, success={}, message={}", maskPhone(phoneNumber), response.isSuccess(), response.getMessage());
+        return response;
     }
 
     /**
@@ -210,10 +259,12 @@ public class SmsService {
      * Variables: IrrigationId, farm
      */
     public SmsResponseDto sendIrrigationReminder(String phoneNumber, String irrigationId, String farmName) {
-        logger.info("SMS_IRRIGATION: Sending reminder for {} to {}", irrigationId, maskPhone(phoneNumber));
-        String variables = String.format("{\"IrrigationId\":\"%s\",\"farm\":\"%s\"}", 
-            sanitize(irrigationId), sanitize(farmName));
-        return sendFlowSms(phoneNumber, irrigationTemplateId, variables, "IRRIGATION_REMINDER", SENDER_ID_TRANSACTIONAL);
+        logger.info("SMS_IRRIGATION: Sending reminder for {} to {} | message='Reminder: Irrigation is due for {} crop in your farm {}.' | params={{IrrigationId={}, farm={}}}", sanitize(irrigationId), maskPhone(phoneNumber), sanitize(irrigationId), sanitize(farmName), sanitize(irrigationId), sanitize(farmName));
+        String variables = String.format("{\"IrrigationId\":\"%s\",\"farm\":\"%s\"}", sanitize(irrigationId), sanitize(farmName));
+        auditLogger.info("SMS REQUEST: IRRIGATION_REMINDER | phone={}, variables={}", maskPhone(phoneNumber), variables);
+        SmsResponseDto response = sendFlowSms(phoneNumber, irrigationTemplateId, variables, "IRRIGATION_REMINDER", SENDER_ID_TRANSACTIONAL);
+        auditLogger.info("SMS RESPONSE: IRRIGATION_REMINDER | phone={}, success={}, message={}", maskPhone(phoneNumber), response.isSuccess(), response.getMessage());
+        return response;
     }
 
     /**
@@ -223,9 +274,11 @@ public class SmsService {
      */
     public SmsResponseDto sendBankDetailsOtp(String phoneNumber, String action, String otp, String validityMinutes) {
         logger.info("SMS_BANK_DETAILS_OTP: Sending bank {} OTP to {}", action, maskPhone(phoneNumber));
-        String variables = String.format("{\"value\":\"%s\",\"otp\":\"%s\",\"time\":\"%s\"}", 
-            sanitize(action), sanitize(otp), sanitize(validityMinutes));
-        return sendFlowSms(phoneNumber, bankDetailsOtpTemplateId, variables, "BANK_DETAILS_ACTION_OTP", SENDER_ID_OTP);
+        String variables = String.format("{\"value\":\"%s\",\"otp\":\"%s\",\"time\":\"%s\"}", sanitize(action), sanitize(otp), sanitize(validityMinutes));
+        auditLogger.info("SMS REQUEST: BANK_DETAILS_ACTION_OTP | phone={}, variables={}", maskPhone(phoneNumber), variables);
+        SmsResponseDto response = sendFlowSms(phoneNumber, bankDetailsOtpTemplateId, variables, "BANK_DETAILS_ACTION_OTP", SENDER_ID_OTP);
+        auditLogger.info("SMS RESPONSE: BANK_DETAILS_ACTION_OTP | phone={}, success={}, message={}", maskPhone(phoneNumber), response.isSuccess(), response.getMessage());
+        return response;
     }
 
     /**
@@ -236,7 +289,10 @@ public class SmsService {
     public SmsResponseDto sendBankDetailsAlert(String phoneNumber, String action) {
         logger.info("SMS_BANK_DETAILS_ALERT: Sending bank {} alert to {}", action, maskPhone(phoneNumber));
         String variables = String.format("{\"value\":\"%s\"}", sanitize(action));
-        return sendFlowSms(phoneNumber, bankDetailsAlertTemplateId, variables, "BANK_DETAILS_UPDATE_ALERT", SENDER_ID_TRANSACTIONAL);
+        auditLogger.info("SMS REQUEST: BANK_DETAILS_UPDATE_ALERT | phone={}, variables={}", maskPhone(phoneNumber), variables);
+        SmsResponseDto response = sendFlowSms(phoneNumber, bankDetailsAlertTemplateId, variables, "BANK_DETAILS_UPDATE_ALERT", SENDER_ID_TRANSACTIONAL);
+        auditLogger.info("SMS RESPONSE: BANK_DETAILS_UPDATE_ALERT | phone={}, success={}, message={}", maskPhone(phoneNumber), response.isSuccess(), response.getMessage());
+        return response;
     }
 
     /**
@@ -246,9 +302,11 @@ public class SmsService {
      */
     public SmsResponseDto sendBookingConfirm(String phoneNumber, String userName, String orderId) {
         logger.info("SMS_BOOKING_CONFIRM: Booking {} confirmed for {}", orderId, maskPhone(phoneNumber));
-        String variables = String.format("{\"user\":\"%s\",\"orderID\":\"%s\"}", 
-            sanitize(userName), sanitize(orderId));
-        return sendFlowSms(phoneNumber, bookingConfirmTemplateId, variables, "BOOKING_CONFIRM", SENDER_ID_TRANSACTIONAL);
+        String variables = String.format("{\"user\":\"%s\",\"orderID\":\"%s\"}", sanitize(userName), sanitize(orderId));
+        auditLogger.info("SMS REQUEST: BOOKING_CONFIRM | phone={}, variables={}", maskPhone(phoneNumber), variables);
+        SmsResponseDto response = sendFlowSms(phoneNumber, bookingConfirmTemplateId, variables, "BOOKING_CONFIRM", SENDER_ID_TRANSACTIONAL);
+        auditLogger.info("SMS RESPONSE: BOOKING_CONFIRM | phone={}, success={}, message={}", maskPhone(phoneNumber), response.isSuccess(), response.getMessage());
+        return response;
     }
 
     /**
@@ -258,9 +316,11 @@ public class SmsService {
      */
     public SmsResponseDto sendServiceStarted(String phoneNumber, String userName, String serviceId) {
         logger.info("SMS_SERVICE_STARTED: Service {} started for {}", serviceId, maskPhone(phoneNumber));
-        String variables = String.format("{\"user\":\"%s\",\"serviceID\":\"%s\"}", 
-            sanitize(userName), sanitize(serviceId));
-        return sendFlowSms(phoneNumber, serviceStartedTemplateId, variables, "SERVICE_STARTED", SENDER_ID_TRANSACTIONAL);
+        String variables = String.format("{\"user\":\"%s\",\"serviceID\":\"%s\"}", sanitize(userName), sanitize(serviceId));
+        auditLogger.info("SMS REQUEST: SERVICE_STARTED | phone={}, variables={}", maskPhone(phoneNumber), variables);
+        SmsResponseDto response = sendFlowSms(phoneNumber, serviceStartedTemplateId, variables, "SERVICE_STARTED", SENDER_ID_TRANSACTIONAL);
+        auditLogger.info("SMS RESPONSE: SERVICE_STARTED | phone={}, success={}, message={}", maskPhone(phoneNumber), response.isSuccess(), response.getMessage());
+        return response;
     }
 
     /**

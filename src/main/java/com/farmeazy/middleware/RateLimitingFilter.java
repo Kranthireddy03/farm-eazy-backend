@@ -26,10 +26,13 @@ public class RateLimitingFilter extends OncePerRequestFilter {
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
             throws ServletException, IOException {
         String path = request.getRequestURI();
-        if (path.startsWith("/api/auth/login") || path.startsWith("/api/auth/register")) {
+        boolean isLoginEndpoint = "/api/auth/login".equals(path);
+        boolean isRegisterEndpoint = "/api/auth/register".equals(path);
+        if (isLoginEndpoint || isRegisterEndpoint) {
             String ip = request.getRemoteAddr();
+            String limitKey = ip + "::" + path;
             long now = Instant.now().toEpochMilli();
-            RequestCounter counter = attempts.computeIfAbsent(ip, k -> new RequestCounter());
+            RequestCounter counter = attempts.computeIfAbsent(limitKey, k -> new RequestCounter());
             synchronized (counter) {
                 if (now - counter.windowStart > WINDOW_MILLIS) {
                     counter.windowStart = now;
@@ -38,6 +41,7 @@ public class RateLimitingFilter extends OncePerRequestFilter {
                 counter.count++;
                 if (counter.count > MAX_ATTEMPTS) {
                     response.setStatus(429);
+                    response.setHeader("Retry-After", "60");
                     response.getWriter().write("Too many requests. Please try again later.");
                     return;
                 }

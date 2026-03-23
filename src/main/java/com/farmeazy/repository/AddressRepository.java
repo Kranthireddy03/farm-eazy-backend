@@ -13,4 +13,7 @@ public interface AddressRepository extends JpaRepository<Address, Long> {
     List<Address> findByUserOrderByCreatedAtDesc(User user);
     Optional<Address> findByIdAndUser(Long id, User user);
     Optional<Address> findByUserAndIsDefaultTrue(User user);
+
+    @org.springframework.data.jpa.repository.Query("SELECT COUNT(DISTINCT a.state) FROM Address a WHERE a.state IS NOT NULL")
+    long countDistinctStates();
 }

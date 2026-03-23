@@ -86,10 +86,15 @@ public class OtpService {
         SmsResponseDto smsResponse = null;
         if (dto.getPhone() != null && !dto.getPhone().isBlank()) {
             if (smsService.isConfigured()) {
-                smsResponse = smsService.sendOtp(dto.getPhone(), otpCode);
-                if (smsResponse.isSuccess()) {
-                    sentVia.add("SMS");
-                } else {
+                try {
+                    smsResponse = smsService.sendOtp(dto.getPhone(), otpCode);
+                    if (smsResponse != null && smsResponse.isSuccess()) {
+                        sentVia.add("SMS");
+                    } else {
+                        failedVia.add("SMS");
+                    }
+                } catch (Exception e) {
+                    logger.warn("OTP_SMS_EXCEPTION: Failed to send SMS OTP for {}: {}", dto.getPhone(), e.getMessage());
                     failedVia.add("SMS");
                 }
             } else {
@@ -111,7 +116,15 @@ public class OtpService {
         } else {
             String channels = String.join(" and ", sentVia);
             response.setMessage("OTP sent successfully via " + channels + ".");
-            response.setDisplayMessage("OTP sent to your " + channels.toLowerCase() + ". Please check and enter the code.");
+
+            if (sentVia.contains("Email") && failedVia.contains("SMS")) {
+                response.setDisplayMessage("OTP sent via email. SMS delivery failed; please retry if you need SMS.");
+            } else if (sentVia.contains("SMS") && failedVia.contains("Email")) {
+                response.setDisplayMessage("OTP sent via SMS. Email delivery failed; please check your email if you need it.");
+            } else {
+                response.setDisplayMessage("OTP sent to your " + channels.toLowerCase() + ". Please check and enter the code.");
+            }
+
             logger.info("OTP_SENT: Delivered via {} to {}", channels, dto.getEmail());
         }
         
@@ -187,6 +200,44 @@ public class OtpService {
         otp.setVerifiedAt(LocalDateTime.now());
         otpRepository.save(otp);
         logger.info("OTP_VERIFIED: email={}, purpose={}", dto.getEmail(), dto.getPurpose());
+
+        // Send welcome email and SMS after registration OTP verification
+        if ("REGISTRATION".equalsIgnoreCase(dto.getPurpose())) {
+            // Try to fetch user by email
+            userRepository.findByEmail(dto.getEmail()).ifPresent(user -> {
+                try {
+                    httpEmailService.sendWelcomeEmailAsync(user.getEmail(), user.getUsername());
+                } catch (Exception e) {
+                    logger.warn("Failed to send welcome email: {}", e.getMessage());
+                }
+                try {
+                    SmsResponseDto smsResponse = smsService.sendWelcome(user.getPhone(), user.getUsername());
+                    if (!smsResponse.isSuccess()) {
+                        logger.warn("Welcome SMS failed for {}: {} (display: {})", user.getPhone(), smsResponse.getMessage(), smsResponse.getDisplayMessage());
+                    }
+                } catch (Exception e) {
+                    logger.warn("Failed to send welcome SMS: {}", e.getMessage());
+                }
+            });
+            // Also handle phone-based registration (if phone is present)
+            if (dto.getPhone() != null && !dto.getPhone().isBlank()) {
+                userRepository.findByPhone(dto.getPhone()).ifPresent(user -> {
+                    try {
+                        httpEmailService.sendWelcomeEmailAsync(user.getEmail(), user.getUsername());
+                    } catch (Exception e) {
+                        logger.warn("Failed to send welcome email (phone-based): {}", e.getMessage());
+                    }
+                    try {
+                        SmsResponseDto smsResponse = smsService.sendWelcome(user.getPhone(), user.getUsername());
+                        if (!smsResponse.isSuccess()) {
+                            logger.warn("Welcome SMS failed (phone-based) for {}: {} (display: {})", user.getPhone(), smsResponse.getMessage(), smsResponse.getDisplayMessage());
+                        }
+                    } catch (Exception e) {
+                        logger.warn("Failed to send welcome SMS (phone-based): {}", e.getMessage());
+                    }
+                });
+            }
+        }
         return true;
     }
 

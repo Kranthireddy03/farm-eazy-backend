@@ -43,8 +43,10 @@ public class CommunicationPreferenceService {
      * Creates default preferences if none exist
      */
     @Transactional
-    public CommunicationPreferenceResponseDto getPreferences(String userEmail) {
-        User user = userRepository.findByEmail(userEmail)
+    public CommunicationPreferenceResponseDto getPreferences(String userIdentifier) {
+        // Support lookup by email (primary) or phone (for SMS-triggered flows)
+        User user = userRepository.findByEmail(userIdentifier)
+                .or(() -> userRepository.findByPhone(userIdentifier))
                 .orElseThrow(() -> new ResourceNotFoundException("User not found"));
 
         CommunicationPreference prefs = preferenceRepository.findByUser(user)
@@ -97,7 +99,7 @@ public class CommunicationPreferenceService {
     public boolean shouldSendSms(User user, NotificationType type) {
         return preferenceRepository.findByUser(user)
                 .map(pref -> pref.shouldSendSms(type))
-                .orElse(false); // Default: no SMS
+                .orElse(true); // Default: send SMS until user sets preferences
     }
 
     /**
@@ -118,8 +120,8 @@ public class CommunicationPreferenceService {
                 .orElse(null);
 
         if (prefs == null) {
-            // Default: email only
-            return new CommunicationChannels(true, false);
+            // Default: send both email and SMS until user sets preferences
+            return new CommunicationChannels(true, true);
         }
 
         return new CommunicationChannels(
@@ -129,16 +131,16 @@ public class CommunicationPreferenceService {
     }
 
     /**
-     * Create default preferences for a user (all email-only)
+     * Create default preferences for a user (send both email + SMS until user chooses)
      */
     private CommunicationPreference createDefaultPreferences(User user) {
         CommunicationPreference prefs = new CommunicationPreference(user);
-        prefs.setOtpChannel(CommunicationChannel.EMAIL_ONLY);
-        prefs.setOrderChannel(CommunicationChannel.EMAIL_ONLY);
-        prefs.setServiceChannel(CommunicationChannel.EMAIL_ONLY);
-        prefs.setIrrigationChannel(CommunicationChannel.EMAIL_ONLY);
-        prefs.setMarketingChannel(CommunicationChannel.EMAIL_ONLY);
-        prefs.setSmsConsent(false);
+        prefs.setOtpChannel(CommunicationChannel.BOTH);
+        prefs.setOrderChannel(CommunicationChannel.BOTH);
+        prefs.setServiceChannel(CommunicationChannel.BOTH);
+        prefs.setIrrigationChannel(CommunicationChannel.BOTH);
+        prefs.setMarketingChannel(CommunicationChannel.BOTH);
+        prefs.setSmsConsent(true);
         return preferenceRepository.save(prefs);
     }
 

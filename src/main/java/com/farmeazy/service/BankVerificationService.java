@@ -74,6 +74,9 @@ public class BankVerificationService {
     @Autowired
     private EmailService emailService;
 
+    @Autowired
+    private SmsService smsService;
+
     @Value("${farmeazy.bank-verification.daily-limit:3}")
     private int defaultDailyLimit;
 
@@ -381,8 +384,22 @@ public class BankVerificationService {
             
             logCommunication(request, success);
             
+            // Send Bank Verification SMS
+            try {
+                String userPhone = request.getUser().getPhone();
+                if (userPhone != null && !userPhone.isBlank()) {
+                    smsService.sendBankDetailsAlert(
+                        userPhone,
+                        success ? "VERIFICATION_SUCCESS" : "VERIFICATION_FAILED"
+                    );
+                }
+            } catch (Exception smsEx) {
+                logger.error("BANK_VERIFY_SMS_FAILED: verificationNumber={}, error={}", 
+                        request.getVerificationNumber(), smsEx.getMessage());
+            }
+
         } catch (Exception e) {
-            logger.error("BANK_VERIFY_NOTIFICATION_FAILED: verificationNumber={}, error={}",
+            logger.error("BANK_VERIFY_NOTIFICATION_FAILED: verificationNumber={}, error={}", 
                     request.getVerificationNumber(), e.getMessage());
         }
     }

@@ -11,6 +11,7 @@ import com.farmeazy.repository.UserRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -112,11 +113,12 @@ public class NotificationService {
      * Get recent notifications (limited for performance)
      */
     public List<NotificationDto> getRecentNotifications(User user, int limit) {
+        int safeLimit = Math.min(Math.max(limit, 1), 50);
         List<Notification> notifications = notificationRepository.findRecentForUser(
                 user, 
                 String.valueOf(user.getId()), 
                 LocalDateTime.now(),
-                limit
+            PageRequest.of(0, safeLimit)
         );
         return notifications.stream()
                 .map(NotificationDto::fromEntity)
