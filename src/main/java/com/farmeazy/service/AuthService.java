@@ -618,6 +618,7 @@ public class AuthService implements UserDetailsService {
      * Supports login with email, username, or user ID
      */
     @Override
+    @Transactional(readOnly = true)
     public UserDetails loadUserByUsername(String identifier) {
         // Try to find user by different methods:
         // 1. If identifier is numeric, try to find by user ID first
