@@ -21,7 +21,7 @@ public class FAQQuestion {
     @Column(nullable = false)
     private String email;
     private String userId;
-    @Lob
+    @Column(columnDefinition = "TEXT")
     private String answer;
     private boolean addedToFAQ = false;
     // whether admin notification for this question has been marked read

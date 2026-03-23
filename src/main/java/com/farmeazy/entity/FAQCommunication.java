@@ -18,8 +18,7 @@ public class FAQCommunication {
     private String recipientEmail;
     @Column(nullable = false)
     private String subject;
-    @Lob
-    @Column(nullable = false)
+    @Column(nullable = false, columnDefinition = "TEXT")
     private String body;
     @Column(nullable = false)
     private String purpose; // e.g. "FAQ Addition Notification", "Answer Notification"
