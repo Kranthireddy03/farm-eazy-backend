@@ -178,7 +178,7 @@ public class OtpService {
 
     @Transactional
     public boolean verifyOtp(OtpVerifyDto dto) {
-        Optional<OtpVerification> otpOpt = otpRepository.findByEmailAndOtpCodeAndPurpose(
+        Optional<OtpVerification> otpOpt = otpRepository.findTopByEmailAndOtpCodeAndPurposeOrderByCreatedAtDesc(
             dto.getEmail(), 
             dto.getOtpCode(), 
             dto.getPurpose()
@@ -339,7 +339,7 @@ public class OtpService {
      */
     @Transactional
     public boolean verifyLoginOtp(String phone, String otpCode) {
-        Optional<OtpVerification> otpOpt = otpRepository.findByPhoneAndOtpCodeAndPurpose(
+        Optional<OtpVerification> otpOpt = otpRepository.findTopByPhoneAndOtpCodeAndPurposeOrderByCreatedAtDesc(
             phone, otpCode, "LOGIN"
         );
         
