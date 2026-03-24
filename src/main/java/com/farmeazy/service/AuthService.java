@@ -125,17 +125,12 @@ public class AuthService implements UserDetailsService {
 
     @Transactional
     public void changePasswordWithOtp(String phone, String otpCode, String newPassword) {
-        // Accept either a fresh OTP verification or an already-verified (still valid) OTP
-        // to support multi-step UI flow: request -> verify -> change password.
-        try {
+        // In verify -> change flow, avoid throwing for already-verified OTPs inside this
+        // transaction, otherwise Spring marks transaction rollback-only.
+        if (otpService.isVerifiedLoginOtpStillValid(phone, otpCode)) {
+            logger.info("Using previously verified LOGIN OTP for password change: phone={}", phone);
+        } else {
             otpService.verifyLoginOtp(phone, otpCode);
-        } catch (com.farmeazy.exception.UnauthorizedException ex) {
-            String message = ex.getMessage() != null ? ex.getMessage().toLowerCase() : "";
-            if (message.contains("already been used") && otpService.isVerifiedLoginOtpStillValid(phone, otpCode)) {
-                logger.info("Using previously verified LOGIN OTP for password change: phone={}", phone);
-            } else {
-                throw ex;
-            }
         }
 
         var user = userRepository.findByPhone(phone)
