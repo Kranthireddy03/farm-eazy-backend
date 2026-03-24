@@ -1,9 +1,40 @@
 # Build outputs
 /target/
+/build/
+out/
+*.jar
+*.war
+dist/
 
 # IDE
 /.idea/
+/.vscode/
 *.iml
+*.iws
+*.ipr
+.classpath
+.project
+.c9/
+*.launch
+.settings/
+*.sublime-workspace
+
+# Environment & Secrets
+.env
+.env.local
+.env.*.local
+.env.production.local
+application-local.properties
+application-dev.properties
+application-test.properties
+application-prod.properties
+*.pem
+*.key
+*.pfx
+*.p12
+*.keystore
+secrets/
+.secrets/
 
 # Logs and runtime artifacts
 *.log
@@ -19,7 +50,57 @@
 # Local data/uploads
 /data/
 /uploads/
+*.db
+*.sqlite
+*.h2.db
 
 # OS
 .DS_Store
 Thumbs.db
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+
+# Maven
+.mvn/wrapper/maven-wrapper.jar
+.m2/
+dependency-reduced-pom.xml
+release.properties
+pom.xml.releaseBackup
+
+# Gradle (if used)
+.gradle
+/gradle/
+gradle/
+gradlew
+gradlew.bat
+build.gradle
+
+# STS
+.apt_generated
+.classpath
+.factorypath
+.project
+.settings
+.springBeans
+.sts4-cache
+
+# IntelliJ
+*.swp
+*.swo
+~*
+
+# Misc
+.cache/
+.ipynb_checkpoints
+.venv
+venv/
+env/
+ENV/
+
+# Upload directories
+uploads/
+temp/
+tmp/
