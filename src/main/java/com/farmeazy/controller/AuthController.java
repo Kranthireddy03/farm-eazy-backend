@@ -4,6 +4,7 @@ import com.farmeazy.dto.AuthLoginDto;
 import com.farmeazy.dto.AuthRegisterDto;
 import com.farmeazy.dto.AuthResponseDto;
 import com.farmeazy.dto.ForgotPasswordDto;
+import com.farmeazy.dto.RefreshTokenRequestDto;
 import com.farmeazy.dto.ResetPasswordDto;
 import com.farmeazy.dto.OtpRequestDto;
 import com.farmeazy.dto.OtpVerifyDto;
@@ -16,6 +17,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import jakarta.servlet.http.HttpServletRequest;
 
 @RestController
 @RequestMapping("/api/auth")
@@ -157,11 +159,28 @@ public class AuthController {
      */
     @PostMapping("/login")
     @Operation(summary = "Login user")
-    public ResponseEntity<AuthResponseDto> login(@Valid @RequestBody AuthLoginDto loginDto) {
+    public ResponseEntity<AuthResponseDto> login(@Valid @RequestBody AuthLoginDto loginDto, HttpServletRequest request) {
         // Call service to authenticate user and get response with token
-        AuthResponseDto response = authService.login(loginDto);
+        AuthResponseDto response = authService.login(loginDto, request);
         // Return 200 OK status with user info and token
         return ResponseEntity.ok(response);
+    }
+
+    @PostMapping("/refresh")
+    @Operation(summary = "Refresh access token")
+    public ResponseEntity<AuthResponseDto> refresh(@Valid @RequestBody RefreshTokenRequestDto requestDto, HttpServletRequest request) {
+        return ResponseEntity.ok(authService.refreshAccessToken(requestDto.getRefreshToken(), request));
+    }
+
+    @PostMapping("/logout")
+    @Operation(summary = "Logout and revoke refresh token")
+    public ResponseEntity<?> logout(@RequestBody(required = false) RefreshTokenRequestDto requestDto) {
+        if (requestDto != null) {
+            authService.logout(requestDto.getRefreshToken());
+        }
+        return ResponseEntity.ok(new java.util.HashMap<String, String>() {{
+            put("message", "Logged out successfully");
+        }});
     }
 
     /**

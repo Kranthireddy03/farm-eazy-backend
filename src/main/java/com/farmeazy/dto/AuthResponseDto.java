@@ -75,6 +75,8 @@ public class AuthResponseDto {
      * Example: "eyJhbGciOiJIUzUxMiJ9.eyJyb2xlcyI6WyJST0xFX1VTRVIiXSwic3ViIjoicmFqZXNoQGV4YW1wbGUuY29tIiwiaWF0IjoxNjYzOTU0Mzg3LCJleHAiOjE2NjQwMzgzODd9..."
      */
     private String token;
+
+    private String refreshToken;
     
     /**
      * TOKEN TYPE - HOW TO USE THE TOKEN
@@ -104,6 +106,8 @@ public class AuthResponseDto {
     public void setRoles(Set<String> roles) { this.roles = roles; }
     public String getToken() { return token; }
     public void setToken(String token) { this.token = token; }
+    public String getRefreshToken() { return refreshToken; }
+    public void setRefreshToken(String refreshToken) { this.refreshToken = refreshToken; }
     public String getTokenType() { return tokenType; }
     public void setTokenType(String tokenType) { this.tokenType = tokenType; }
 }

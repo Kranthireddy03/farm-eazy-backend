@@ -6,11 +6,14 @@ import com.farmeazy.dto.AuthResponseDto;
 import com.farmeazy.dto.OtpRequestDto;
 import com.farmeazy.dto.SmsResponseDto;
 import com.farmeazy.entity.PasswordResetToken;
+import com.farmeazy.entity.RefreshToken;
 import com.farmeazy.entity.User;
 import com.farmeazy.entity.UserActivity.ActivityType;
 import com.farmeazy.exception.DuplicateResourceException;
+import com.farmeazy.exception.ResourceNotFoundException;
 import com.farmeazy.exception.UnauthorizedException;
 import com.farmeazy.repository.PasswordResetTokenRepository;
+import com.farmeazy.repository.RefreshTokenRepository;
 import com.farmeazy.repository.UserRepository;
 import com.farmeazy.service.OtpService;
 import com.farmeazy.service.NotificationService;
@@ -18,6 +21,7 @@ import com.farmeazy.sms.SmsTemplate;
 import com.farmeazy.security.JwtUtil;
 import com.farmeazy.service.UserActivityService;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.authentication.AuthenticationManager;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.Authentication;
@@ -27,9 +31,14 @@ import org.springframework.security.core.userdetails.UsernameNotFoundException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import jakarta.servlet.http.HttpServletRequest;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
 import java.time.LocalDateTime;
+import java.util.Base64;
 import java.util.HashSet;
 import java.util.Set;
 
@@ -169,9 +178,16 @@ public class AuthService implements UserDetailsService {
     
     @Autowired
     private PasswordResetTokenRepository passwordResetTokenRepository;
+
+    @Autowired
+    private RefreshTokenRepository refreshTokenRepository;
+
+    @Value("${jwt.refresh-expiration:2592000000}")
+    private Long refreshTokenExpirationMs;
     
     private static final String SHORT_CODE_CHARS = "abcdefghijklmnopqrstuvwxyz0123456789";
     private static final int SHORT_CODE_LENGTH = 8;
+    private static final int REFRESH_TOKEN_BYTES = 64;
     private static final SecureRandom RANDOM = new SecureRandom();
 
     /**
@@ -337,7 +353,7 @@ public class AuthService implements UserDetailsService {
         // Return response with user info and JWT token
         UserDetails userDetails = loadUserByUsername(user.getEmail());
         String token = jwtUtil.generateToken(userDetails);
-        return mapUserToAuthResponseDto(user, token);
+        return mapUserToAuthResponseDto(user, token, null);
     }
 
     /**
@@ -372,7 +388,7 @@ public class AuthService implements UserDetailsService {
      * 
      * HANDLED BY: GlobalExceptionHandler converts to HTTP 401 Unauthorized
      */
-    public AuthResponseDto login(AuthLoginDto loginDto) {
+    public AuthResponseDto login(AuthLoginDto loginDto, HttpServletRequest request) {
         String identifier = loginDto.getIdentifier();
         
         // Resolve identifier to user (supports email, username, or user ID)
@@ -391,6 +407,10 @@ public class AuthService implements UserDetailsService {
         // Proceed to generate JWT
         UserDetails userDetails = (UserDetails) authentication.getPrincipal();
         String token = jwtUtil.generateToken(userDetails);
+        String refreshToken = null;
+        if (Boolean.TRUE.equals(loginDto.getRememberMe())) {
+            refreshToken = issueRefreshToken(user, request);
+        }
 
         // Log login activity
         try {
@@ -404,7 +424,53 @@ public class AuthService implements UserDetailsService {
         }
 
         // Return response with user info and token
-        return mapUserToAuthResponseDto(user, token);
+        return mapUserToAuthResponseDto(user, token, refreshToken);
+    }
+
+    @Transactional
+    public AuthResponseDto refreshAccessToken(String rawRefreshToken, HttpServletRequest request) {
+        if (rawRefreshToken == null || rawRefreshToken.isBlank()) {
+            throw new UnauthorizedException("Refresh token is required");
+        }
+
+        String currentHash = hashToken(rawRefreshToken);
+        RefreshToken storedToken = refreshTokenRepository.findByTokenHashAndRevokedFalse(currentHash)
+                .orElseThrow(() -> new UnauthorizedException("Invalid refresh token"));
+
+        if (storedToken.getExpiresAt().isBefore(LocalDateTime.now())) {
+            storedToken.setRevoked(true);
+            refreshTokenRepository.save(storedToken);
+            throw new UnauthorizedException("Refresh token expired");
+        }
+
+        User user = storedToken.getUser();
+        if (user == null || user.getActive() == null || !user.getActive()) {
+            throw new UnauthorizedException("User account is inactive");
+        }
+
+        UserDetails userDetails = loadUserByUsername(user.getEmail());
+        String newAccessToken = jwtUtil.generateToken(userDetails);
+        String newRefreshToken = issueRefreshToken(user, request);
+
+        storedToken.setRevoked(true);
+        storedToken.setLastUsedAt(LocalDateTime.now());
+        storedToken.setReplacedByHash(hashToken(newRefreshToken));
+        refreshTokenRepository.save(storedToken);
+
+        return mapUserToAuthResponseDto(user, newAccessToken, newRefreshToken);
+    }
+
+    @Transactional
+    public void logout(String rawRefreshToken) {
+        if (rawRefreshToken == null || rawRefreshToken.isBlank()) {
+            return;
+        }
+        String tokenHash = hashToken(rawRefreshToken);
+        refreshTokenRepository.findByTokenHashAndRevokedFalse(tokenHash).ifPresent(token -> {
+            token.setRevoked(true);
+            token.setLastUsedAt(LocalDateTime.now());
+            refreshTokenRepository.save(token);
+        });
     }
     
     /**
@@ -467,14 +533,46 @@ public class AuthService implements UserDetailsService {
      * 
      * WHY SEPARATE: Keeps Service-to-DTO conversion logic centralized
      */
-    private AuthResponseDto mapUserToAuthResponseDto(User user, String token) {
+    private AuthResponseDto mapUserToAuthResponseDto(User user, String token, String refreshToken) {
         AuthResponseDto response = new AuthResponseDto();
         response.setId(user.getId());
         response.setEmail(user.getEmail());
         response.setUsername(user.getUsername());
         response.setRoles(user.getRoles());
         response.setToken(token);
+        response.setRefreshToken(refreshToken);
         return response;
+    }
+
+    private String issueRefreshToken(User user, HttpServletRequest request) {
+        String rawToken = generateRawRefreshToken();
+        RefreshToken refreshToken = new RefreshToken();
+        refreshToken.setUser(user);
+        refreshToken.setTokenHash(hashToken(rawToken));
+        refreshToken.setExpiresAt(LocalDateTime.now().plusNanos(refreshTokenExpirationMs * 1_000_000));
+        refreshToken.setRevoked(false);
+        if (request != null) {
+            refreshToken.setUserAgent(request.getHeader("User-Agent"));
+            refreshToken.setIpAddress(request.getRemoteAddr());
+        }
+        refreshTokenRepository.save(refreshToken);
+        return rawToken;
+    }
+
+    private String generateRawRefreshToken() {
+        byte[] bytes = new byte[REFRESH_TOKEN_BYTES];
+        RANDOM.nextBytes(bytes);
+        return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
+    }
+
+    private String hashToken(String rawToken) {
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            byte[] hash = digest.digest(rawToken.getBytes(StandardCharsets.UTF_8));
+            return Base64.getEncoder().encodeToString(hash);
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException("SHA-256 algorithm unavailable", e);
+        }
     }
 
     /**
@@ -496,7 +594,7 @@ public class AuthService implements UserDetailsService {
     @Transactional
     public void forgotPassword(String email) {
         User user = userRepository.findByEmail(email)
-                .orElseThrow(() -> new com.farmeazy.exception.ResourceNotFoundException("Email not found in system"));
+                .orElseThrow(() -> new ResourceNotFoundException("Email not found in system"));
 
         if (user.getActive() == null || !user.getActive()) {
             throw new UnauthorizedException("User account is inactive");
@@ -600,7 +698,7 @@ public class AuthService implements UserDetailsService {
 
         // Find user
         User user = userRepository.findByEmail(email)
-                .orElseThrow(() -> new com.farmeazy.exception.ResourceNotFoundException("User not found"));
+                .orElseThrow(() -> new ResourceNotFoundException("User not found"));
 
         // Encrypt and update password
         user.setPassword(passwordEncoder.encode(newPassword));
@@ -618,7 +716,6 @@ public class AuthService implements UserDetailsService {
      * Supports login with email, username, or user ID
      */
     @Override
-    @Transactional(readOnly = true)
     public UserDetails loadUserByUsername(String identifier) {
         // Try to find user by different methods:
         // 1. If identifier is numeric, try to find by user ID first
@@ -804,7 +901,7 @@ public class AuthService implements UserDetailsService {
 
         // Return response
         try {
-            return mapUserToAuthResponseDto(user, token);
+            return mapUserToAuthResponseDto(user, token, null);
         } finally {
             // Clear trace ID after request is finished
             org.slf4j.MDC.remove("traceId");

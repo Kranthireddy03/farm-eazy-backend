@@ -72,6 +72,13 @@ public class AuthLoginDto {
     @NotBlank(message = "Password is required")
     @Size(min = 6, message = "Password must be at least 6 characters")
     private String password;
+
+    /**
+     * Remember-me toggle from client.
+     * true: issue refresh token for long-lived sign-in.
+     * false: session-only auth with short-lived access token.
+     */
+    private Boolean rememberMe = false;
     
     public AuthLoginDto() {}
     
@@ -89,4 +96,7 @@ public class AuthLoginDto {
     
     public String getPassword() { return password; }
     public void setPassword(String password) { this.password = password; }
+
+    public Boolean getRememberMe() { return rememberMe; }
+    public void setRememberMe(Boolean rememberMe) { this.rememberMe = rememberMe; }
 }

@@ -6,10 +6,9 @@ import io.jsonwebtoken.SignatureAlgorithm;
 import io.jsonwebtoken.security.Keys;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.core.userdetails.UserDetails;
-import org.springframework.stereotype.Component;
-
 import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.stereotype.Component;
 
 import javax.crypto.SecretKey;
 import java.util.ArrayList;
@@ -173,6 +172,12 @@ public class JwtUtil {
     @Value("${jwt.expiration}")
     private Long expiration;
 
+    @Value("${jwt.expiration.user:${jwt.expiration}}")
+    private Long userExpiration;
+
+    @Value("${jwt.expiration.admin:${jwt.expiration}}")
+    private Long adminExpiration;
+
     /**
      * Gets the signing key from secret string.
      * HMAC algorithm requires SecretKey of sufficient length.
@@ -211,7 +216,24 @@ public class JwtUtil {
     public String generateToken(UserDetails userDetails) {
         Map<String, Object> claims = new HashMap<>();
         claims.put("roles", userDetails.getAuthorities());
-        return createToken(claims, userDetails.getUsername());
+        return createToken(claims, userDetails.getUsername(), resolveExpirationByRole(userDetails));
+    }
+
+    public String generateToken(UserDetails userDetails, long customExpirationMs) {
+        Map<String, Object> claims = new HashMap<>();
+        claims.put("roles", userDetails.getAuthorities());
+        return createToken(claims, userDetails.getUsername(), customExpirationMs);
+    }
+
+    private long resolveExpirationByRole(UserDetails userDetails) {
+        if (userDetails != null && userDetails.getAuthorities() != null) {
+            boolean isAdmin = userDetails.getAuthorities().stream().anyMatch(authority -> {
+                String role = authority.getAuthority();
+                return "ROLE_ADMIN".equals(role) || "ROLE_SUPERADMIN".equals(role) || "ADMIN".equals(role) || "SUPERADMIN".equals(role);
+            });
+            return isAdmin ? adminExpiration : userExpiration;
+        }
+        return expiration;
     }
 
     /**
@@ -231,9 +253,9 @@ public class JwtUtil {
      * @param subject User email (unique identifier)
      * @return Compact JWT token string
      */
-    private String createToken(Map<String, Object> claims, String subject) {
+    private String createToken(Map<String, Object> claims, String subject, long expirationMs) {
         Date now = new Date();
-        Date expiryDate = new Date(now.getTime() + expiration);
+        Date expiryDate = new Date(now.getTime() + expirationMs);
 
         return Jwts.builder()
                 .setClaims(claims)

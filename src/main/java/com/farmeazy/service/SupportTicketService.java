@@ -720,7 +720,11 @@ public class SupportTicketService {
             "<b>Category:</b> " + saved.getCategory() + "<br>" +
             "<b>Priority:</b> " + saved.getPriority() + "<br>" +
             "<b>Ticket ID:</b> " + saved.getDisplayId() + "<br>";
-        emailService.sendEmail("support@farm-eazy.com", subject, html, UnifiedEmailService.SenderType.SUPPORT);
+        try {
+            emailService.sendEmail("support@farm-eazy.com", subject, html, UnifiedEmailService.SenderType.SUPPORT);
+        } catch (Exception ex) {
+            logger.warn("Support notification email failed for ticket {}. Ticket remains created.", saved.getDisplayId(), ex);
+        }
 
         String resolvedDisplayId = resolveDisplayId(saved);
         String userTicketUrl = buildTicketUrl(resolvedDisplayId, false);
@@ -735,7 +739,11 @@ public class SupportTicketService {
             "Open your ticket and reply",
             userTicketUrl
         );
-        emailService.sendEmail(saved.getContactEmail(), userSubject, userHtml, UnifiedEmailService.SenderType.SUPPORT);
+        try {
+            emailService.sendEmail(saved.getContactEmail(), userSubject, userHtml, UnifiedEmailService.SenderType.SUPPORT);
+        } catch (Exception ex) {
+            logger.warn("User confirmation email failed for ticket {}. Ticket remains created.", saved.getDisplayId(), ex);
+        }
 
             notifyTicketOwner(
                 saved,

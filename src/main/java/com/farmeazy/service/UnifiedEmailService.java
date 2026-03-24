@@ -310,6 +310,9 @@ public class UnifiedEmailService {
         } catch (MessagingException e) {
             logger.error("[ZOHO] Failed to send to {}: {}", to, e.getMessage());
             return false;
+        } catch (Exception e) {
+            logger.error("[ZOHO] Runtime failure sending to {}: {}", to, e.getMessage(), e);
+            return false;
         }
     }
 
