@@ -99,7 +99,7 @@ public class DashboardServiceImpl implements DashboardService {
 
     private int calculatePercentageChange(long previous, long current) {
         if (previous == 0) {
-            return current == 0 ? 0 : 100;
+            return current == 0 ? 0 : Integer.MIN_VALUE;
         }
         double change = ((double) (current - previous) / previous) * 100;
         return (int) Math.round(change);
@@ -231,8 +231,19 @@ public class DashboardServiceImpl implements DashboardService {
         Specification<SupportTicket> pendingTicketSpec = totalTicketSpec.and((root, query, cb) -> cb.equal(root.get("status"), SupportTicket.TicketStatus.PENDING_USER));
         long pendingTickets = supportTicketRepository.count(pendingTicketSpec);
 
-        // resolved in current window (or all time)
-        Specification<SupportTicket> resolvedTicketSpec = baseTicketSpec.and((root, query, cb) -> cb.equal(root.get("status"), SupportTicket.TicketStatus.RESOLVED));
+        // open/in-progress tickets in current window (or all time)
+        Specification<SupportTicket> openTicketSpec = totalTicketSpec.and((root, query, cb) -> root.get("status").in(Arrays.asList(
+                SupportTicket.TicketStatus.OPEN,
+                SupportTicket.TicketStatus.IN_PROGRESS,
+                SupportTicket.TicketStatus.PENDING_USER
+        )));
+        long openTickets = supportTicketRepository.count(openTicketSpec);
+
+        // resolved/closed in current window (or all time)
+        Specification<SupportTicket> resolvedTicketSpec = baseTicketSpec.and((root, query, cb) -> root.get("status").in(Arrays.asList(
+                SupportTicket.TicketStatus.RESOLVED,
+                SupportTicket.TicketStatus.CLOSED
+        )));
         if (finalWindowStart != null) {
             resolvedTicketSpec = resolvedTicketSpec.and((root, query, cb) -> cb.between(root.get("updatedAt"), finalWindowStart, finalNow));
         }
@@ -252,6 +263,7 @@ public class DashboardServiceImpl implements DashboardService {
         // Trend calc using previous same interval
         long prevTotal = 0;
         long prevPending = 0;
+        long prevOpen = 0;
         long prevResolved = 0;
         long prevFaqs = 0;
 
@@ -262,8 +274,18 @@ public class DashboardServiceImpl implements DashboardService {
             Specification<SupportTicket> prevPendingSpec = prevTotalSpec.and((root, query, cb) -> cb.equal(root.get("status"), SupportTicket.TicketStatus.PENDING_USER));
             prevPending = supportTicketRepository.count(prevPendingSpec);
 
+            Specification<SupportTicket> prevOpenSpec = prevTotalSpec.and((root, query, cb) -> root.get("status").in(Arrays.asList(
+                    SupportTicket.TicketStatus.OPEN,
+                    SupportTicket.TicketStatus.IN_PROGRESS,
+                    SupportTicket.TicketStatus.PENDING_USER
+            )));
+            prevOpen = supportTicketRepository.count(prevOpenSpec);
+
             Specification<SupportTicket> prevResolvedSpec = baseTicketSpec
-                .and((root, query, cb) -> cb.equal(root.get("status"), SupportTicket.TicketStatus.RESOLVED))
+                    .and((root, query, cb) -> root.get("status").in(Arrays.asList(
+                            SupportTicket.TicketStatus.RESOLVED,
+                            SupportTicket.TicketStatus.CLOSED
+                    )))
                     .and((root, query, cb) -> cb.between(root.get("updatedAt"), finalPrevWindowStart, finalPrevWindowEnd));
             prevResolved = supportTicketRepository.count(prevResolvedSpec);
 
@@ -273,16 +295,19 @@ public class DashboardServiceImpl implements DashboardService {
 
         int totalTrend = calculatePercentageChange(prevTotal, totalTickets);
         int pendingTrend = calculatePercentageChange(prevPending, pendingTickets);
+        int openTrend = calculatePercentageChange(prevOpen, openTickets);
         int resolvedTrend = calculatePercentageChange(prevResolved, resolvedToday);
         int faqTrend = calculatePercentageChange(prevFaqs, pendingFaqs);
 
         return new DashboardStatsDto(
                 (int) totalTickets,
                 (int) pendingTickets,
+                (int) openTickets,
                 (int) resolvedToday,
                 (int) pendingFaqs,
                 totalTrend,
                 pendingTrend,
+                openTrend,
                 resolvedTrend,
                 faqTrend
         );
