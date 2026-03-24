@@ -1,21 +1,23 @@
 package com.farmeazy.service.impl;
 
 import com.farmeazy.dto.DashboardStatsDto;
-import com.farmeazy.dto.TicketDto;
 import com.farmeazy.dto.FaqDto;
+import com.farmeazy.dto.TicketDto;
 import com.farmeazy.dto.TicketTrendDto;
-import com.farmeazy.entity.Ticket;
 import com.farmeazy.entity.FAQQuestion;
-import com.farmeazy.repository.TicketRepository;
+import com.farmeazy.entity.SupportTicket;
 import com.farmeazy.repository.FAQQuestionRepository;
+import com.farmeazy.repository.SupportTicketRepository;
 import com.farmeazy.service.DashboardService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
-import java.time.OffsetDateTime;
 import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.OffsetDateTime;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
@@ -24,7 +26,7 @@ import java.util.List;
 public class DashboardServiceImpl implements DashboardService {
 
     @Autowired
-    private TicketRepository ticketRepository;
+    private SupportTicketRepository supportTicketRepository;
 
     @Autowired
     private FAQQuestionRepository faqRepository;
@@ -40,14 +42,14 @@ public class DashboardServiceImpl implements DashboardService {
         }
     }
 
-    private java.time.LocalDateTime getStartDateLocal(String filter) {
+    private LocalDateTime getStartDateLocal(String filter) {
         switch (filter == null ? "" : filter.toLowerCase()) {
             case "week":
-                return java.time.LocalDateTime.now().minusDays(7);
+                return LocalDateTime.now().minusDays(7);
             case "month":
-                return java.time.LocalDateTime.now().minusDays(30);
+                return LocalDateTime.now().minusDays(30);
             default:
-                return java.time.LocalDateTime.now().withHour(0).withMinute(0).withSecond(0).withNano(0);
+                return LocalDateTime.now().withHour(0).withMinute(0).withSecond(0).withNano(0);
         }
     }
 
@@ -60,10 +62,10 @@ public class DashboardServiceImpl implements DashboardService {
         return source;
     }
 
-    private OffsetDateTime getCurrentPeriodStart(String filter) {
-        OffsetDateTime now = OffsetDateTime.now();
+    private LocalDateTime getCurrentPeriodStartLocal(String filter) {
+        LocalDateTime now = LocalDateTime.now();
         if (filter == null || filter.equalsIgnoreCase("today")) {
-            return now.toLocalDate().atStartOfDay().atOffset(now.getOffset());
+            return now.toLocalDate().atStartOfDay();
         }
         if (filter.equalsIgnoreCase("week")) {
             return now.minusDays(7);
@@ -78,8 +80,8 @@ public class DashboardServiceImpl implements DashboardService {
         return now.minusDays(30);
     }
 
-    private OffsetDateTime getPreviousPeriodStart(String filter) {
-        OffsetDateTime currentStart = getCurrentPeriodStart(filter);
+    private LocalDateTime getPreviousPeriodStartLocal(String filter) {
+        LocalDateTime currentStart = getCurrentPeriodStartLocal(filter);
         if (filter == null || filter.equalsIgnoreCase("today")) {
             return currentStart.minusDays(1);
         }
@@ -103,17 +105,17 @@ public class DashboardServiceImpl implements DashboardService {
         return (int) Math.round(change);
     }
 
-    private Specification<Ticket> ticketSourceSpecification(String source) {
+    private Specification<SupportTicket> ticketSourceSpecification(String source) {
         if ("public".equals(source)) {
             return (root, query, cb) -> cb.or(
-                    cb.isNull(root.get("createdBy")),
-                    cb.equal(root.get("createdBy"), 0L)
+                    cb.equal(cb.lower(root.get("source")), "public"),
+                    cb.and(cb.isNull(root.get("source")), cb.isNull(root.get("user")))
             );
         }
         if ("login".equals(source)) {
-            return (root, query, cb) -> cb.and(
-                    cb.isNotNull(root.get("createdBy")),
-                    cb.notEqual(root.get("createdBy"), 0L)
+            return (root, query, cb) -> cb.or(
+                    cb.equal(cb.lower(root.get("source")), "login"),
+                    cb.isNotNull(root.get("user"))
             );
         }
         return null;
@@ -126,38 +128,49 @@ public class DashboardServiceImpl implements DashboardService {
             case "all":
             case "open":
             case "pending":
+            case "pending_user":
             case "in_progress":
             case "resolved":
             case "closed":
             case "cancelled":
-            case "archived":
                 return status;
             default:
                 return "all";
         }
     }
 
-    private Specification<Ticket> ticketStatusSpecification(String status) {
+    private Specification<SupportTicket> ticketStatusSpecification(String status) {
         if ("open".equals(status)) {
-            return (root, query, cb) -> cb.not(root.get("status").in(Arrays.asList("RESOLVED", "CLOSED", "CANCELLED", "ARCHIVED")));
+            return (root, query, cb) -> cb.not(root.get("status").in(Arrays.asList(
+                    SupportTicket.TicketStatus.RESOLVED,
+                    SupportTicket.TicketStatus.CLOSED,
+                    SupportTicket.TicketStatus.CANCELLED
+            )));
+        }
+        if ("pending".equals(status)) {
+            return (root, query, cb) -> cb.equal(root.get("status"), SupportTicket.TicketStatus.PENDING_USER);
         }
         if (!"all".equals(status)) {
-            return (root, query, cb) -> cb.equal(cb.upper(root.get("status")), status.toUpperCase());
+            return (root, query, cb) -> cb.equal(cb.upper(root.get("status").as(String.class)), status.toUpperCase());
         }
         return null;
     }
 
-    private OffsetDateTime getEarliestTicketCreatedAt(String source) {
+    private LocalDateTime getEarliestTicketCreatedAt(String source) {
         if ("public".equals(source)) {
-            OffsetDateTime dt = ticketRepository.findEarliestPublicCreatedAt();
-            return dt != null ? dt : OffsetDateTime.now();
+            LocalDateTime dt = supportTicketRepository.findEarliestPublicCreatedAt();
+            return dt != null ? dt : LocalDateTime.now();
         }
         if ("login".equals(source)) {
-            OffsetDateTime dt = ticketRepository.findEarliestLoginCreatedAt();
-            return dt != null ? dt : OffsetDateTime.now();
+            LocalDateTime dt = supportTicketRepository.findEarliestLoginCreatedAt();
+            return dt != null ? dt : LocalDateTime.now();
         }
-        OffsetDateTime dt = ticketRepository.findEarliestCreatedAt();
-        return dt != null ? dt : OffsetDateTime.now();
+        LocalDateTime dt = supportTicketRepository.findEarliestCreatedAt();
+        return dt != null ? dt : LocalDateTime.now();
+    }
+
+    private OffsetDateTime toOffsetDateTime(LocalDateTime localDateTime) {
+        return localDateTime.atOffset(ZoneOffset.UTC);
     }
 
     private Specification<FAQQuestion> faqSourceSpecification(String source) {
@@ -180,25 +193,26 @@ public class DashboardServiceImpl implements DashboardService {
     public DashboardStatsDto getStats(String filter, String source, String status) {
         String normalizedSource = normalizeSource(source);
         String normalizedStatus = normalizeStatus(status);
-        OffsetDateTime now = OffsetDateTime.now();
+        LocalDateTime now = LocalDateTime.now();
+        OffsetDateTime nowOffset = OffsetDateTime.now();
 
-        OffsetDateTime windowStart = "all".equalsIgnoreCase(filter) ? null : getCurrentPeriodStart(filter);
-        OffsetDateTime prevWindowStart = null;
-        OffsetDateTime prevWindowEnd = null;
+        LocalDateTime windowStart = "all".equalsIgnoreCase(filter) ? null : getCurrentPeriodStartLocal(filter);
+        LocalDateTime prevWindowStart = null;
+        LocalDateTime prevWindowEnd = null;
 
         if (windowStart != null) {
             prevWindowEnd = windowStart;
-            prevWindowStart = getPreviousPeriodStart(filter);
+            prevWindowStart = getPreviousPeriodStartLocal(filter);
         }
 
         // make final copies for lambdas to avoid Java effective-final requirements
-        final OffsetDateTime finalNow = now;
-        final OffsetDateTime finalWindowStart = windowStart;
+        final LocalDateTime finalNow = now;
+        final LocalDateTime finalWindowStart = windowStart;
 
-        final OffsetDateTime finalPrevWindowStart = prevWindowStart;
-        final OffsetDateTime finalPrevWindowEnd = prevWindowEnd;
+        final LocalDateTime finalPrevWindowStart = prevWindowStart;
+        final LocalDateTime finalPrevWindowEnd = prevWindowEnd;
 
-        Specification<Ticket> baseTicketSpec = Specification.where(null);
+        Specification<SupportTicket> baseTicketSpec = Specification.where(null);
         if (!"all".equals(normalizedSource)) {
             baseTicketSpec = baseTicketSpec.and(ticketSourceSpecification(normalizedSource));
         }
@@ -207,22 +221,22 @@ public class DashboardServiceImpl implements DashboardService {
         }
 
         // total in current window (or all time)
-        Specification<Ticket> totalTicketSpec = baseTicketSpec;
+        Specification<SupportTicket> totalTicketSpec = baseTicketSpec;
         if (finalWindowStart != null) {
             totalTicketSpec = totalTicketSpec.and((root, query, cb) -> cb.between(root.get("createdAt"), finalWindowStart, finalNow));
         }
-        long totalTickets = ticketRepository.count(totalTicketSpec);
+        long totalTickets = supportTicketRepository.count(totalTicketSpec);
 
         // pending tickets in current window (or all time)
-        Specification<Ticket> pendingTicketSpec = totalTicketSpec.and((root, query, cb) -> cb.equal(cb.upper(root.get("status")), "PENDING"));
-        long pendingTickets = ticketRepository.count(pendingTicketSpec);
+        Specification<SupportTicket> pendingTicketSpec = totalTicketSpec.and((root, query, cb) -> cb.equal(root.get("status"), SupportTicket.TicketStatus.PENDING_USER));
+        long pendingTickets = supportTicketRepository.count(pendingTicketSpec);
 
         // resolved in current window (or all time)
-        Specification<Ticket> resolvedTicketSpec = baseTicketSpec.and((root, query, cb) -> cb.equal(cb.upper(root.get("status")), "RESOLVED"));
+        Specification<SupportTicket> resolvedTicketSpec = baseTicketSpec.and((root, query, cb) -> cb.equal(root.get("status"), SupportTicket.TicketStatus.RESOLVED));
         if (finalWindowStart != null) {
             resolvedTicketSpec = resolvedTicketSpec.and((root, query, cb) -> cb.between(root.get("updatedAt"), finalWindowStart, finalNow));
         }
-        long resolvedToday = ticketRepository.count(resolvedTicketSpec);
+        long resolvedToday = supportTicketRepository.count(resolvedTicketSpec);
 
         Specification<FAQQuestion> faqSpec = Specification.where((root, query, cb) -> cb.isNull(root.get("answer")));
         if (!"all".equals(normalizedSource)) {
@@ -231,7 +245,7 @@ public class DashboardServiceImpl implements DashboardService {
 
         Specification<FAQQuestion> pendingFaqSpec = faqSpec;
         if (finalWindowStart != null) {
-            pendingFaqSpec = pendingFaqSpec.and((root, query, cb) -> cb.between(root.get("submittedAt"), finalWindowStart, finalNow));
+            pendingFaqSpec = pendingFaqSpec.and((root, query, cb) -> cb.between(root.get("submittedAt"), finalWindowStart.atOffset(ZoneOffset.UTC), nowOffset));
         }
         long pendingFaqs = faqRepository.count(pendingFaqSpec);
 
@@ -242,18 +256,18 @@ public class DashboardServiceImpl implements DashboardService {
         long prevFaqs = 0;
 
         if (finalPrevWindowStart != null && finalPrevWindowEnd != null) {
-            Specification<Ticket> prevTotalSpec = baseTicketSpec.and((root, query, cb) -> cb.between(root.get("createdAt"), finalPrevWindowStart, finalPrevWindowEnd));
-            prevTotal = ticketRepository.count(prevTotalSpec);
+            Specification<SupportTicket> prevTotalSpec = baseTicketSpec.and((root, query, cb) -> cb.between(root.get("createdAt"), finalPrevWindowStart, finalPrevWindowEnd));
+            prevTotal = supportTicketRepository.count(prevTotalSpec);
 
-            Specification<Ticket> prevPendingSpec = prevTotalSpec.and((root, query, cb) -> cb.equal(cb.upper(root.get("status")), "PENDING"));
-            prevPending = ticketRepository.count(prevPendingSpec);
+            Specification<SupportTicket> prevPendingSpec = prevTotalSpec.and((root, query, cb) -> cb.equal(root.get("status"), SupportTicket.TicketStatus.PENDING_USER));
+            prevPending = supportTicketRepository.count(prevPendingSpec);
 
-            Specification<Ticket> prevResolvedSpec = baseTicketSpec
-                    .and((root, query, cb) -> cb.equal(cb.upper(root.get("status")), "RESOLVED"))
+            Specification<SupportTicket> prevResolvedSpec = baseTicketSpec
+                .and((root, query, cb) -> cb.equal(root.get("status"), SupportTicket.TicketStatus.RESOLVED))
                     .and((root, query, cb) -> cb.between(root.get("updatedAt"), finalPrevWindowStart, finalPrevWindowEnd));
-            prevResolved = ticketRepository.count(prevResolvedSpec);
+            prevResolved = supportTicketRepository.count(prevResolvedSpec);
 
-            Specification<FAQQuestion> prevFaqSpec = faqSpec.and((root, query, cb) -> cb.between(root.get("submittedAt"), finalPrevWindowStart, finalPrevWindowEnd));
+            Specification<FAQQuestion> prevFaqSpec = faqSpec.and((root, query, cb) -> cb.between(root.get("submittedAt"), finalPrevWindowStart.atOffset(ZoneOffset.UTC), finalPrevWindowEnd.atOffset(ZoneOffset.UTC)));
             prevFaqs = faqRepository.count(prevFaqSpec);
         }
 
@@ -279,7 +293,7 @@ public class DashboardServiceImpl implements DashboardService {
         String normalizedSource = normalizeSource(source);
         String normalizedStatus = normalizeStatus(status);
 
-        Specification<Ticket> spec = Specification.where(null);
+        Specification<SupportTicket> spec = Specification.where(null);
 
         if (!"all".equals(normalizedSource)) {
             spec = spec.and(ticketSourceSpecification(normalizedSource));
@@ -289,17 +303,26 @@ public class DashboardServiceImpl implements DashboardService {
         }
 
         if (filter != null && !filter.equalsIgnoreCase("all")) {
-            OffsetDateTime start = getStartDateOffset(filter);
+            LocalDateTime start = getStartDateLocal(filter);
             spec = spec.and((root, query, cb) -> cb.greaterThanOrEqualTo(root.get("createdAt"), start));
         }
 
-        List<Ticket> tickets = ticketRepository.findAll(spec, PageRequest.of(0, 10, Sort.by(Sort.Direction.DESC, "createdAt"))).getContent();
+        List<SupportTicket> tickets = supportTicketRepository.findAll(spec, PageRequest.of(0, 10, Sort.by(Sort.Direction.DESC, "createdAt"))).getContent();
 
         List<TicketDto> result = new ArrayList<>();
-        for (Ticket t : tickets) {
-            String sourceValue = (t.getCreatedBy() != null) ? "login" : "public";
-            String priorityValue = t.getPriority() != null ? t.getPriority().toUpperCase() : "LOW";
-            TicketDto dto = new TicketDto(t.getId(), t.getTitle(), t.getStatus(), t.getCreatedAt(), sourceValue, priorityValue);
+        for (SupportTicket t : tickets) {
+            String sourceValue = (t.getSource() != null && !t.getSource().isBlank())
+                    ? t.getSource().toLowerCase()
+                    : (t.getUser() != null ? "login" : "public");
+            String priorityValue = t.getPriority() != null ? t.getPriority().name() : "LOW";
+            TicketDto dto = new TicketDto(
+                    t.getId(),
+                    t.getSubject(),
+                    t.getStatus() != null ? t.getStatus().name() : "OPEN",
+                    toOffsetDateTime(t.getCreatedAt()),
+                    sourceValue,
+                    priorityValue
+            );
             result.add(dto);
         }
         return result;
@@ -344,48 +367,49 @@ public class DashboardServiceImpl implements DashboardService {
         String normalizedStatus = normalizeStatus(status);
         List<TicketTrendDto> result = new ArrayList<>();
 
-        OffsetDateTime now = OffsetDateTime.now();
-        OffsetDateTime nowStartOfDay = now.toLocalDate().atStartOfDay().atOffset(now.getOffset());
+        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime nowStartOfDay = now.toLocalDate().atStartOfDay();
 
-        Specification<Ticket> baseSpec = Specification.where(null);
+        Specification<SupportTicket> baseSpec = Specification.where(null);
         if (!"all".equals(normalizedSource)) {
             baseSpec = baseSpec.and(ticketSourceSpecification(normalizedSource));
         }
-        final Specification<Ticket> finalBaseSpec = baseSpec;
+        if (!"all".equals(normalizedStatus)) {
+            baseSpec = baseSpec.and(ticketStatusSpecification(normalizedStatus));
+        }
+        final Specification<SupportTicket> finalBaseSpec = baseSpec;
 
         // Use earliest ticket as start for 'all' and scroll history support
-        OffsetDateTime earliest = getEarliestTicketCreatedAt(normalizedSource);
+        LocalDateTime earliest = getEarliestTicketCreatedAt(normalizedSource);
         if (earliest == null) {
             earliest = nowStartOfDay;
         }
 
-        // helper to count by status in range with source filtering
-        final var statusList = Arrays.asList("OPEN", "PENDING", "IN_PROGRESS", "RESOLVED", "CLOSED", "CANCELLED");
-
-        java.util.function.BiFunction<String, java.time.OffsetDateTime[], Long> statusCount = (statusFilter, range) -> {
-            Specification<Ticket> statusSpec = Specification.where((root, query, cb) -> cb.equal(cb.upper(root.get("status")), statusFilter));
+        java.util.function.BiFunction<String, LocalDateTime[], Long> statusCount = (statusFilter, range) -> {
+            String effectiveStatus = "PENDING".equals(statusFilter) ? "PENDING_USER" : statusFilter;
+            Specification<SupportTicket> statusSpec = Specification.where((root, query, cb) -> cb.equal(cb.upper(root.get("status").as(String.class)), effectiveStatus));
             if (finalBaseSpec != null) {
                 statusSpec = finalBaseSpec.and(statusSpec);
             }
             if (range != null && range.length == 2 && range[0] != null && range[1] != null) {
                 statusSpec = statusSpec.and((root, query, cb) -> cb.between(root.get("createdAt"), range[0], range[1]));
             }
-            return ticketRepository.count(statusSpec);
+            return supportTicketRepository.count(statusSpec);
         };
 
         switch (filter == null ? "all" : filter.toLowerCase()) {
             case "today": {
-                OffsetDateTime rangeStart = earliest.isBefore(nowStartOfDay.minusDays(6)) ? nowStartOfDay.minusDays(6) : earliest;
+                LocalDateTime rangeStart = earliest.isBefore(nowStartOfDay.minusDays(6)) ? nowStartOfDay.minusDays(6) : earliest;
                 int hours = (int) java.time.Duration.between(rangeStart, now).toHours();
                 for (int i = hours; i >= 0; i--) {
-                    OffsetDateTime start = now.minusHours(i);
-                    OffsetDateTime end = start.plusHours(1);
-                    long open = statusCount.apply("OPEN", new OffsetDateTime[]{start, end});
-                    long pending = statusCount.apply("PENDING", new OffsetDateTime[]{start, end});
-                    long inProgress = statusCount.apply("IN_PROGRESS", new OffsetDateTime[]{start, end});
-                    long resolved = statusCount.apply("RESOLVED", new OffsetDateTime[]{start, end});
-                    long closed = statusCount.apply("CLOSED", new OffsetDateTime[]{start, end});
-                    long cancelled = statusCount.apply("CANCELLED", new OffsetDateTime[]{start, end});
+                    LocalDateTime start = now.minusHours(i);
+                    LocalDateTime end = start.plusHours(1);
+                    long open = statusCount.apply("OPEN", new LocalDateTime[]{start, end});
+                    long pending = statusCount.apply("PENDING", new LocalDateTime[]{start, end});
+                    long inProgress = statusCount.apply("IN_PROGRESS", new LocalDateTime[]{start, end});
+                    long resolved = statusCount.apply("RESOLVED", new LocalDateTime[]{start, end});
+                    long closed = statusCount.apply("CLOSED", new LocalDateTime[]{start, end});
+                    long cancelled = statusCount.apply("CANCELLED", new LocalDateTime[]{start, end});
                     result.add(new TicketTrendDto(start.format(java.time.format.DateTimeFormatter.ofPattern("HH:mm")), open, pending, inProgress, resolved, closed, cancelled));
                 }
                 break;
@@ -397,14 +421,14 @@ public class DashboardServiceImpl implements DashboardService {
                 for (long i = weekCount - 1; i >= Math.max(0, weekCount - 12); i--) {
                     LocalDate weekStart = fullStartWeek.plusWeeks(i);
                     LocalDate weekEnd = weekStart.plusWeeks(1);
-                    OffsetDateTime start = weekStart.atStartOfDay().atOffset(now.getOffset());
-                    OffsetDateTime end = weekEnd.atStartOfDay().atOffset(now.getOffset());
-                    long open = statusCount.apply("OPEN", new OffsetDateTime[]{start, end});
-                    long pending = statusCount.apply("PENDING", new OffsetDateTime[]{start, end});
-                    long inProgress = statusCount.apply("IN_PROGRESS", new OffsetDateTime[]{start, end});
-                    long resolved = statusCount.apply("RESOLVED", new OffsetDateTime[]{start, end});
-                    long closed = statusCount.apply("CLOSED", new OffsetDateTime[]{start, end});
-                    long cancelled = statusCount.apply("CANCELLED", new OffsetDateTime[]{start, end});
+                    LocalDateTime start = weekStart.atStartOfDay();
+                    LocalDateTime end = weekEnd.atStartOfDay();
+                    long open = statusCount.apply("OPEN", new LocalDateTime[]{start, end});
+                    long pending = statusCount.apply("PENDING", new LocalDateTime[]{start, end});
+                    long inProgress = statusCount.apply("IN_PROGRESS", new LocalDateTime[]{start, end});
+                    long resolved = statusCount.apply("RESOLVED", new LocalDateTime[]{start, end});
+                    long closed = statusCount.apply("CLOSED", new LocalDateTime[]{start, end});
+                    long cancelled = statusCount.apply("CANCELLED", new LocalDateTime[]{start, end});
                     result.add(new TicketTrendDto("Wk " + weekStart.get(java.time.temporal.IsoFields.WEEK_OF_WEEK_BASED_YEAR), open, pending, inProgress, resolved, closed, cancelled));
                 }
                 break;
@@ -415,14 +439,14 @@ public class DashboardServiceImpl implements DashboardService {
                 long monthCount = java.time.temporal.ChronoUnit.MONTHS.between(minMonth, currentMonth) + 1;
                 for (long i = monthCount - 1; i >= Math.max(0, monthCount - 12); i--) {
                     java.time.YearMonth month = minMonth.plusMonths(i);
-                    OffsetDateTime start = month.atDay(1).atStartOfDay().atOffset(now.getOffset());
-                    OffsetDateTime end = month.plusMonths(1).atDay(1).atStartOfDay().atOffset(now.getOffset());
-                    long open = statusCount.apply("OPEN", new OffsetDateTime[]{start, end});
-                    long pending = statusCount.apply("PENDING", new OffsetDateTime[]{start, end});
-                    long inProgress = statusCount.apply("IN_PROGRESS", new OffsetDateTime[]{start, end});
-                    long resolved = statusCount.apply("RESOLVED", new OffsetDateTime[]{start, end});
-                    long closed = statusCount.apply("CLOSED", new OffsetDateTime[]{start, end});
-                    long cancelled = statusCount.apply("CANCELLED", new OffsetDateTime[]{start, end});
+                    LocalDateTime start = month.atDay(1).atStartOfDay();
+                    LocalDateTime end = month.plusMonths(1).atDay(1).atStartOfDay();
+                    long open = statusCount.apply("OPEN", new LocalDateTime[]{start, end});
+                    long pending = statusCount.apply("PENDING", new LocalDateTime[]{start, end});
+                    long inProgress = statusCount.apply("IN_PROGRESS", new LocalDateTime[]{start, end});
+                    long resolved = statusCount.apply("RESOLVED", new LocalDateTime[]{start, end});
+                    long closed = statusCount.apply("CLOSED", new LocalDateTime[]{start, end});
+                    long cancelled = statusCount.apply("CANCELLED", new LocalDateTime[]{start, end});
                     result.add(new TicketTrendDto(month.toString(), open, pending, inProgress, resolved, closed, cancelled));
                 }
                 break;
@@ -431,14 +455,14 @@ public class DashboardServiceImpl implements DashboardService {
                 int currentYear = now.getYear();
                 int startYear = earliest.getYear();
                 for (int yr = currentYear; yr >= Math.max(startYear, currentYear - 9); yr--) {
-                    OffsetDateTime start = OffsetDateTime.of(java.time.LocalDate.of(yr, 1, 1), java.time.LocalTime.MIN, now.getOffset());
-                    OffsetDateTime end = OffsetDateTime.of(java.time.LocalDate.of(yr + 1, 1, 1), java.time.LocalTime.MIN, now.getOffset());
-                    long open = statusCount.apply("OPEN", new OffsetDateTime[]{start, end});
-                    long pending = statusCount.apply("PENDING", new OffsetDateTime[]{start, end});
-                    long inProgress = statusCount.apply("IN_PROGRESS", new OffsetDateTime[]{start, end});
-                    long resolved = statusCount.apply("RESOLVED", new OffsetDateTime[]{start, end});
-                    long closed = statusCount.apply("CLOSED", new OffsetDateTime[]{start, end});
-                    long cancelled = statusCount.apply("CANCELLED", new OffsetDateTime[]{start, end});
+                    LocalDateTime start = java.time.LocalDate.of(yr, 1, 1).atStartOfDay();
+                    LocalDateTime end = java.time.LocalDate.of(yr + 1, 1, 1).atStartOfDay();
+                    long open = statusCount.apply("OPEN", new LocalDateTime[]{start, end});
+                    long pending = statusCount.apply("PENDING", new LocalDateTime[]{start, end});
+                    long inProgress = statusCount.apply("IN_PROGRESS", new LocalDateTime[]{start, end});
+                    long resolved = statusCount.apply("RESOLVED", new LocalDateTime[]{start, end});
+                    long closed = statusCount.apply("CLOSED", new LocalDateTime[]{start, end});
+                    long cancelled = statusCount.apply("CANCELLED", new LocalDateTime[]{start, end});
                     result.add(new TicketTrendDto(String.valueOf(yr), open, pending, inProgress, resolved, closed, cancelled));
                 }
                 break;
@@ -451,14 +475,14 @@ public class DashboardServiceImpl implements DashboardService {
                 long displayMonths = Math.min(maxMonths, monthCount);
                 for (long i = monthCount - displayMonths; i < monthCount; i++) {
                     java.time.YearMonth month = startMonth.plusMonths(i);
-                    OffsetDateTime start = month.atDay(1).atStartOfDay().atOffset(now.getOffset());
-                    OffsetDateTime end = month.plusMonths(1).atDay(1).atStartOfDay().atOffset(now.getOffset());
-                    long open = statusCount.apply("OPEN", new OffsetDateTime[]{start, end});
-                    long pending = statusCount.apply("PENDING", new OffsetDateTime[]{start, end});
-                    long inProgress = statusCount.apply("IN_PROGRESS", new OffsetDateTime[]{start, end});
-                    long resolved = statusCount.apply("RESOLVED", new OffsetDateTime[]{start, end});
-                    long closed = statusCount.apply("CLOSED", new OffsetDateTime[]{start, end});
-                    long cancelled = statusCount.apply("CANCELLED", new OffsetDateTime[]{start, end});
+                    LocalDateTime start = month.atDay(1).atStartOfDay();
+                    LocalDateTime end = month.plusMonths(1).atDay(1).atStartOfDay();
+                    long open = statusCount.apply("OPEN", new LocalDateTime[]{start, end});
+                    long pending = statusCount.apply("PENDING", new LocalDateTime[]{start, end});
+                    long inProgress = statusCount.apply("IN_PROGRESS", new LocalDateTime[]{start, end});
+                    long resolved = statusCount.apply("RESOLVED", new LocalDateTime[]{start, end});
+                    long closed = statusCount.apply("CLOSED", new LocalDateTime[]{start, end});
+                    long cancelled = statusCount.apply("CANCELLED", new LocalDateTime[]{start, end});
                     result.add(new TicketTrendDto(month.toString(), open, pending, inProgress, resolved, closed, cancelled));
                 }
                 break;
