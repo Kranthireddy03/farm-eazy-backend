@@ -4,6 +4,7 @@ package com.farmeazy.security;
 import com.farmeazy.service.AuthService;
 
 import org.springframework.stereotype.Component;
+import org.springframework.beans.factory.annotation.Value;
 
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -13,9 +14,9 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
 import org.springframework.security.core.context.SecurityContext;
 import org.springframework.security.core.context.SecurityContextHolder;
-import org.springframework.security.core.context.SecurityContextImpl;
+import org.springframework.security.core.GrantedAuthority;
 import org.springframework.security.core.userdetails.UserDetails;
-import org.springframework.security.core.userdetails.UserDetailsService;
+import org.springframework.security.core.userdetails.User;
 import org.springframework.security.web.authentication.WebAuthenticationDetailsSource;
 import org.springframework.security.web.context.RequestAttributeSecurityContextRepository;
 import org.springframework.util.StringUtils;
@@ -23,6 +24,7 @@ import org.springframework.web.filter.OncePerRequestFilter;
 import org.springframework.core.Ordered;
 
 import java.io.IOException;
+import java.util.Collection;
 
 /**
  * JWT AUTHENTICATION FILTER - REQUEST INTERCEPTOR
@@ -171,6 +173,12 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter implements Ord
     private final AuthService authService;
     private final RequestAttributeSecurityContextRepository securityContextRepository = new RequestAttributeSecurityContextRepository();
 
+    @Value("${security.jwt.fast-auth-enabled:false}")
+    private boolean fastJwtAuthEnabled;
+
+    @Value("${security.jwt.debug-enabled:false}")
+    private boolean jwtDebugEnabled;
+
     public JwtAuthenticationFilter(JwtUtil jwtUtil, AuthService authService) {
         this.jwtUtil = jwtUtil;
         this.authService = authService;
@@ -220,9 +228,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter implements Ord
     protected void doFilterInternal(HttpServletRequest request,
                                    HttpServletResponse response,
                                    FilterChain filterChain) throws ServletException, IOException {
-        System.out.println("[JWT DEBUG] Processing request: " + request.getMethod() + " " + request.getRequestURI());
-        String authHeader = request.getHeader("Authorization");
-        System.out.println("[JWT DEBUG] Authorization header: " + (authHeader != null ? authHeader.substring(0, Math.min(50, authHeader.length())) + "..." : "null"));
+        logJwtDebug("Processing request: " + request.getMethod() + " " + request.getRequestURI());
         
         try {
             /**
@@ -231,7 +237,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter implements Ord
              * This method returns the {token} part or null if missing
              */
             String jwt = extractJwtFromRequest(request);
-            System.out.println("[JWT DEBUG] Extracted JWT: " + (jwt != null ? "present (" + jwt.length() + " chars)" : "null"));
+            logJwtDebug("Extracted JWT: " + (jwt != null ? "present (" + jwt.length() + " chars)" : "null"));
 
             /**
              * Step 2: Validate token exists and is valid
@@ -241,13 +247,28 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter implements Ord
              */
             if (StringUtils.hasText(jwt)) {
                 boolean isValid = jwtUtil.validateToken(jwt);
-                System.out.println("[JWT DEBUG] Token validation result: " + isValid);
+                logJwtDebug("Token validation result: " + isValid);
                 if (isValid) {
                 /**
                  * Step 3: Extract username (email) from token claims
                  * This doesn't require database query, just JWT parsing
                  */
                 String username = jwtUtil.extractUsername(jwt);
+
+                UserDetails principal;
+                if (fastJwtAuthEnabled) {
+                    Collection<GrantedAuthority> authorities = jwtUtil.extractAuthorities(jwt);
+                    if (authorities == null || authorities.isEmpty()) {
+                        // Safe fallback to existing DB flow if token roles are unavailable.
+                        principal = authService.loadUserByUsername(username);
+                        logJwtDebug("Fast JWT auth fallback to DB for " + username + " (no authorities in token)");
+                    } else {
+                        principal = new User(username, "", authorities);
+                        logJwtDebug("Fast JWT auth enabled for " + username + " (DB lookup skipped)");
+                    }
+                } else {
+                    principal = authService.loadUserByUsername(username);
+                }
 
                 /**
                  * Step 4: Load user from database using email
@@ -257,7 +278,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter implements Ord
                  * - password (hashed, for legacy auth support)
                  * - authorities (roles, permissions)
                  */
-                UserDetails userDetails = authService.loadUserByUsername(username);
+                UserDetails userDetails = principal;
                 
                 /**
                  * Step 5: Create authentication token
@@ -293,7 +314,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter implements Ord
                 context.setAuthentication(authentication);
                 SecurityContextHolder.setContext(context);
                 securityContextRepository.saveContext(context, request, response);
-                System.out.println("[JWT DEBUG] Authentication set successfully for: " + username);
+                logJwtDebug("Authentication set successfully for: " + username);
                 }
             }
         } catch (Exception ex) {
@@ -318,9 +339,15 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter implements Ord
          * If authentication not set: Continues without authentication
          * Authorization checks happen in next filters
          */
-        System.out.println("[JWT DEBUG] Before doFilter - Auth: " + SecurityContextHolder.getContext().getAuthentication());
+        logJwtDebug("Before doFilter - Auth: " + SecurityContextHolder.getContext().getAuthentication());
         filterChain.doFilter(request, response);
-        System.out.println("[JWT DEBUG] After doFilter - Auth: " + SecurityContextHolder.getContext().getAuthentication());
+        logJwtDebug("After doFilter - Auth: " + SecurityContextHolder.getContext().getAuthentication());
+    }
+
+    private void logJwtDebug(String message) {
+        if (jwtDebugEnabled) {
+            logger.info("[JWT DEBUG] " + message);
+        }
     }
 
     /**

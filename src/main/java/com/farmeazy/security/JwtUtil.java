@@ -8,7 +8,13 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.security.core.userdetails.UserDetails;
 import org.springframework.stereotype.Component;
 
+import org.springframework.security.core.GrantedAuthority;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
+
 import javax.crypto.SecretKey;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Collections;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.Map;
@@ -402,6 +408,36 @@ public class JwtUtil {
     public Boolean validateToken(String token, UserDetails userDetails) {
         final String username = extractUsername(token);
         return (username.equals(userDetails.getUsername())) && !isTokenExpired(token);
+    }
+
+    /**
+     * Extract authorities from JWT roles claim without hitting the database.
+     * Supports roles claim as either:
+     * - List<Map<String, Object>> with key "authority"
+     * - List<String>
+     */
+    public Collection<GrantedAuthority> extractAuthorities(String token) {
+        try {
+            Object rolesClaim = extractAllClaims(token).get("roles");
+            if (!(rolesClaim instanceof Collection<?> roles)) {
+                return Collections.emptyList();
+            }
+
+            Collection<GrantedAuthority> authorities = new ArrayList<>();
+            for (Object role : roles) {
+                if (role instanceof Map<?, ?> roleMap) {
+                    Object authority = roleMap.get("authority");
+                    if (authority instanceof String auth && !auth.isBlank()) {
+                        authorities.add(new SimpleGrantedAuthority(auth));
+                    }
+                } else if (role instanceof String auth && !auth.isBlank()) {
+                    authorities.add(new SimpleGrantedAuthority(auth));
+                }
+            }
+            return authorities;
+        } catch (Exception e) {
+            return Collections.emptyList();
+        }
     }
 
     /**
