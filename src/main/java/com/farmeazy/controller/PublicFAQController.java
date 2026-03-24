@@ -50,6 +50,7 @@ public class PublicFAQController {
     @PostMapping(value = {"/public/faq-question", "/faq-question"}, consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ResponseEntity<String> submitPublicFaqQuestionMultipart(
             @RequestParam String question,
+            @RequestParam(required = false) String details,
             @RequestParam String email,
             @RequestParam(required = false) String source,
             @RequestParam(required = false) String userId,
@@ -65,6 +66,7 @@ public class PublicFAQController {
         dto.setUserId(userId);
         dto.setSource((source == null || source.isBlank()) ? "FAQ_PUBLIC_PAGE" : source);
         dto.setQuestion(question);
+        dto.setDetails(details);
 
         faqQuestionService.processQuestion(dto);
         return ResponseEntity.ok("Your question has been submitted successfully.");

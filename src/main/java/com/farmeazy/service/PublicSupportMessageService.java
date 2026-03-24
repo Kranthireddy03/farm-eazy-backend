@@ -49,8 +49,8 @@ public class PublicSupportMessageService {
                                         <table width=\"600\" cellpadding=\"0\" cellspacing=\"0\" style=\"background:#fff;border-radius:8px;box-shadow:0 2px 8px #e0e0e0;margin:40px 0;\">
                                             <tr>
                                                 <td style=\"background:#4CAF50;padding:24px 0;border-radius:8px 8px 0 0;text-align:center;\">
-                                                    <img src=\"https://i.imgur.com/0y0y0y0.png\" alt=\"FarmEazy Logo\" width=\"120\" style=\"margin-bottom:8px;\">
-                                                    <h1 style=\"color:#fff;font-family:sans-serif;margin:0;font-size:28px;\">FarmEazy Support</h1>
+                                                    <p style="color:#e8f5e9;font-family:sans-serif;margin:6px 0 0 0;font-size:13px;letter-spacing:.3px;">Smart Farm Care Team</p>
+                                                    <p style="color:#e8f5e9;font-family:sans-serif;margin:6px 0 0 0;font-size:13px;letter-spacing:.3px;">Smart Farm Care Team</p>
                                                 </td>
                                             </tr>
                                             <tr>
@@ -79,8 +79,8 @@ public class PublicSupportMessageService {
                                                     <a href=\"mailto:" + dto.getEmail() + "\" style=\"display:inline-block;margin-top:16px;padding:10px 24px;background:#4CAF50;color:#fff;text-decoration:none;border-radius:4px;font-weight:bold;\">Reply to User</a>
                                                 </td>
                                             </tr>
-                                            <tr>
                                                 <td style=\"background:#f4f4f7;padding:20px 40px;border-radius:0 0 8px 8px;text-align:center;color:#888;font-size:13px;\">
+                                                        <p style="color:#e8f5e9;font-family:sans-serif;margin:6px 0 0 0;font-size:13px;letter-spacing:.3px;">Smart Farm Care Team</p>
                                                     Thank you for using FarmEazy!<br>
                                                     <span style=\"color:#aaa;\">&copy; 2026 FarmEazy. All rights reserved.</span>
                                                 </td>
@@ -110,8 +110,8 @@ public class PublicSupportMessageService {
                                         <table width=\"600\" cellpadding=\"0\" cellspacing=\"0\" style=\"background:#fff;border-radius:8px;box-shadow:0 2px 8px #e0e0e0;margin:40px 0;\">
                                             <tr>
                                                 <td style=\"background:#4CAF50;padding:24px 0;border-radius:8px 8px 0 0;text-align:center;\">
-                                                    <img src=\"https://i.imgur.com/0y0y0y0.png\" alt=\"FarmEazy Logo\" width=\"120\" style=\"margin-bottom:8px;\">
                                                     <h1 style=\"color:#fff;font-family:sans-serif;margin:0;font-size:28px;\">FarmEazy Support</h1>
+                                                    <p style=\"color:#e8f5e9;font-family:sans-serif;margin:6px 0 0 0;font-size:13px;letter-spacing:.3px;\">Smart Farm Care Team</p>
                                                 </td>
                                             </tr>
                                             <tr>

@@ -61,8 +61,8 @@ public class AdminFAQQuestionController {
     }
 
     @GetMapping(path = "", params = "unanswered=true")
-    public ResponseEntity<List<FAQQuestion>> getUnansweredNotifications() {
-        return ResponseEntity.ok(faqQuestionService.getUnansweredNotifications());
+    public ResponseEntity<List<FAQQuestionDto>> getUnansweredNotifications() {
+        return ResponseEntity.ok(faqQuestionService.getUnansweredNotificationDtos());
     }
 
     @GetMapping("/{id}")

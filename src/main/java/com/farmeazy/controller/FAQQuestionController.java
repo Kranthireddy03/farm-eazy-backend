@@ -77,6 +77,7 @@ public class FAQQuestionController {
     @PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ResponseEntity<String> submitQuestionMultipart(
             @RequestParam String question,
+            @RequestParam(required = false) String details,
             @RequestParam(required = false) String source,
             @RequestParam(value = "files", required = false) MultipartFile[] files,
             @RequestParam(value = "file", required = false) MultipartFile file,
@@ -84,6 +85,7 @@ public class FAQQuestionController {
 
         FAQQuestionDto dto = new FAQQuestionDto();
         dto.setQuestion(question);
+        dto.setDetails(details);
         dto.setSource(source);
 
         if (authentication != null && authentication.isAuthenticated() && !"anonymousUser".equals(authentication.getPrincipal())) {
@@ -92,7 +94,7 @@ public class FAQQuestionController {
             userRepository.findByEmail(authEmail).ifPresent(user -> dto.setUserId(String.valueOf(user.getId())));
         }
 
-        dto.setQuestion(appendAttachments(question, files, file));
+        dto.setDetails(appendAttachments(details != null ? details : "", files, file));
 
         faqQuestionService.processQuestion(dto);
         return ResponseEntity.ok("Thank you for your question. Our admin team will reply via email.");

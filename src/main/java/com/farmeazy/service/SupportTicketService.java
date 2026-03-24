@@ -159,6 +159,45 @@ public class SupportTicketService {
                 "</div>";
     }
 
+    private String escapeHtml(String value) {
+        if (value == null) {
+            return "";
+        }
+        return value
+                .replace("&", "&amp;")
+                .replace("<", "&lt;")
+                .replace(">", "&gt;")
+                .replace("\"", "&quot;")
+                .replace("'", "&#39;");
+    }
+
+    private String toHtmlLines(String value) {
+        return escapeHtml(value).replace("\n", "<br>");
+    }
+
+    private String detailRow(String label, String value) {
+        if (value == null || value.isBlank()) {
+            return "";
+        }
+        return "<tr>" +
+                "<td style='padding:8px 0; vertical-align:top; color:#6b7280; font-weight:600; width:140px;'>" + escapeHtml(label) + "</td>" +
+                "<td style='padding:8px 0; color:#111827; font-weight:500;'>" + toHtmlLines(value) + "</td>" +
+                "</tr>";
+    }
+
+    private String buildTicketEmailContent(String intro, String detailRows, String updateTitle, String updateBody) {
+        String detailsSection = (detailRows != null && !detailRows.isBlank())
+                ? "<table style='width:100%; border-collapse:collapse; margin:16px 0 8px;'>" + detailRows + "</table>"
+                : "";
+        String updateSection = (updateBody != null && !updateBody.isBlank())
+                ? "<div style='margin-top:16px; padding:14px 16px; border-radius:10px; background:#f8fafc; border:1px solid #e5e7eb;'>" +
+                    "<p style='margin:0 0 8px; font-weight:700; color:#1f2937;'>" + escapeHtml(updateTitle != null ? updateTitle : "Update") + "</p>" +
+                    "<p style='margin:0; color:#374151;'>" + toHtmlLines(updateBody) + "</p>" +
+                  "</div>"
+                : "";
+        return "<p style='margin:0 0 14px; color:#374151;'>" + escapeHtml(intro) + "</p>" + detailsSection + updateSection;
+    }
+
     /**
      * Create support ticket for guest (no user)
      */
@@ -219,24 +258,43 @@ public class SupportTicketService {
 
                 logger.info("Created guest support ticket {}", saved.getDisplayId());
                 String subject = "New Guest Support Ticket: " + saved.getDisplayId() + " (" + saved.getSubject() + ")";
-                String html = "<h2>New Guest Support Ticket Raised</h2>" +
-                    "<b>Contact Email:</b> " + saved.getContactEmail() + "<br>" +
-                    "<b>Subject:</b> " + saved.getSubject() + "<br>" +
-                    "<b>Description:</b><br>" + saved.getDescription() + "<br>" +
-                    "<b>Category:</b> " + saved.getCategory() + "<br>" +
-                    "<b>Priority:</b> " + saved.getPriority() + "<br>" +
-                    "<b>Ticket ID:</b> " + saved.getDisplayId() + "<br>";
+                String html = buildEmailTemplate(
+                    "New guest support ticket raised",
+                    buildTicketEmailContent(
+                        "A new guest user has submitted a support request.",
+                        detailRow("Ticket ID", saved.getDisplayId()) +
+                            detailRow("Contact", saved.getContactEmail()) +
+                            detailRow("Subject", saved.getSubject()) +
+                            detailRow("Category", String.valueOf(saved.getCategory())) +
+                            detailRow("Priority", String.valueOf(saved.getPriority())),
+                        "Issue description",
+                        saved.getDescription()
+                    ),
+                    "Open support dashboard",
+                    buildTicketUrl(saved.getDisplayId(), true)
+                );
+                try {
+                    emailService.sendEmail("support@farm-eazy.com", subject, html, UnifiedEmailService.SenderType.SUPPORT);
+                } catch (Exception ex) {
+                    logger.warn("Support notification email failed for guest ticket {}. Ticket remains created.", saved.getDisplayId(), ex);
+                }
 
                 // Notify user (confirmation email) - guest tickets should route to public ticket tracking
                 String ticketUrl = buildTicketUrl(saved.getDisplayId(), true);
                 String userSubject = "Your FarmEazy question has been received (" + saved.getDisplayId() + ")";
-                String userHtml = "<h2>Thanks for reaching out!</h2>" +
-                    "<p>Your question has been received and will be reviewed by our support team.</p>" +
-                    "<b>Ticket ID:</b> " + saved.getDisplayId() + "<br>" +
-                    "<b>Subject:</b> " + saved.getSubject() + "<br>" +
-                    "<p>View ticket history and respond: <a href='" + ticketUrl + "'>" + ticketUrl + "</a></p>" +
-                    "<p>We'll email you again once a support agent responds.</p>" +
-                    "<p>If you need to update your question, please email support@farm-eazy.com</p>";
+                String userHtml = buildEmailTemplate(
+                    "Your support ticket is created",
+                    buildTicketEmailContent(
+                        "We received your request and our support team is reviewing it.",
+                        detailRow("Ticket ID", saved.getDisplayId()) +
+                            detailRow("Subject", saved.getSubject()) +
+                            detailRow("Priority", String.valueOf(saved.getPriority())),
+                        "What happens next",
+                        "You can track this ticket and reply anytime from your support page. We will notify you when a support agent responds."
+                    ),
+                    "Track your ticket",
+                    ticketUrl
+                );
                 emailService.sendEmail(saved.getContactEmail(), userSubject, userHtml, UnifiedEmailService.SenderType.SUPPORT);
 
                 return SupportTicketResponseDto.fromEntity(saved);
@@ -384,7 +442,7 @@ public class SupportTicketService {
                 .findBySupportTicketIdOrderByCreatedAtAsc(ticket.getId())
                 .stream()
                 .map(com.farmeazy.dto.SupportTicketMessageDto::fromEntity)
-                .toList();
+                .collect(Collectors.toCollection(ArrayList::new));
 
         // Fallback for legacy tickets with no message rows
         if (messages.isEmpty()) {
@@ -447,12 +505,19 @@ public class SupportTicketService {
         boolean isPublicTicket = ticket.getUser() == null;
         String ticketUrl = buildTicketUrl(resolvedDisplayId, isPublicTicket);
         String subject = "Support Ticket Update: " + resolvedDisplayId;
-        String html = "<h2>Your support ticket has been updated by admin</h2>" +
-                "<p><strong>Ticket:</strong> " + resolvedDisplayId + "</p>" +
-                "<b>Subject:</b> " + ticket.getSubject() + "<br>" +
-                "<b>Admin Reply:</b><br>" + reply + "<br>" +
-                "<b>Status:</b> " + ticket.getStatus() + "<br>" +
-                "<p>View/update your ticket: <a href='" + ticketUrl + "'>" + ticketUrl + "</a></p>";
+        String html = buildEmailTemplate(
+            "New reply on your support ticket",
+            buildTicketEmailContent(
+                "A support agent has posted an update to your ticket.",
+                detailRow("Ticket ID", resolvedDisplayId) +
+                    detailRow("Subject", ticket.getSubject()) +
+                    detailRow("Status", String.valueOf(ticket.getStatus())),
+                "Support reply",
+                reply
+            ),
+            "View and respond",
+            ticketUrl
+        );
         emailService.sendEmail(userEmail, subject, html, UnifiedEmailService.SenderType.SUPPORT);
 
         notifyTicketOwner(
@@ -487,13 +552,19 @@ public class SupportTicketService {
             boolean isPublicTicket = ticket.getUser() == null;
             String ticketUrl = buildTicketUrl(resolvedDisplayId, isPublicTicket);
             String subject = "Support Ticket Resolved: " + resolvedDisplayId;
-            String html = "<h2>Your support ticket has been resolved</h2>" +
-                "<p><strong>Ticket:</strong> " + resolvedDisplayId + "</p>" +
-                "<b>Ticket:</b> " + ticket.getDisplayId() + "<br>" +
-                "<b>Subject:</b> " + ticket.getSubject() + "<br>" +
-                "<b>Resolution:</b><br>" + resolution + "<br>" +
-                "<b>Status:</b> " + ticket.getStatus() + "<br>" +
-                "<p>View ticket history & reopen if needed: <a href='" + ticketUrl + "'>" + ticketUrl + "</a></p>";
+            String html = buildEmailTemplate(
+                "Your support ticket has been resolved",
+                buildTicketEmailContent(
+                    "Your request has been marked as resolved by our support team.",
+                    detailRow("Ticket ID", resolvedDisplayId) +
+                            detailRow("Subject", ticket.getSubject()) +
+                            detailRow("Status", String.valueOf(ticket.getStatus())),
+                    "Resolution summary",
+                    resolution
+                ),
+                "Review ticket history",
+                ticketUrl
+            );
             emailService.sendEmail(userEmail, subject, html, UnifiedEmailService.SenderType.SUPPORT);
 
         notifyTicketOwner(
@@ -555,9 +626,19 @@ public class SupportTicketService {
             // Optionally notify user
             String userEmail = ticket.getContactEmail();
             String subject = "Support Ticket Updated with Attachment: " + ticket.getDisplayId();
-            String html = "<h2>An attachment was added to your support ticket</h2>" +
-                    "<b>Ticket:</b> " + ticket.getDisplayId() + "<br>" +
-                    "<b>Attachment:</b> " + fileName + "<br>";
+                String html = buildEmailTemplate(
+                    "Attachment added to your ticket",
+                    buildTicketEmailContent(
+                        "A support agent added an attachment to your ticket.",
+                        detailRow("Ticket ID", ticket.getDisplayId()) +
+                            detailRow("Attachment", fileName) +
+                            detailRow("Status", String.valueOf(ticket.getStatus())),
+                        "Attachment details",
+                        fileUrl != null ? (fileName + " (" + fileUrl + ")") : fileName
+                    ),
+                    "Open ticket",
+                    buildTicketUrl(ticket.getDisplayId(), ticket.getUser() == null)
+                );
             emailService.sendEmail(userEmail, subject, html, UnifiedEmailService.SenderType.SUPPORT);
             return SupportTicketResponseDto.fromEntity(ticket);
         } catch (Exception ex) {
@@ -617,17 +698,27 @@ public class SupportTicketService {
             boolean isPublicTicket = ticket.getUser() == null;
             String ticketUrl = buildTicketUrl(ticket.getDisplayId(), isPublicTicket);
             String subject = "Support Ticket Update: " + ticket.getDisplayId();
-            StringBuilder html = new StringBuilder();
-            html.append("<h2>Your support ticket has been updated by admin</h2>");
-            html.append("<b>Ticket:</b> " + ticket.getDisplayId() + "<br>");
-            if (hasReply) html.append("<b>Admin Reply:</b><br>" + reply + "<br>");
-            if (hasFile) {
-                String fileNames = storedAttachments.stream().map(StoredAttachment::name).collect(Collectors.joining(", "));
-                html.append("<b>Attachment(s):</b> " + fileNames + "<br>");
-            }
-            html.append("<b>Status:</b> " + ticket.getStatus() + "<br>");
-            html.append("<p>View ticket: <a href='" + ticketUrl + "'>" + ticketUrl + "</a></p>");
-            emailService.sendEmail(userEmail, subject, html.toString(), UnifiedEmailService.SenderType.SUPPORT);
+                String attachmentNames = hasFile
+                    ? storedAttachments.stream().map(StoredAttachment::name).collect(Collectors.joining(", "))
+                    : null;
+                String updateBody = hasReply ? reply : "A new attachment was added by support.";
+                if (attachmentNames != null) {
+                updateBody += "\n\nAttachments: " + attachmentNames;
+                }
+                String html = buildEmailTemplate(
+                    "Support ticket updated",
+                    buildTicketEmailContent(
+                        "Your ticket has a new update from our support team.",
+                        detailRow("Ticket ID", ticket.getDisplayId()) +
+                            detailRow("Status", String.valueOf(ticket.getStatus())) +
+                            detailRow("Attachment(s)", attachmentNames),
+                        hasReply ? "Support reply" : "Attachment update",
+                        updateBody
+                    ),
+                    "Open ticket",
+                    ticketUrl
+                );
+                emailService.sendEmail(userEmail, subject, html, UnifiedEmailService.SenderType.SUPPORT);
 
             notifyTicketOwner(
                     ticket,
@@ -713,13 +804,21 @@ public class SupportTicketService {
         logger.info("Created support ticket {} for user {}", saved.getDisplayId(), userEmail);
         // Send email to support@farm-eazy.com
         String subject = "New Support Ticket: " + saved.getDisplayId() + " (" + saved.getSubject() + ")";
-        String html = "<h2>New Support Ticket Raised</h2>" +
-            "<b>User:</b> " + user.getEmail() + "<br>" +
-            "<b>Subject:</b> " + saved.getSubject() + "<br>" +
-            "<b>Description:</b><br>" + saved.getDescription() + "<br>" +
-            "<b>Category:</b> " + saved.getCategory() + "<br>" +
-            "<b>Priority:</b> " + saved.getPriority() + "<br>" +
-            "<b>Ticket ID:</b> " + saved.getDisplayId() + "<br>";
+        String html = buildEmailTemplate(
+            "New support ticket raised",
+            buildTicketEmailContent(
+                "A registered user submitted a new support ticket.",
+                detailRow("Ticket ID", saved.getDisplayId()) +
+                        detailRow("User", user.getEmail()) +
+                        detailRow("Subject", saved.getSubject()) +
+                        detailRow("Category", String.valueOf(saved.getCategory())) +
+                        detailRow("Priority", String.valueOf(saved.getPriority())),
+                "Issue description",
+                saved.getDescription()
+            ),
+            "Open support dashboard",
+            buildTicketUrl(saved.getDisplayId(), false)
+        );
         try {
             emailService.sendEmail("support@farm-eazy.com", subject, html, UnifiedEmailService.SenderType.SUPPORT);
         } catch (Exception ex) {
@@ -801,11 +900,19 @@ public class SupportTicketService {
         // Notify support team about user reply
         String supportSubject = "Public ticket response received: " + ticket.getDisplayId();
         String userLink = buildTicketUrl(ticket.getDisplayId(), true);
-        String supportHtml = "<h2>User replied to ticket</h2>" +
-                "<b>Ticket:</b> " + ticket.getDisplayId() + "<br>" +
-                "<b>From:</b> " + sender + "<br>" +
-                "<b>Response:</b><br>" + messageBody + "<br>" +
-                "<b>View ticket:</b> <a href='" + userLink + "'>" + userLink + "</a><br>";
+        String supportHtml = buildEmailTemplate(
+            "User replied on public ticket",
+            buildTicketEmailContent(
+                "A customer sent a new message on a public support ticket.",
+                detailRow("Ticket ID", ticket.getDisplayId()) +
+                    detailRow("From", sender) +
+                    detailRow("Status", String.valueOf(ticket.getStatus())),
+                "User message",
+                messageBody
+            ),
+            "Open public ticket",
+            userLink
+        );
         emailService.sendEmail("support@farm-eazy.com", supportSubject, supportHtml, UnifiedEmailService.SenderType.SUPPORT);
 
         return SupportTicketResponseDto.fromEntity(ticket);
@@ -828,10 +935,19 @@ public class SupportTicketService {
 
         String userLink = buildTicketUrl(ticket.getDisplayId(), true);
         String userSubject = "Your support ticket is reopened: " + ticket.getDisplayId();
-        String userHtml = "<h2>Your ticket has been reopened</h2>" +
-                "<b>Ticket:</b> " + ticket.getDisplayId() + "<br>" +
-                "<b>Subject:</b> " + ticket.getSubject() + "<br>" +
-                "<b>View:</b> <a href='" + userLink + "'>" + userLink + "</a><br>";
+        String userHtml = buildEmailTemplate(
+            "Your ticket has been reopened",
+            buildTicketEmailContent(
+                "Your request is active again and our team will continue helping you.",
+                detailRow("Ticket ID", ticket.getDisplayId()) +
+                    detailRow("Subject", ticket.getSubject()) +
+                    detailRow("Status", String.valueOf(ticket.getStatus())),
+                "Reopen details",
+                "You can add more information or attachments from your ticket thread."
+            ),
+            "Open ticket",
+            userLink
+        );
         emailService.sendEmail(ticket.getContactEmail(), userSubject, userHtml, UnifiedEmailService.SenderType.SUPPORT);
 
         return SupportTicketResponseDto.fromEntity(ticket);
@@ -997,10 +1113,19 @@ public class SupportTicketService {
 
         try {
             String supportSubject = "User replied on ticket: " + resolveDisplayId(ticket);
-            String supportHtml = "<h2>User replied on support ticket</h2>" +
-                    "<b>Ticket:</b> " + resolveDisplayId(ticket) + "<br>" +
-                    "<b>User:</b> " + userEmail + "<br>" +
-                    "<b>Message:</b><br>" + responseText + "<br>";
+            String supportHtml = buildEmailTemplate(
+                "User replied on support ticket",
+                buildTicketEmailContent(
+                    "A registered user posted a new response in an active ticket.",
+                    detailRow("Ticket ID", resolveDisplayId(ticket)) +
+                        detailRow("User", userEmail) +
+                        detailRow("Status", String.valueOf(ticket.getStatus())),
+                    "User message",
+                    responseMessage
+                ),
+                "Open ticket",
+                buildTicketUrl(resolveDisplayId(ticket), false)
+            );
             emailService.sendEmail("support@farm-eazy.com", supportSubject, supportHtml, UnifiedEmailService.SenderType.SUPPORT);
         } catch (Exception ex) {
             logger.warn("Failed sending support email notification for ticket user reply {}", displayId, ex);

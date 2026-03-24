@@ -60,10 +60,15 @@ public class FAQQuestionService {
         }
     }
 
+    public List<FAQQuestionDto> getUnansweredNotificationDtos() {
+        return getUnansweredNotifications().stream().map(this::toDto).toList();
+    }
+
     private FAQQuestionDto toDto(FAQQuestion entity) {
         FAQQuestionDto dto = new FAQQuestionDto();
         dto.setId(entity.getId());
-        dto.setQuestion(entity.getQuestion());
+        dto.setQuestion(extractQuestionTitle(entity.getQuestion()));
+        dto.setDetails(extractQuestionDetails(entity.getQuestion()));
         dto.setEmail(entity.getEmail());
         dto.setUserId(entity.getUserId());
         dto.setAnswer(entity.getAnswer());
@@ -136,8 +141,108 @@ public class FAQQuestionService {
     }
 
     private String buildFaqUrl(Long id) {
-        String baseUrl = normalizeUrl(publicFrontendBaseUrl, fallbackFrontendBaseUrl);
+        String baseUrl = normalizeUrl(supportFrontendBaseUrl, fallbackFrontendBaseUrl);
         return baseUrl + "/faq/" + id;
+    }
+
+    private String stripAttachmentLines(String value) {
+        if (value == null) return "";
+        return value
+                .replaceAll("(?im)^\\s*attachments?\\s*:\\s*.*$", "")
+                .replaceAll("\\n{3,}", "\\n\\n")
+                .trim();
+    }
+
+    private String extractQuestionTitle(String rawQuestion) {
+        String cleaned = stripAttachmentLines(rawQuestion);
+        if (cleaned.isBlank()) return "";
+        String[] lines = cleaned.split("\\r?\\n");
+        for (String line : lines) {
+            if (!line.isBlank()) {
+                return line.trim();
+            }
+        }
+        return cleaned.trim();
+    }
+
+    private String extractQuestionDetails(String rawQuestion) {
+        String cleaned = stripAttachmentLines(rawQuestion);
+        if (cleaned.isBlank()) return "";
+
+        String[] lines = cleaned.split("\\r?\\n");
+        if (lines.length <= 1) {
+            return "";
+        }
+
+        StringBuilder details = new StringBuilder();
+        boolean started = false;
+        for (int i = 1; i < lines.length; i++) {
+            String line = lines[i];
+            if (!started && line.isBlank()) {
+                continue;
+            }
+            started = true;
+            if (details.length() > 0) {
+                details.append("\n");
+            }
+            details.append(line);
+        }
+        return details.toString().trim();
+    }
+
+    private String escapeHtml(String value) {
+        if (value == null) {
+            return "";
+        }
+        return value
+                .replace("&", "&amp;")
+                .replace("<", "&lt;")
+                .replace(">", "&gt;")
+                .replace("\"", "&quot;")
+                .replace("'", "&#39;");
+    }
+
+    private String toHtmlLines(String value) {
+        return escapeHtml(value).replace("\n", "<br>");
+    }
+
+    private String faqDetailRow(String label, String value) {
+        if (value == null || value.isBlank()) {
+            return "";
+        }
+        return "<tr>" +
+                "<td style='padding:8px 0; vertical-align:top; color:#6b7280; font-weight:600; width:170px;'>" + escapeHtml(label) + "</td>" +
+                "<td style='padding:8px 0; color:#111827; font-weight:500;'>" + toHtmlLines(value) + "</td>" +
+                "</tr>";
+    }
+
+    private String buildFaqEmailTemplate(String title, String intro, String detailRows, String sectionTitle, String sectionBody, String ctaText, String ctaUrl) {
+        String detailsSection = (detailRows != null && !detailRows.isBlank())
+                ? "<table style='width:100%; border-collapse:collapse; margin:16px 0;'>" + detailRows + "</table>"
+                : "";
+        String section = (sectionBody != null && !sectionBody.isBlank())
+                ? "<div style='margin-top:14px; background:#f8fafc; border:1px solid #e5e7eb; border-radius:10px; padding:14px 16px;'>" +
+                    "<p style='margin:0 0 8px; font-weight:700; color:#1f2937;'>" + escapeHtml(sectionTitle != null ? sectionTitle : "Details") + "</p>" +
+                    "<p style='margin:0; color:#374151;'>" + toHtmlLines(sectionBody) + "</p>" +
+                  "</div>"
+                : "";
+        String button = (ctaText != null && !ctaText.isBlank() && ctaUrl != null && !ctaUrl.isBlank())
+                ? "<p style='text-align:center; margin:24px 0 0;'><a href='" + ctaUrl + "' style='display:inline-block; padding:12px 22px; background:#0b72f5; color:#fff; border-radius:8px; text-decoration:none; font-weight:700;'>" + escapeHtml(ctaText) + "</a></p>"
+                : "";
+
+        return "<div style='font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, sans-serif; background:#f4f6fb; padding:24px;'>" +
+                "<div style='max-width:640px; margin:0 auto; background:#ffffff; border-radius:16px; overflow:hidden; box-shadow:0 5px 20px rgba(30, 40, 60, .08);'>" +
+                "<div style='padding:20px; background:linear-gradient(140deg, #0b72f5 0%, #10b981 100%); color:#fff;'>" +
+                "<h2 style='margin:0; font-size:22px; font-weight:800; letter-spacing:.4px;'>" + escapeHtml(title) + "</h2>" +
+                "</div>" +
+                "<div style='padding:20px; color:#1f2937; line-height:1.6; font-size:15px;'>" +
+                "<p style='margin:0 0 12px; color:#374151;'>" + escapeHtml(intro) + "</p>" +
+                detailsSection +
+                section +
+                button +
+                "<hr style='margin:24px 0; border:none; border-top:1px solid #e5e7eb;'/>" +
+                "<p style='margin:0; font-size:13px; color:#6b7280;'>Need help? Contact <a href='mailto:support@farm-eazy.com'>support@farm-eazy.com</a>.</p>" +
+                "</div></div></div>";
     }
 
     public List<FAQQuestionDto> getQuestionsForUser(String email, String userId) {
@@ -243,11 +348,17 @@ public class FAQQuestionService {
         // optionally alert support team
         try {
             String adminSubject = "FAQ feedback received (#" + id + ")";
-            String adminBody = "Question: " + entity.getQuestion() + "\n" +
-                    "User: " + (senderEmail != null ? senderEmail : entity.getEmail()) + "\n" +
-                    "Satisfied: " + satisfied + "\n" +
-                    "Feedback: " + feedbackText + "\n" +
-                    "View: " + buildFaqUrl(id);
+            String adminBody = buildFaqEmailTemplate(
+                "FAQ feedback received",
+                "A user submitted feedback on an answered FAQ thread.",
+                faqDetailRow("Question ID", String.valueOf(id)) +
+                    faqDetailRow("User", senderEmail != null ? senderEmail : entity.getEmail()) +
+                    faqDetailRow("Satisfied", String.valueOf(satisfied)),
+                "Feedback",
+                feedbackText,
+                "Open FAQ thread",
+                buildFaqUrl(id)
+            );
             httpEmailService.sendEmail("support@farm-eazy.com", adminSubject, adminBody);
         } catch (Exception e) {
             System.err.println("Failed to send FAQ feedback notification: " + e.getMessage());
@@ -271,8 +382,14 @@ public class FAQQuestionService {
 
     @Transactional
     public void processQuestion(FAQQuestionDto dto) {
+        String rawQuestion = dto.getQuestion() != null ? dto.getQuestion().trim() : "";
+        String questionTitle = extractQuestionTitle(rawQuestion);
+        String questionDetails = (dto.getDetails() != null && !dto.getDetails().isBlank())
+            ? stripAttachmentLines(dto.getDetails())
+            : extractQuestionDetails(rawQuestion);
+
         FAQQuestion entity = new FAQQuestion();
-        entity.setQuestion(dto.getQuestion());
+        entity.setQuestion(questionTitle.isBlank() ? rawQuestion : questionTitle);
         entity.setEmail(dto.getEmail());
         entity.setUserId(dto.getUserId());
         entity.setSubmittedAt(OffsetDateTime.now());
@@ -287,6 +404,17 @@ public class FAQQuestionService {
 
         faqQuestionRepository.save(entity);
 
+        if (questionDetails != null && !questionDetails.isBlank()) {
+            FAQCommunication detailsComm = new FAQCommunication();
+            detailsComm.setFaqQuestion(entity);
+            detailsComm.setRecipientEmail(entity.getEmail());
+            detailsComm.setSubject("Additional question details");
+            detailsComm.setPurpose("Question Details");
+            detailsComm.setBody(questionDetails);
+            detailsComm.setSentAt(OffsetDateTime.now());
+            faqCommunicationRepository.save(detailsComm);
+        }
+
         notifyFaqUser(
             entity,
             "FAQ question submitted",
@@ -297,18 +425,17 @@ public class FAQQuestionService {
         // Send user email notification on submission
         if (dto.getEmail() != null && !dto.getEmail().isBlank()) {
             String subject = "Your FarmEazy Question Has Been Received!";
-            String logo = "<img src='https://farm-eazy.com/assets/logo.png' alt='FarmEazy Logo' style='height:40px;margin-bottom:16px;'/>";
-            String style = "font-family:Arial,sans-serif;background:#f9fafb;padding:24px;border-radius:8px;color:#222;";
-            String body = "<div style='" + style + "'>" + logo +
-                "<h2 style='color:#059669;'>Thank You for Your Question!</h2>" +
-                "<p>Dear " + (entity.getUserId() != null ? "FarmEazy User" : "Guest") + ",</p>" +
-                "<p>Your question has been submitted to our admin team. We will review it and reply as soon as possible.</p>" +
-                "<div style='background:#eef2ff;padding:16px;border-radius:6px;margin:16px 0;'>" +
-                "<b>Question:</b><br/>" + entity.getQuestion() + "</div>" +
-                "<p>If your question is valuable, it may be featured in our FAQ section and you'll be notified.</p>" +
-                "<p style='margin-top:24px;font-size:14px;color:#666;'>Thank you for contributing to FarmEazy!</p>" +
-                "<hr style='margin:24px 0;border:none;border-top:1px solid #ddd;'/>" +
-                "<p style='font-size:13px;color:#888;'>Best regards,<br/>FarmEazy Support Team</p></div>";
+            String body = buildFaqEmailTemplate(
+                "We received your FAQ question",
+                "Thank you for contacting FarmEazy Support. Our team will review your question and respond soon.",
+                faqDetailRow("Question ID", String.valueOf(entity.getId())) +
+                        faqDetailRow("Submitted by", entity.getEmail()) +
+                        faqDetailRow("Source", entity.getSource()),
+                "Your question",
+                extractQuestionTitle(entity.getQuestion()),
+                "View FAQ section",
+                normalizeUrl(supportFrontendBaseUrl, fallbackFrontendBaseUrl) + "/faq"
+            );
             try {
                 httpEmailService.sendEmail(entity.getEmail(), subject, body);
             } catch (Exception e) {
@@ -343,26 +470,20 @@ public class FAQQuestionService {
         String subject;
         String body;
         String recipientEmail = resolveRecipientEmail(entity);
-        String baseFaqUrl = normalizeUrl(publicFrontendBaseUrl, fallbackFrontendBaseUrl);
         String supportUrl = normalizeUrl(supportFrontendBaseUrl, fallbackFrontendBaseUrl);
-        String faqLink = baseFaqUrl + "/faq/" + id;
-        String logo = "<img src='" + baseFaqUrl + "/assets/logo.png' alt='FarmEazy Logo' style='height:40px;margin-bottom:16px;'/>";
-        String style = "font-family:Arial,sans-serif;background:#f9fafb;padding:24px;border-radius:8px;color:#222;";
+        String faqLink = buildFaqUrl(id);
         if (addToFAQ) {
             subject = "🎉 Your Question Is Now Featured in FarmEazy FAQ!";
-            body = "<div style='" + style + "'>" + logo +
-                "<h2 style='color:#2563eb;'>Congratulations!</h2>" +
-                "<p>Dear " + (entity.getUserId() != null ? "FarmEazy User" : "Guest") + ",</p>" +
-                "<p>We appreciate your thoughtful question. It has been reviewed by our admin team and is now featured in our FAQ section to help the entire community.</p>" +
-                "<div style='background:#eef2ff;padding:16px;border-radius:6px;margin:16px 0;'>" +
-                "<b>Response Context:</b><br/>" + answerContextLabel + "<br/><br/>" +
-                "<b>Question:</b><br/>" + entity.getQuestion() + "<br/><br/>" +
-                "<b>Answer:</b><br/>" + answer + "</div>" +
-                "<p>You can view your question and answer <a href='" + faqLink + "' style='color:#2563eb;text-decoration:underline;'>here</a>.</p>" +
-                "<p>If you have further queries or need more assistance, please <a href='" + supportUrl + "/support' style='color:#059669;text-decoration:underline;'>raise a support ticket</a>.</p>" +
-                "<p style='margin-top:24px;font-size:14px;color:#666;'>Thank you for contributing to FarmEazy!</p>" +
-                "<hr style='margin:24px 0;border:none;border-top:1px solid #ddd;'/>" +
-                "<p style='font-size:13px;color:#888;'>Best regards,<br/>FarmEazy Support Team</p></div>";
+            body = buildFaqEmailTemplate(
+                "Your question is now published in FAQ",
+                "Great news. Your question has been approved and added to the FarmEazy FAQ to help other users.",
+                faqDetailRow("Response context", answerContextLabel) +
+                        faqDetailRow("Question ID", String.valueOf(id)),
+                "Question and answer",
+                "Question: " + extractQuestionTitle(entity.getQuestion()) + "\n\nAnswer: " + htmlToPlainText(answer),
+                "View published FAQ",
+                faqLink
+            );
             storeCommunication(entity, subject, body, "Admin Reply - " + answerContextLabel + " (Published)");
             try {
                 httpEmailService.sendEmail(recipientEmail, subject, body);
@@ -371,18 +492,16 @@ public class FAQQuestionService {
             }
         } else {
             subject = "✅ Response to Your FarmEazy Question";
-            body = "<div style='" + style + "'>" + logo +
-                "<h2 style='color:#059669;'>Your Question Answered</h2>" +
-                "<p>Dear " + (entity.getUserId() != null ? "FarmEazy User" : "Guest") + ",</p>" +
-                "<p>Thank you for reaching out to FarmEazy. Our admin team has reviewed your question and provided the answer below.</p>" +
-                "<div style='background:#f0fdf4;padding:16px;border-radius:6px;margin:16px 0;'>" +
-                "<b>Response Context:</b><br/>" + answerContextLabel + "<br/><br/>" +
-                "<b>Question:</b><br/>" + entity.getQuestion() + "<br/><br/>" +
-                "<b>Answer:</b><br/>" + answer + "</div>" +
-                "<p>If you have further queries or need more assistance, please <a href='" + supportUrl + "/support' style='color:#2563eb;text-decoration:underline;'>raise a support ticket</a>.</p>" +
-                "<p style='margin-top:24px;font-size:14px;color:#666;'>We are here to help you succeed!</p>" +
-                "<hr style='margin:24px 0;border:none;border-top:1px solid #ddd;'/>" +
-                "<p style='font-size:13px;color:#888;'>Best regards,<br/>FarmEazy Support Team</p></div>";
+            body = buildFaqEmailTemplate(
+                "Response to your FarmEazy question",
+                "Our support team has reviewed your question and shared an answer below.",
+                faqDetailRow("Response context", answerContextLabel) +
+                        faqDetailRow("Question ID", String.valueOf(id)),
+                "Question and answer",
+                "Question: " + extractQuestionTitle(entity.getQuestion()) + "\n\nAnswer: " + htmlToPlainText(answer),
+                "Raise a support ticket",
+                supportUrl + "/support"
+            );
             storeCommunication(entity, subject, body, "Admin Reply - " + answerContextLabel);
             try {
                 httpEmailService.sendEmail(recipientEmail, subject, body);
@@ -456,10 +575,16 @@ public class FAQQuestionService {
             // notify support team by email
             try {
                 String adminSubject = "New sub-question for FAQ #" + id;
-                String adminBody = "Question: " + entity.getQuestion() + "\n" +
-                        "Follow-up: " + userSubQuestion + "\n" +
-                        "User: " + (requester != null && !requester.isBlank() ? requester : "Guest") + "\n" +
-                        "View: " + buildFaqUrl(id);
+                String adminBody = buildFaqEmailTemplate(
+                    "New FAQ follow-up received",
+                    "A user reopened a FAQ thread with a follow-up question.",
+                    faqDetailRow("Question ID", String.valueOf(id)) +
+                        faqDetailRow("User", requester != null && !requester.isBlank() ? requester : "Guest"),
+                    "Follow-up question",
+                        "Original question: " + extractQuestionTitle(entity.getQuestion()) + "\n\nFollow-up: " + userSubQuestion,
+                    "Open FAQ thread",
+                    buildFaqUrl(id)
+                );
                 httpEmailService.sendEmail("support@farm-eazy.com", adminSubject, adminBody);
             } catch (Exception e) {
                 System.err.println("Failed to send sub-question notification to admin: " + e.getMessage());
@@ -539,7 +664,7 @@ public class FAQQuestionService {
     public void recordAdminCancel(Long id, String adminEmail) {
         FAQQuestion entity = faqQuestionRepository.findById(id).orElseThrow();
         String subject = "Admin cancelled FAQ review for question id: " + id;
-        String body = "Question: " + entity.getQuestion() + "\nCancelled by: " + adminEmail + " on " + OffsetDateTime.now();
+        String body = "Question: " + extractQuestionTitle(entity.getQuestion()) + "\nCancelled by: " + adminEmail + " on " + OffsetDateTime.now();
         FAQCommunication comm = new FAQCommunication();
         comm.setFaqQuestion(entity);
         comm.setRecipientEmail(entity.getEmail());

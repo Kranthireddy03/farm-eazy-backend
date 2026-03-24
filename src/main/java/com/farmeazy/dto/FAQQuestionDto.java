@@ -20,6 +20,9 @@ public class FAQQuestionDto {
     @Size(min = 10, max = 1000, message = "Question must be between 10 and 1000 characters")
     private String question;
 
+    // Optional extra details provided by users in separate form fields.
+    private String details;
+
     @Email(message = "Valid email is required")
     @NotBlank(message = "Email is required")
     private String email;
@@ -39,6 +42,14 @@ public class FAQQuestionDto {
 
     public void setQuestion(String question) {
         this.question = question;
+    }
+
+    public String getDetails() {
+        return details;
+    }
+
+    public void setDetails(String details) {
+        this.details = details;
     }
 
     public String getEmail() {
