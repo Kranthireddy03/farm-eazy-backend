@@ -370,6 +370,22 @@ public class OtpService {
         logger.info("OTP_LOGIN_VERIFIED: phone={}", maskPhone(phone));
         return true;
     }
+
+    /**
+     * Check whether a LOGIN OTP was already verified and is still within validity window.
+     * This is used by multi-step flows (verify -> change password) that re-submit the same code.
+     */
+    @Transactional(readOnly = true)
+    public boolean isVerifiedLoginOtpStillValid(String phone, String otpCode) {
+        Optional<OtpVerification> otpOpt = otpRepository.findTopByPhoneAndOtpCodeAndPurposeOrderByCreatedAtDesc(
+            phone, otpCode, "LOGIN"
+        );
+        if (otpOpt.isEmpty()) {
+            return false;
+        }
+        OtpVerification otp = otpOpt.get();
+        return otp.isVerified() && otp.getExpiresAt() != null && otp.getExpiresAt().isAfter(LocalDateTime.now());
+    }
     
     /**
      * Mask phone for logging
