@@ -14,6 +14,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.security.core.Authentication;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -28,6 +29,7 @@ import java.util.Map;
 @RequestMapping({"/support-tickets", "/api/support-tickets"})
 @CrossOrigin(origins = {"http://localhost:3000", "http://localhost:4200", "http://localhost:5173"})
 @Tag(name = "Support Tickets", description = "Endpoints for users to create and manage their own support tickets")
+@PreAuthorize("isAuthenticated()")
 public class SupportTicketController {
     private static final Logger logger = LoggerFactory.getLogger(SupportTicketController.class);
 
@@ -66,12 +68,10 @@ public class SupportTicketController {
 
     @PostMapping("/guest")
     @Operation(summary = "Create guest ticket", description = "Create a new support ticket for a guest user (no authentication required)")
-    public ResponseEntity<SupportTicketResponseDto> createGuestTicket(@Valid @RequestBody SupportTicketDto dto) {
-        logger.info("SUPPORT_CONTROLLER_CREATE_GUEST_TICKET email={}", dto != null ? dto.getContactEmail() : null);
-        if (dto.getContactEmail() == null || dto.getContactEmail().isBlank()) {
-            throw new com.farmeazy.exception.ResourceNotFoundException("Contact email is required for guest ticket");
-        }
-        SupportTicketResponseDto created = supportTicketService.createGuestTicket(dto);
+    public ResponseEntity<SupportTicketResponseDto> createGuestTicket(@Valid @RequestBody SupportTicketDto dto, Authentication authentication) {
+        logger.info("SUPPORT_CONTROLLER_CREATE_GUEST_TICKET_COMPAT userEmail={}", authentication.getName());
+        // Legacy compatibility endpoint: authenticated users still create normal user tickets.
+        SupportTicketResponseDto created = supportTicketService.createTicket(authentication.getName(), dto);
         return ResponseEntity.ok(created);
     }
 
@@ -89,13 +89,10 @@ public class SupportTicketController {
             @RequestParam(required = false) String source,
             @RequestParam(required = false) String roleRequest,
             @RequestParam(value = "files", required = false) MultipartFile[] files,
-            @RequestParam(value = "file", required = false) MultipartFile file) {
+            @RequestParam(value = "file", required = false) MultipartFile file,
+            Authentication authentication) {
 
-        logger.info("SUPPORT_CONTROLLER_CREATE_GUEST_TICKET_MULTIPART email={} source={}", contactEmail, source);
-
-        if (!resolveFiles(files, file).isEmpty()) {
-            throw new IllegalArgumentException("Attachments are disabled for public users. Please sign in to attach files.");
-        }
+        logger.info("SUPPORT_CONTROLLER_CREATE_GUEST_TICKET_MULTIPART_COMPAT userEmail={} source={}", authentication.getName(), source);
 
         SupportTicketDto dto = new SupportTicketDto();
         dto.setSubject(subject);
@@ -109,16 +106,16 @@ public class SupportTicketController {
         dto.setSource(source);
         dto.setRoleRequest(roleRequest);
 
-        SupportTicketResponseDto created = supportTicketService.createGuestTicket(dto);
+        SupportTicketResponseDto created = supportTicketService.createTicketWithAttachments(authentication.getName(), dto, resolveFiles(files, file));
         return ResponseEntity.ok(created);
     }
 
     // DEBUG: log raw body to help identify JSON parsing issues from clients.
     // Remove after issue is resolved.
     @PostMapping("/guest-debug")
-    public ResponseEntity<String> debugGuestPayload(@RequestBody String body) {
+    public ResponseEntity<String> debugGuestPayload(@RequestBody String body, Authentication authentication) {
         logger.debug("SUPPORT_CONTROLLER_GUEST_DEBUG payload={}", body);
-        return ResponseEntity.ok("received");
+        return ResponseEntity.ok("received for " + authentication.getName());
     }
 
     @Autowired
@@ -203,7 +200,7 @@ public class SupportTicketController {
     @Operation(summary = "Get ticket messages (authenticated)", description = "Get authenticated ticket conversation messages")
     public ResponseEntity<?> getTicketMessages(@PathVariable String displayId, Authentication authentication) {
         logger.info("SUPPORT_CONTROLLER_GET_TICKET_MESSAGES displayId={} user={}", displayId, authentication != null ? authentication.getName() : null);
-        java.util.List<com.farmeazy.dto.SupportTicketMessageDto> messages = supportTicketService.getTicketMessages(displayId);
+        java.util.List<com.farmeazy.dto.SupportTicketMessageDto> messages = supportTicketService.getTicketMessagesForUser(authentication.getName(), displayId);
         java.util.Map<String, Object> resp = new java.util.HashMap<>();
         resp.put("messages", messages);
         return ResponseEntity.ok(resp);
@@ -211,16 +208,16 @@ public class SupportTicketController {
 
     @GetMapping("/public/{displayId}")
     @Operation(summary = "Get public ticket", description = "Get public ticket details by displayId")
-    public ResponseEntity<SupportTicketResponseDto> getPublicTicket(@PathVariable String displayId) {
-        logger.info("SUPPORT_CONTROLLER_GET_PUBLIC_TICKET displayId={}", displayId);
-        return ResponseEntity.ok(supportTicketService.getPublicTicketByDisplayId(displayId));
+    public ResponseEntity<SupportTicketResponseDto> getPublicTicket(@PathVariable String displayId, Authentication authentication) {
+        logger.info("SUPPORT_CONTROLLER_GET_PUBLIC_TICKET_COMPAT displayId={} user={}", displayId, authentication.getName());
+        return ResponseEntity.ok(supportTicketService.getTicketByDisplayId(authentication.getName(), displayId));
     }
 
     @GetMapping("/public/{displayId}/messages")
     @Operation(summary = "Get public ticket messages", description = "Get public ticket conversation messages")
-    public ResponseEntity<?> getPublicTicketMessages(@PathVariable String displayId) {
-        logger.info("SUPPORT_CONTROLLER_GET_PUBLIC_TICKET_MESSAGES displayId={}", displayId);
-        java.util.List<com.farmeazy.dto.SupportTicketMessageDto> messages = supportTicketService.getPublicTicketMessages(displayId);
+    public ResponseEntity<?> getPublicTicketMessages(@PathVariable String displayId, Authentication authentication) {
+        logger.info("SUPPORT_CONTROLLER_GET_PUBLIC_TICKET_MESSAGES_COMPAT displayId={} user={}", displayId, authentication.getName());
+        java.util.List<com.farmeazy.dto.SupportTicketMessageDto> messages = supportTicketService.getTicketMessagesForUser(authentication.getName(), displayId);
         java.util.Map<String, Object> resp = new java.util.HashMap<>();
         resp.put("messages", messages);
         return ResponseEntity.ok(resp);
@@ -228,11 +225,10 @@ public class SupportTicketController {
 
     @PostMapping("/public/{displayId}/reply")
     @Operation(summary = "Public write reply", description = "Public user adds a response to a ticket")
-    public ResponseEntity<SupportTicketResponseDto> publicReply(@PathVariable String displayId, @RequestBody java.util.Map<String, String> body) {
+    public ResponseEntity<SupportTicketResponseDto> publicReply(@PathVariable String displayId, @RequestBody java.util.Map<String, String> body, Authentication authentication) {
         String response = body.getOrDefault("response", "");
-        String email = body.getOrDefault("email", "public@anonymous.com");
-        logger.info("SUPPORT_CONTROLLER_PUBLIC_REPLY displayId={} senderEmail={}", displayId, email);
-        return ResponseEntity.ok(supportTicketService.addPublicResponse(displayId, response, email));
+        logger.info("SUPPORT_CONTROLLER_PUBLIC_REPLY_COMPAT displayId={} user={}", displayId, authentication.getName());
+        return ResponseEntity.ok(supportTicketService.addResponse(authentication.getName(), displayId, response));
     }
 
     @PostMapping(path = "/public/{displayId}/reply", consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
@@ -242,21 +238,17 @@ public class SupportTicketController {
             @RequestParam(required = false) String response,
             @RequestParam(required = false) String email,
             @RequestParam(value = "files", required = false) MultipartFile[] files,
-            @RequestParam(value = "file", required = false) MultipartFile file) {
-        logger.info("SUPPORT_CONTROLLER_PUBLIC_REPLY_MULTIPART displayId={} senderEmail={}", displayId, email);
-        if (!resolveFiles(files, file).isEmpty()) {
-            throw new IllegalArgumentException("Attachments are disabled for public users. Please sign in to attach files.");
-        }
-        String senderEmail = (email != null && !email.isBlank()) ? email : "public@anonymous.com";
-        return ResponseEntity.ok(supportTicketService.addPublicResponse(displayId, response, senderEmail));
+            @RequestParam(value = "file", required = false) MultipartFile file,
+            Authentication authentication) {
+        logger.info("SUPPORT_CONTROLLER_PUBLIC_REPLY_MULTIPART_COMPAT displayId={} user={}", displayId, authentication.getName());
+        return ResponseEntity.ok(supportTicketService.addResponseWithAttachments(authentication.getName(), displayId, response, resolveFiles(files, file)));
     }
 
     @PostMapping("/public/{displayId}/reopen")
     @Operation(summary = "Public reopen ticket", description = "Public user requests to reopen a ticket")
-    public ResponseEntity<SupportTicketResponseDto> publicReopen(@PathVariable String displayId, @RequestBody(required = false) java.util.Map<String, String> body) {
-        String email = body != null ? body.getOrDefault("email", "public@anonymous.com") : "public@anonymous.com";
-        logger.info("SUPPORT_CONTROLLER_PUBLIC_REOPEN displayId={} requester={}", displayId, email);
-        return ResponseEntity.ok(supportTicketService.reopenPublicTicket(displayId, email));
+    public ResponseEntity<SupportTicketResponseDto> publicReopen(@PathVariable String displayId, @RequestBody(required = false) java.util.Map<String, String> body, Authentication authentication) {
+        logger.info("SUPPORT_CONTROLLER_PUBLIC_REOPEN_COMPAT displayId={} requester={}", displayId, authentication.getName());
+        return ResponseEntity.ok(supportTicketService.reopenTicket(authentication.getName(), displayId));
     }
 
     @PostMapping("/{displayId}/respond")

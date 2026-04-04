@@ -90,13 +90,6 @@ public class SecurityConfig {
                 .requestMatchers(HttpMethod.GET, "/api/faq-question/**").permitAll()
                 .requestMatchers(HttpMethod.POST, "/api/faq-question/**").permitAll()
                 .requestMatchers(HttpMethod.GET, "/api/admin/faq-questions/stream").permitAll()
-                .requestMatchers(HttpMethod.POST, "/support-tickets/guest").permitAll()
-                .requestMatchers(HttpMethod.GET, "/support-tickets/public/**").permitAll()
-                .requestMatchers(HttpMethod.POST, "/support-tickets/public/**").permitAll()
-                .requestMatchers(HttpMethod.GET, "/api/support-tickets/public/**").permitAll()
-                .requestMatchers(HttpMethod.POST, "/api/support-tickets/public/**").permitAll()
-                // Frontends may prefix the API with /api; allow both variants for guest ticket creation
-                .requestMatchers(HttpMethod.POST, "/api/support-tickets/guest").permitAll()
                 .requestMatchers(HttpMethod.POST, "/api/faq/question").permitAll()
                 .requestMatchers(HttpMethod.POST, "/api/public/faq-question").permitAll()
                 .requestMatchers("/api/test-email/**").permitAll()

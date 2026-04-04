@@ -459,6 +459,32 @@ public class SupportTicketService {
                 .orElseThrow(() -> new ResourceNotFoundException("Ticket not found: " + displayId));
     }
 
+    private SupportTicket requireTicketAccess(String userEmail, String displayId) {
+        User requester = userRepository.findByEmail(userEmail)
+                .orElseThrow(() -> new ResourceNotFoundException("User not found"));
+
+        SupportTicket ticket = resolveTicket(displayId);
+
+        // Support agents can access all tickets.
+        if (isSupportAgent(requester)) {
+            return ticket;
+        }
+
+        // Authenticated owner can access own ticket.
+        if (ticket.getUser() != null && requester.getId().equals(ticket.getUser().getId())) {
+            return ticket;
+        }
+
+        // Legacy guest tickets can be accessed by the same contact email after login.
+        if (ticket.getUser() == null
+                && ticket.getContactEmail() != null
+                && ticket.getContactEmail().equalsIgnoreCase(userEmail)) {
+            return ticket;
+        }
+
+        throw new ResourceNotFoundException("Ticket not found: " + displayId);
+    }
+
     @Transactional
     @CacheEvict(cacheNames = {"supportTicketList", "supportTicketAdminStats", "supportTicketUserStats"}, allEntries = true)
     public SupportTicketResponseDto setImportant(String displayId, boolean important) {
@@ -1080,18 +1106,17 @@ public class SupportTicketService {
      */
     @Transactional(readOnly = true)
     public SupportTicketResponseDto getTicketByDisplayId(String userEmail, String displayId) {
-        User user = userRepository.findByEmail(userEmail)
-                .orElseThrow(() -> new ResourceNotFoundException("User not found"));
-
-        SupportTicket ticket = ticketRepository.findByDisplayId(displayId)
-                .orElseThrow(() -> new ResourceNotFoundException("Ticket not found: " + displayId));
-
-        // Verify ownership
-        if (!ticket.getUser().getId().equals(user.getId())) {
-            throw new ResourceNotFoundException("Ticket not found: " + displayId);
-        }
-
+        SupportTicket ticket = requireTicketAccess(userEmail, displayId);
         return SupportTicketResponseDto.fromEntity(ticket);
+    }
+
+    @Transactional(readOnly = true)
+    public java.util.List<com.farmeazy.dto.SupportTicketMessageDto> getTicketMessagesForUser(String userEmail, String displayId) {
+        SupportTicket ticket = requireTicketAccess(userEmail, displayId);
+        return supportTicketMessageRepository.findBySupportTicketIdOrderByCreatedAtAsc(ticket.getId())
+                .stream()
+                .map(com.farmeazy.dto.SupportTicketMessageDto::fromEntity)
+                .collect(Collectors.toCollection(ArrayList::new));
     }
 
     /**
@@ -1118,16 +1143,7 @@ public class SupportTicketService {
     @Transactional
     @CacheEvict(cacheNames = {"supportTicketList", "supportTicketAdminStats", "supportTicketUserStats"}, allEntries = true)
     public SupportTicketResponseDto cancelTicket(String userEmail, String displayId) {
-        User user = userRepository.findByEmail(userEmail)
-                .orElseThrow(() -> new ResourceNotFoundException("User not found"));
-
-        SupportTicket ticket = ticketRepository.findByDisplayId(displayId)
-                .orElseThrow(() -> new ResourceNotFoundException("Ticket not found: " + displayId));
-
-        // Verify ownership
-        if (!ticket.getUser().getId().equals(user.getId())) {
-            throw new ResourceNotFoundException("Ticket not found: " + displayId);
-        }
+        SupportTicket ticket = requireTicketAccess(userEmail, displayId);
 
         // Can only cancel OPEN or IN_PROGRESS tickets
         if (ticket.getStatus() != TicketStatus.OPEN && ticket.getStatus() != TicketStatus.IN_PROGRESS) {
@@ -1168,16 +1184,7 @@ public class SupportTicketService {
     @Transactional
     @CacheEvict(cacheNames = {"supportTicketList", "supportTicketAdminStats", "supportTicketUserStats"}, allEntries = true)
     public SupportTicketResponseDto addResponseWithAttachments(String userEmail, String displayId, String response, List<MultipartFile> files) {
-        User user = userRepository.findByEmail(userEmail)
-                .orElseThrow(() -> new ResourceNotFoundException("User not found"));
-
-        SupportTicket ticket = ticketRepository.findByDisplayId(displayId)
-                .orElseThrow(() -> new ResourceNotFoundException("Ticket not found: " + displayId));
-
-        // Verify ownership
-        if (!ticket.getUser().getId().equals(user.getId())) {
-            throw new ResourceNotFoundException("Ticket not found: " + displayId);
-        }
+        SupportTicket ticket = requireTicketAccess(userEmail, displayId);
 
         // Can only add response to open tickets
         if (ticket.getStatus() == TicketStatus.CLOSED || ticket.getStatus() == TicketStatus.CANCELLED) {
@@ -1240,6 +1247,24 @@ public class SupportTicketService {
         } catch (Exception ex) {
             logger.warn("Failed sending support email notification for ticket user reply {}", displayId, ex);
         }
+
+        return SupportTicketResponseDto.fromEntity(ticket);
+    }
+
+    @Transactional
+    @CacheEvict(cacheNames = {"supportTicketList", "supportTicketAdminStats", "supportTicketUserStats"}, allEntries = true)
+    public SupportTicketResponseDto reopenTicket(String userEmail, String displayId) {
+        SupportTicket ticket = requireTicketAccess(userEmail, displayId);
+
+        if (ticket.getStatus() == TicketStatus.CANCELLED) {
+            throw new IllegalStateException("Cannot reopen a cancelled ticket");
+        }
+
+        ticket.setStatus(TicketStatus.OPEN);
+        ticket.setUpdatedAt(LocalDateTime.now());
+        ticketRepository.save(ticket);
+
+        createSupportTicketMessage(ticket, "SYSTEM", "System", "Ticket reopened by " + userEmail, null);
 
         return SupportTicketResponseDto.fromEntity(ticket);
     }
