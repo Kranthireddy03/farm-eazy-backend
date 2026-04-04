@@ -62,6 +62,10 @@ public class ProductCreateDto {
     private String weight;
     private String specifications;
     private String warrantyInfo;
+    @Min(value = 1, message = "Minimum delivery days must be at least 1")
+    private Integer deliveryDaysMin = 3;
+    @Min(value = 1, message = "Maximum delivery days must be at least 1")
+    private Integer deliveryDaysMax = 5;
     // Removed imageUrls and videoUrls; only upload files
 
         // Vendor Transparency Fields
@@ -171,6 +175,22 @@ public class ProductCreateDto {
     
     public void setWarrantyInfo(String warrantyInfo) {
         this.warrantyInfo = warrantyInfo;
+    }
+
+    public Integer getDeliveryDaysMin() {
+        return deliveryDaysMin;
+    }
+
+    public void setDeliveryDaysMin(Integer deliveryDaysMin) {
+        this.deliveryDaysMin = deliveryDaysMin;
+    }
+
+    public Integer getDeliveryDaysMax() {
+        return deliveryDaysMax;
+    }
+
+    public void setDeliveryDaysMax(Integer deliveryDaysMax) {
+        this.deliveryDaysMax = deliveryDaysMax;
     }
 
     public String getContactEmail() {

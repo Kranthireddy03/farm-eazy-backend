@@ -1,6 +1,9 @@
 package com.farmeazy.service;
 
 import com.farmeazy.dto.UserBankDetailsDto;
+import com.farmeazy.dto.OtpRequestDto;
+import com.farmeazy.dto.OtpResponseDto;
+import com.farmeazy.dto.OtpVerifyDto;
 import com.farmeazy.entity.User;
 import com.farmeazy.entity.UserBankDetails;
 import com.farmeazy.exception.DuplicateResourceException;
@@ -33,19 +36,28 @@ public class UserBankDetailsService {
     private final PasswordEncoder passwordEncoder;
     private final SmsService smsService;
     private final HttpEmailService emailService;
+    private final OtpService otpService;
+    private final SecurityAuditService securityAuditService;
     private static final DateTimeFormatter formatter = DateTimeFormatter.ISO_LOCAL_DATE_TIME;
+    private static final String BANK_ADD_PURPOSE = "BANK_DETAILS_ADD";
+    private static final String BANK_UPDATE_PURPOSE = "BANK_DETAILS_UPDATE";
+    private static final String BANK_DELETE_PURPOSE = "BANK_DETAILS_DELETE";
 
     @Autowired
     public UserBankDetailsService(UserBankDetailsRepository bankDetailsRepository, 
                                   UserRepository userRepository,
                                   PasswordEncoder passwordEncoder,
                                   SmsService smsService,
-                                  HttpEmailService emailService) {
+                                  HttpEmailService emailService,
+                                  OtpService otpService,
+                                  SecurityAuditService securityAuditService) {
         this.bankDetailsRepository = bankDetailsRepository;
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
         this.smsService = smsService;
         this.emailService = emailService;
+        this.otpService = otpService;
+        this.securityAuditService = securityAuditService;
     }
 
     /**
@@ -54,12 +66,24 @@ public class UserBankDetailsService {
      */
     @Transactional
     public UserBankDetailsDto addBankDetails(UserBankDetailsDto dto) {
-        String email = SecurityContextHolder.getContext().getAuthentication().getName();
-        User user = userRepository.findByEmail(email)
-                .orElseThrow(() -> new ResourceNotFoundException("User not found"));
+        User user = getCurrentUser();
+
+        try {
+            validateOtpForAction(user, dto.getOtpCode(), "ADD");
+        } catch (Exception ex) {
+            securityAuditService.logBankAction(user,
+                    "Bank details add blocked: OTP validation failed",
+                    false,
+                    "reason=" + ex.getMessage());
+            throw ex;
+        }
 
         // Check if bank details already exist
         if (bankDetailsRepository.existsByUserId(user.getId())) {
+            securityAuditService.logBankAction(user,
+                    "Bank details add blocked: record already exists",
+                    false,
+                    null);
             throw new DuplicateResourceException("Bank details already exist for this user. Use update instead.");
         }
 
@@ -82,6 +106,10 @@ public class UserBankDetailsService {
         }
 
         UserBankDetails saved = bankDetailsRepository.save(bankDetails);
+        securityAuditService.logBankAction(user,
+            "Bank details added after OTP re-auth",
+            true,
+            "bank=" + dto.getBankName());
 
         // Send notification SMS
         try {
@@ -117,15 +145,27 @@ public class UserBankDetailsService {
      */
     @Transactional
     public UserBankDetailsDto updateBankDetails(UserBankDetailsDto dto) {
-        String email = SecurityContextHolder.getContext().getAuthentication().getName();
-        User user = userRepository.findByEmail(email)
-                .orElseThrow(() -> new ResourceNotFoundException("User not found"));
+        User user = getCurrentUser();
+
+        try {
+            validateOtpForAction(user, dto.getOtpCode(), "UPDATE");
+        } catch (Exception ex) {
+            securityAuditService.logBankAction(user,
+                    "Bank details update blocked: OTP validation failed",
+                    false,
+                    "reason=" + ex.getMessage());
+            throw ex;
+        }
 
         UserBankDetails bankDetails = bankDetailsRepository.findByUserId(user.getId())
                 .orElseThrow(() -> new ResourceNotFoundException("Bank details not found"));
 
         // Check change limit (max 3 changes)
         if (bankDetails.hasReachedChangeLimit()) {
+            securityAuditService.logBankAction(user,
+                    "Bank details update blocked: change limit reached",
+                    false,
+                    "changeCount=" + bankDetails.getChangeCount());
             throw new UnauthorizedException("You have reached the maximum limit of 3 bank detail changes. Please contact support to update your bank details.");
         }
 
@@ -142,6 +182,10 @@ public class UserBankDetailsService {
         bankDetails.incrementChangeCount();
 
         UserBankDetails saved = bankDetailsRepository.save(bankDetails);
+        securityAuditService.logBankAction(user,
+            "Bank details updated after OTP re-auth",
+            true,
+            "remainingChanges=" + saved.getRemainingChanges());
 
         // Send notification SMS
         try {
@@ -295,10 +339,18 @@ public class UserBankDetailsService {
      * Sends notifications after deletion.
      */
     @Transactional
-    public void deleteBankDetails() {
-        String email = SecurityContextHolder.getContext().getAuthentication().getName();
-        User user = userRepository.findByEmail(email)
-                .orElseThrow(() -> new ResourceNotFoundException("User not found"));
+    public void deleteBankDetails(String otpCode) {
+        User user = getCurrentUser();
+
+        try {
+            validateOtpForAction(user, otpCode, "DELETE");
+        } catch (Exception ex) {
+            securityAuditService.logBankAction(user,
+                    "Bank details delete blocked: OTP validation failed",
+                    false,
+                    "reason=" + ex.getMessage());
+            throw ex;
+        }
 
         UserBankDetails bankDetails = bankDetailsRepository.findByUserId(user.getId())
                 .orElseThrow(() -> new ResourceNotFoundException("Bank details not found"));
@@ -307,6 +359,10 @@ public class UserBankDetailsService {
         String maskedAccount = bankDetails.getMaskedAccountNumber();
 
         bankDetailsRepository.delete(bankDetails);
+        securityAuditService.logBankAction(user,
+            "Bank details deleted after OTP re-auth",
+            true,
+            "bank=" + bankName + ",account=" + maskedAccount);
 
         // Send notification SMS
         try {
@@ -346,6 +402,87 @@ public class UserBankDetailsService {
 
         UserBankDetails saved = bankDetailsRepository.save(bankDetails);
         return toDto(saved);
+    }
+
+    public OtpResponseDto sendSensitiveActionOtp() {
+        User user = getCurrentUser();
+
+        OtpRequestDto request = new OtpRequestDto();
+        request.setEmail(user.getEmail());
+        request.setPhone(user.getPhone());
+        request.setPurpose(BANK_UPDATE_PURPOSE);
+
+        try {
+            OtpResponseDto response = otpService.generateAndSendOtpWithDetails(request);
+            securityAuditService.logBankAction(user,
+                    "Sensitive bank OTP sent",
+                    true,
+                    "purpose=" + BANK_UPDATE_PURPOSE);
+            return response;
+        } catch (Exception ex) {
+            securityAuditService.logBankAction(user,
+                    "Sensitive bank OTP send failed",
+                    false,
+                    "reason=" + ex.getMessage());
+            throw ex;
+        }
+    }
+
+    public OtpResponseDto sendSensitiveActionOtp(String action) {
+        User user = getCurrentUser();
+        String purpose = resolvePurpose(action);
+
+        OtpRequestDto request = new OtpRequestDto();
+        request.setEmail(user.getEmail());
+        request.setPhone(user.getPhone());
+        request.setPurpose(purpose);
+
+        try {
+            OtpResponseDto response = otpService.generateAndSendOtpWithDetails(request);
+            securityAuditService.logBankAction(user,
+                    "Sensitive bank OTP sent for action: " + action,
+                    true,
+                    "purpose=" + purpose);
+            return response;
+        } catch (Exception ex) {
+            securityAuditService.logBankAction(user,
+                    "Sensitive bank OTP send failed for action: " + action,
+                    false,
+                    "purpose=" + purpose + ";reason=" + ex.getMessage());
+            throw ex;
+        }
+    }
+
+    private void validateOtpForAction(User user, String otpCode, String action) {
+        if (otpCode == null || otpCode.isBlank()) {
+            throw new IllegalArgumentException("OTP code is required for this action");
+        }
+
+        OtpVerifyDto verifyDto = new OtpVerifyDto();
+        verifyDto.setEmail(user.getEmail());
+        verifyDto.setPhone(user.getPhone());
+        verifyDto.setOtpCode(otpCode);
+        verifyDto.setPurpose(resolvePurpose(action));
+        otpService.verifyOtp(verifyDto);
+    }
+
+    private String resolvePurpose(String action) {
+        if ("ADD".equalsIgnoreCase(action)) {
+            return BANK_ADD_PURPOSE;
+        }
+        if ("DELETE".equalsIgnoreCase(action)) {
+            return BANK_DELETE_PURPOSE;
+        }
+        if ("UPDATE".equalsIgnoreCase(action)) {
+            return BANK_UPDATE_PURPOSE;
+        }
+        throw new IllegalArgumentException("Unsupported sensitive action");
+    }
+
+    private User getCurrentUser() {
+        String email = SecurityContextHolder.getContext().getAuthentication().getName();
+        return userRepository.findByEmail(email)
+                .orElseThrow(() -> new ResourceNotFoundException("User not found"));
     }
 
     /**

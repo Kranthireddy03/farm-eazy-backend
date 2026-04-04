@@ -2,6 +2,8 @@ package com.farmeazy.service;
 
 import com.farmeazy.dto.ProductCreateDto;
 import com.farmeazy.dto.ProductDto;
+import com.farmeazy.entity.Notification.NotificationPriority;
+import com.farmeazy.entity.Notification.NotificationType;
 import com.farmeazy.entity.Product;
 import com.farmeazy.entity.ProductMedia;
 import com.farmeazy.entity.User;
@@ -83,6 +85,19 @@ public class ProductService {
                 product.setImageUrls(imageUrl);
                 product.setVideoUrls(videoUrl);
                 Product updatedProduct = productRepository.save(product);
+
+                try {
+                    notificationService.createForUser(
+                        updatedProduct.getSeller(),
+                        NotificationType.PRODUCT,
+                        "Product Media Updated",
+                        "Media updated for: " + updatedProduct.getProductName(),
+                        "/selling",
+                        NotificationPriority.NORMAL
+                    );
+                } catch (Exception ignored) {
+                }
+
                 return convertToDto(updatedProduct);
             }
         /**
@@ -125,9 +140,10 @@ public class ProductService {
     private final ProductMediaRepository productMediaRepository;
     private final UserActivityService userActivityService;
     private final CoinService coinService;
+    private final NotificationService notificationService;
 
     @Autowired
-    public ProductService(ProductRepository productRepository, UserRepository userRepository, HttpEmailService httpEmailService, FileStorageService fileStorageService, ProductMediaRepository productMediaRepository, UserActivityService userActivityService, CoinService coinService) {
+    public ProductService(ProductRepository productRepository, UserRepository userRepository, HttpEmailService httpEmailService, FileStorageService fileStorageService, ProductMediaRepository productMediaRepository, UserActivityService userActivityService, CoinService coinService, NotificationService notificationService) {
         this.productRepository = productRepository;
         this.userRepository = userRepository;
         this.httpEmailService = httpEmailService;
@@ -135,6 +151,7 @@ public class ProductService {
         this.productMediaRepository = productMediaRepository;
         this.userActivityService = userActivityService;
         this.coinService = coinService;
+        this.notificationService = notificationService;
     }
     
     @Transactional
@@ -154,6 +171,14 @@ public class ProductService {
         product.setWeight(dto.getWeight());
         product.setSpecifications(dto.getSpecifications());
         product.setWarrantyInfo(dto.getWarrantyInfo());
+        Integer deliveryMin = dto.getDeliveryDaysMin() != null ? dto.getDeliveryDaysMin() : 3;
+        Integer deliveryMax = dto.getDeliveryDaysMax() != null ? dto.getDeliveryDaysMax() : 5;
+        if (deliveryMin > deliveryMax) {
+            deliveryMin = 3;
+            deliveryMax = 5;
+        }
+        product.setDeliveryDaysMin(deliveryMin);
+        product.setDeliveryDaysMax(deliveryMax);
         product.setStatus("ACTIVE");
         product.setContactEmail(dto.getContactEmail());
         product.setContactPhone(dto.getContactPhone());
@@ -201,6 +226,18 @@ public class ProductService {
         
         Product savedProduct = productRepository.save(product);
 
+        try {
+            notificationService.createForUser(
+                seller,
+                NotificationType.PRODUCT,
+                "Product Listed Successfully",
+                "Your product has been listed: " + savedProduct.getProductName(),
+                "/selling",
+                NotificationPriority.NORMAL
+            );
+        } catch (Exception ignored) {
+        }
+
         // Log activity
         userActivityService.logActivity(seller, com.farmeazy.entity.UserActivity.ActivityType.PRODUCT_LISTED, "Listed a new product: " + savedProduct.getProductName());
 
@@ -231,13 +268,13 @@ public class ProductService {
     }
     
     public List<ProductDto> getAllActiveProducts() {
-        return productRepository.findByStatus("ACTIVE").stream()
+        return productRepository.findByStatusOrderByCreatedAtDesc("ACTIVE").stream()
             .map(this::convertToDto)
             .collect(Collectors.toList());
     }
     
     public List<ProductDto> getProductsByCategory(String category) {
-        return productRepository.findByCategoryAndStatus(category, "ACTIVE").stream()
+        return productRepository.findByCategoryAndStatusOrderByCreatedAtDesc(category, "ACTIVE").stream()
             .map(this::convertToDto)
             .collect(Collectors.toList());
     }
@@ -245,7 +282,7 @@ public class ProductService {
     public List<ProductDto> getMyProducts(String email) {
         User seller = userRepository.findByEmail(email)
             .orElseThrow(() -> new ResourceNotFoundException("User not found with email: " + email));
-        return productRepository.findBySeller(seller).stream()
+        return productRepository.findBySellerOrderByCreatedAtDesc(seller).stream()
             .map(this::convertToDto)
             .collect(Collectors.toList());
     }
@@ -257,7 +294,7 @@ public class ProductService {
     }
     
     public ProductDto getProductById(Long id) {
-        Product product = productRepository.findById(id)
+        Product product = productRepository.findWithDetailsById(id)
             .orElseThrow(() -> new ResourceNotFoundException("Product not found with id: " + id));
         return convertToDto(product);
     }
@@ -282,6 +319,14 @@ public class ProductService {
         product.setWeight(dto.getWeight());
         product.setSpecifications(dto.getSpecifications());
         product.setWarrantyInfo(dto.getWarrantyInfo());
+        Integer deliveryMin = dto.getDeliveryDaysMin() != null ? dto.getDeliveryDaysMin() : 3;
+        Integer deliveryMax = dto.getDeliveryDaysMax() != null ? dto.getDeliveryDaysMax() : 5;
+        if (deliveryMin > deliveryMax) {
+            deliveryMin = 3;
+            deliveryMax = 5;
+        }
+        product.setDeliveryDaysMin(deliveryMin);
+        product.setDeliveryDaysMax(deliveryMax);
         product.setContactEmail(dto.getContactEmail());
         product.setContactPhone(dto.getContactPhone());
         // Vendor Transparency
@@ -294,6 +339,18 @@ public class ProductService {
         product.setSellerPhone(product.getSeller().getPhone());
         
         Product updatedProduct = productRepository.save(product);
+
+        try {
+            notificationService.createForUser(
+                updatedProduct.getSeller(),
+                NotificationType.PRODUCT,
+                "Product Updated",
+                "Your product has been updated: " + updatedProduct.getProductName(),
+                "/selling",
+                NotificationPriority.NORMAL
+            );
+        } catch (Exception ignored) {
+        }
         
         // Log activity
         userActivityService.logActivity(updatedProduct.getSeller(), com.farmeazy.entity.UserActivity.ActivityType.PRODUCT_UPDATED, "Updated product: " + updatedProduct.getProductName());
@@ -327,6 +384,18 @@ public class ProductService {
         
         // Log activity before deleting
         userActivityService.logActivity(product.getSeller(), com.farmeazy.entity.UserActivity.ActivityType.PRODUCT_DELETED, "Deleted product: " + product.getProductName());
+
+        try {
+            notificationService.createForUser(
+                product.getSeller(),
+                NotificationType.PRODUCT,
+                "Product Removed",
+                "Your product has been removed: " + product.getProductName(),
+                "/selling",
+                NotificationPriority.NORMAL
+            );
+        } catch (Exception ignored) {
+        }
 
         // Send delete email notification
         try {
@@ -385,6 +454,8 @@ public class ProductService {
         dto.setWeight(product.getWeight());
         dto.setSpecifications(product.getSpecifications());
         dto.setWarrantyInfo(product.getWarrantyInfo());
+        dto.setDeliveryDaysMin(product.getDeliveryDaysMin());
+        dto.setDeliveryDaysMax(product.getDeliveryDaysMax());
         dto.setStatus(product.getStatus());
         dto.setContactEmail(product.getContactEmail());
         dto.setContactPhone(product.getContactPhone());

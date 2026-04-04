@@ -58,6 +58,13 @@ public class OtpService {
         OtpResponseDto response = new OtpResponseDto();
         List<String> sentVia = new ArrayList<>();
         List<String> failedVia = new ArrayList<>();
+
+        String targetPhone = dto.getPhone();
+        if (targetPhone == null || targetPhone.isBlank()) {
+            targetPhone = userRepository.findByEmail(dto.getEmail())
+                    .map(com.farmeazy.entity.User::getPhone)
+                    .orElse(null);
+        }
         
         // Generate 6-digit OTP
         String otpCode = String.format("%06d", random.nextInt(1000000));
@@ -84,22 +91,43 @@ public class OtpService {
 
         // 2. Send OTP via SMS (if phone provided and SMS is configured)
         SmsResponseDto smsResponse = null;
-        if (dto.getPhone() != null && !dto.getPhone().isBlank()) {
+        if (targetPhone != null && !targetPhone.isBlank()) {
             if (smsService.isConfigured()) {
                 try {
-                    smsResponse = smsService.sendOtp(dto.getPhone(), otpCode);
+                    logger.info("OTP_SMS_ATTEMPT: email={}, phone={}", dto.getEmail(), maskPhone(targetPhone));
+                    if ("BANK_VERIFICATION".equalsIgnoreCase(dto.getPurpose())
+                            || "REFUND_DETAILS_UPDATE".equalsIgnoreCase(dto.getPurpose())
+                            || "REFUND_DETAILS_DELETE".equalsIgnoreCase(dto.getPurpose())) {
+                        logger.info("OTP_SMS_FLOW: Using BANK_DETAILS_OTP template for email={}", dto.getEmail());
+                        smsResponse = smsService.sendBankDetailsOtp(
+                                targetPhone,
+                                resolveBankOtpAction(dto.getPurpose()),
+                                otpCode,
+                                "10");
+                    } else {
+                        smsResponse = smsService.sendOtp(targetPhone, otpCode, "10");
+                    }
                     if (smsResponse != null && smsResponse.isSuccess()) {
                         sentVia.add("SMS");
+                        logger.info("OTP_SMS_SENT: email={}, phone={}", dto.getEmail(), maskPhone(targetPhone));
                     } else {
                         failedVia.add("SMS");
+                        logger.warn("OTP_SMS_FAILED: email={}, phone={}, reason={}",
+                                dto.getEmail(),
+                                maskPhone(targetPhone),
+                                smsResponse != null ? smsResponse.getMessage() : "No response from SMS service");
                     }
                 } catch (Exception e) {
-                    logger.warn("OTP_SMS_EXCEPTION: Failed to send SMS OTP for {}: {}", dto.getPhone(), e.getMessage());
+                    logger.warn("OTP_SMS_EXCEPTION: Failed to send SMS OTP for {}: {}", maskPhone(targetPhone), e.getMessage());
                     failedVia.add("SMS");
                 }
             } else {
-                logger.info("OTP_SMS_SKIP: SMS service not configured, skipping SMS");
+                logger.info("OTP_SMS_SKIP: SMS service not configured, skipping SMS for email={}", dto.getEmail());
+                failedVia.add("SMS (not configured)");
             }
+        } else {
+            logger.info("OTP_SMS_SKIP: No phone available in request/profile for email={}", dto.getEmail());
+            failedVia.add("SMS (no phone)");
         }
 
         // Build response
@@ -174,6 +202,20 @@ public class OtpService {
         return userRepository.findByEmail(dto.getEmail())
                             .map(com.farmeazy.entity.User::getUsername)
                             .orElse("User");
+    }
+
+    private String resolveBankOtpAction(String purpose) {
+        if (purpose == null) {
+            return "addition";
+        }
+
+        if ("REFUND_DETAILS_DELETE".equalsIgnoreCase(purpose)) {
+            return "deletion";
+        }
+        if ("REFUND_DETAILS_UPDATE".equalsIgnoreCase(purpose)) {
+            return "update";
+        }
+        return "addition";
     }
 
     @Transactional
@@ -285,15 +327,34 @@ public class OtpService {
         // Generate 6-digit OTP
         String otpCode = String.format("%06d", random.nextInt(1000000));
         logger.info("OTP_LOGIN_GENERATE: phone={}", maskPhone(phone));
+        String userEmail = userOpt.get().getEmail();
+        String userName = userOpt.get().getUsername() != null && !userOpt.get().getUsername().isBlank()
+            ? userOpt.get().getUsername()
+            : "User";
         
         // Create OTP verification entry (phone-based)
         OtpVerification otp = new OtpVerification();
         otp.setPhone(phone);
-        otp.setEmail(userOpt.get().getEmail()); // Also store email for reference
+        otp.setEmail(userEmail); // Also store email for reference
         otp.setOtpCode(otpCode);
         otp.setPurpose("LOGIN");
         otp.setVerified(false);
         otpRepository.save(otp);
+
+        // Send OTP via Email to the account associated with this phone number.
+        boolean emailSent = false;
+        if (userEmail != null && !userEmail.isBlank()) {
+            emailSent = sendOtpEmail(userEmail, userName, otpCode, "LOGIN");
+            if (emailSent) {
+                sentVia.add("Email");
+            } else {
+                failedVia.add("Email");
+                logger.warn("OTP_LOGIN_EMAIL_FAILED: phone={}, email={}", maskPhone(phone), userEmail);
+            }
+        } else {
+            failedVia.add("Email (missing)");
+            logger.warn("OTP_LOGIN_EMAIL_SKIP: Missing email for phone={}", maskPhone(phone));
+        }
         
         // Send OTP via SMS
         if (smsService.isConfigured()) {
@@ -317,13 +378,14 @@ public class OtpService {
         
         if (sentVia.isEmpty()) {
             response.setMessage("Failed to send OTP. Please try again.");
-            response.setDisplayMessage("Could not send OTP to your phone. Please try again.");
+            response.setDisplayMessage("Could not send OTP via email or SMS. Please try again.");
             
             // Dev fallback - print to console
             System.out.println("[DEV] LOGIN OTP for " + phone + ": " + otpCode);
         } else {
-            response.setMessage("OTP sent to your registered mobile number.");
-            response.setDisplayMessage("OTP sent to " + maskPhone(phone) + ". Valid for 10 minutes.");
+            String channels = String.join(" and ", sentVia);
+            response.setMessage("OTP sent via " + channels + ".");
+            response.setDisplayMessage("OTP sent via " + channels.toLowerCase() + ". Valid for 10 minutes.");
         }
         
         return response;

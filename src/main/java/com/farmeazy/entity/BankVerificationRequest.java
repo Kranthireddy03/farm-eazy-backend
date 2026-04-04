@@ -78,6 +78,12 @@ public class BankVerificationRequest {
     @Column(name = "transfer_reference_id", length = 100)
     private String transferReferenceId;
 
+    @Column(name = "razorpay_contact_id", length = 100)
+    private String razorpayContactId;
+
+    @Column(name = "razorpay_fund_account_id", length = 100)
+    private String razorpayFundAccountId;
+
     @Column(name = "transfer_gateway", length = 50)
     private String transferGateway;
 
@@ -136,7 +142,8 @@ public class BankVerificationRequest {
     public BankVerificationRequest(Long id, String verificationNumber, User user, VerificationType verificationType,
             String accountHolderName, String accountNumberMasked, String accountNumberHash, String ifscCode,
             String bankName, String branchName, String upiIdMasked, String upiIdHash, VerificationStatus status,
-            BigDecimal transferAmount, String transferReferenceId, String transferGateway, String transferStatus,
+            BigDecimal transferAmount, String transferReferenceId, String razorpayContactId, String razorpayFundAccountId,
+            String transferGateway, String transferStatus,
             String transferErrorMessage, LocalDateTime transferAttemptedAt, LocalDateTime transferCompletedAt,
             Integer verificationAttemptsToday, LocalDate lastVerificationDate, Integer totalVerificationAttempts,
             Boolean dailyLimitReached, Boolean userNotified, NotificationType notificationType,
@@ -157,6 +164,8 @@ public class BankVerificationRequest {
         this.status = status;
         this.transferAmount = transferAmount;
         this.transferReferenceId = transferReferenceId;
+        this.razorpayContactId = razorpayContactId;
+        this.razorpayFundAccountId = razorpayFundAccountId;
         this.transferGateway = transferGateway;
         this.transferStatus = transferStatus;
         this.transferErrorMessage = transferErrorMessage;
@@ -306,6 +315,22 @@ public class BankVerificationRequest {
 
     public void setTransferReferenceId(String transferReferenceId) {
         this.transferReferenceId = transferReferenceId;
+    }
+
+    public String getRazorpayContactId() {
+        return razorpayContactId;
+    }
+
+    public void setRazorpayContactId(String razorpayContactId) {
+        this.razorpayContactId = razorpayContactId;
+    }
+
+    public String getRazorpayFundAccountId() {
+        return razorpayFundAccountId;
+    }
+
+    public void setRazorpayFundAccountId(String razorpayFundAccountId) {
+        this.razorpayFundAccountId = razorpayFundAccountId;
     }
 
     public String getTransferGateway() {

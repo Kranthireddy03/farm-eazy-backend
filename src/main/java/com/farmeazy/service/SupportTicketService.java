@@ -16,14 +16,20 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
 import java.util.stream.Collectors;
 
@@ -34,6 +40,12 @@ import java.util.stream.Collectors;
  */
 @Service
 public class SupportTicketService {
+
+    private static final List<TicketStatus> ACTIVE_TICKET_STATUSES = List.of(
+            TicketStatus.OPEN,
+            TicketStatus.IN_PROGRESS,
+            TicketStatus.PENDING_USER
+    );
 
     private record StoredAttachment(String name, String url) {}
 
@@ -93,6 +105,83 @@ public class SupportTicketService {
         return authenticatedUser ? "support_user" : "support_public";
     }
 
+    private boolean matchesAdminSourceFilter(String sourceFilter, SupportTicket ticket) {
+        if (sourceFilter == null || sourceFilter.isBlank() || "all".equalsIgnoreCase(sourceFilter)) {
+            return true;
+        }
+        String normalizedFilter = sourceFilter.trim().toLowerCase(Locale.ROOT);
+        String ticketSource = ticket.getSource() != null ? ticket.getSource().trim().toLowerCase(Locale.ROOT) : "";
+
+        if ("public".equals(normalizedFilter)) {
+            return ticket.getUser() == null || "support_public".equals(ticketSource) || "public_app".equals(ticketSource) || "public".equals(ticketSource);
+        }
+        if ("login".equals(normalizedFilter) || "user".equals(normalizedFilter)) {
+            return ticket.getUser() != null || "support_user".equals(ticketSource) || "app_user".equals(ticketSource) || "login".equals(ticketSource);
+        }
+        if ("admin".equals(normalizedFilter)) {
+            return ticketSource.contains("admin");
+        }
+        return ticketSource.equals(normalizedFilter);
+    }
+
+    private boolean isPublicPortalSource(String source) {
+        if (source == null || source.isBlank()) {
+            return true;
+        }
+        String normalized = source.trim().toLowerCase(Locale.ROOT);
+        return "support_public".equals(normalized) || "public_app".equals(normalized) || "public".equals(normalized);
+    }
+
+    private boolean isSupportAgent(User user) {
+        if (user == null || !Boolean.TRUE.equals(user.getActive()) || user.getRoles() == null) {
+            return false;
+        }
+        return user.getRoles().stream()
+                .map(role -> role == null ? "" : role.trim().toUpperCase(Locale.ROOT))
+                .anyMatch(role -> "ADMIN".equals(role) || "SUPERADMIN".equals(role));
+    }
+
+    private Optional<String> findLeastLoadedActiveAgentEmail() {
+        List<User> agents = userRepository.findAll().stream()
+                .filter(this::isSupportAgent)
+                .collect(Collectors.toList());
+        if (agents.isEmpty()) {
+            return Optional.empty();
+        }
+
+        return agents.stream()
+                .min(Comparator.comparingLong(agent ->
+                        ticketRepository.countByAssignedToAndStatusIn(agent.getEmail(), ACTIVE_TICKET_STATUSES)))
+                .map(User::getEmail);
+    }
+
+    private void assignTicketToAvailableAgent(SupportTicket ticket) {
+        if (ticket == null || ticket.getAssignedTo() != null) {
+            return;
+        }
+        Optional<String> agentEmail = findLeastLoadedActiveAgentEmail();
+        if (agentEmail.isEmpty()) {
+            return;
+        }
+
+        ticket.setAssignedTo(agentEmail.get());
+        if (ticket.getStatus() == TicketStatus.OPEN) {
+            ticket.setStatus(TicketStatus.IN_PROGRESS);
+        }
+        createSupportTicketMessage(ticket, "SYSTEM", "Auto Assign", "Ticket assigned to " + agentEmail.get(), null);
+    }
+
+    private SupportTicket requirePublicAccessibleTicket(String displayId) {
+        SupportTicket ticket = ticketRepository.findByDisplayId(displayId)
+                .orElseThrow(() -> new ResourceNotFoundException("Ticket not found: " + displayId));
+        if (!isPublicPortalSource(ticket.getSource()) || ticket.getUser() != null) {
+            logger.warn("Blocked public ticket access for displayId={} source={} userPresent={}",
+                    displayId, ticket.getSource(), ticket.getUser() != null);
+            throw new ResourceNotFoundException("Ticket not found: " + displayId);
+        }
+        return ticket;
+    }
+
     @Value("${farmeazy.app.support-base-url:${FARMEAZY_SUPPORT_BASE_URL:https://support.farm-eazy.com}}")
     private String supportFrontendBaseUrl;
 
@@ -104,7 +193,7 @@ public class SupportTicketService {
 
     private String buildTicketUrl(String displayId, boolean isPublicTicket) {
         if (displayId == null || displayId.isBlank()) {
-            displayId = "INC00000";
+            displayId = "CHT00000";
         }
         String baseUrl = supportFrontendBaseUrl;
         if (baseUrl == null || baseUrl.isBlank()) {
@@ -126,12 +215,7 @@ public class SupportTicketService {
         if (ticket.getDisplayId() != null && !ticket.getDisplayId().isBlank()) {
             return ticket.getDisplayId();
         }
-        String nextDisplayId;
-        if (ticket.getId() != null) {
-            nextDisplayId = String.format("INC%05d", ticket.getId());
-        } else {
-            nextDisplayId = "INC00000";
-        }
+        String nextDisplayId = sequenceGeneratorService.getNextSupportTicketDisplayId();
         ticket.setDisplayId(nextDisplayId);
         ticketRepository.save(ticket);
         return nextDisplayId;
@@ -213,6 +297,7 @@ public class SupportTicketService {
             }
 
             @Transactional
+            @CacheEvict(cacheNames = {"supportTicketList", "supportTicketAdminStats", "supportTicketUserStats"}, allEntries = true)
             public SupportTicketResponseDto createGuestTicketWithAttachments(SupportTicketDto dto, List<MultipartFile> files) {
                 SupportTicket ticket = new SupportTicket();
                 ticket.setUser(null);
@@ -246,9 +331,9 @@ public class SupportTicketService {
                 ticket.setContactPhone(dto.getContactPhone());
                 ticket.setOrderId(dto.getOrderId());
                 ticket.setServiceId(dto.getServiceId());
+                ticket.setDisplayId(sequenceGeneratorService.getNextSupportTicketDisplayId());
+                assignTicketToAvailableAgent(ticket);
                 SupportTicket saved = ticketRepository.save(ticket);
-                saved.setDisplayId(String.format("INC%05d", saved.getId()));
-                saved = ticketRepository.save(saved);
 
                 List<StoredAttachment> storedAttachments = storeAttachments(files);
 
@@ -316,10 +401,15 @@ public class SupportTicketService {
      * ADMIN: Get filtered and paginated tickets
      */
     @Transactional(readOnly = true)
-    public java.util.Map<String, Object> getAllTicketsFiltered(int page, int size, String status, String category, String priority, Boolean important, Boolean archived, String search) {
+    @Cacheable(cacheNames = "supportTicketList", key = "'admin:' + #page + ':' + #size + ':' + #status + ':' + #category + ':' + #priority + ':' + #important + ':' + #archived + ':' + #search + ':' + #source")
+    public java.util.Map<String, Object> getAllTicketsFiltered(int page, int size, String status, String category, String priority, Boolean important, Boolean archived, String search, String source) {
         java.util.List<SupportTicket> all = ticketRepository.findAllByOrderByCreatedAtDesc();
 
         java.util.stream.Stream<SupportTicket> stream = all.stream();
+
+        if (source != null && !source.isBlank() && !"all".equalsIgnoreCase(source)) {
+            stream = stream.filter(t -> matchesAdminSourceFilter(source, t));
+        }
 
         if (status != null && !status.isBlank()) {
             try { SupportTicket.TicketStatus st = SupportTicket.TicketStatus.valueOf(status); stream = stream.filter(t -> t.getStatus() == st); } catch (Exception e) {}
@@ -352,6 +442,7 @@ public class SupportTicketService {
         result.put("total", total);
         result.put("page", page);
         result.put("size", size);
+        result.put("source", source != null ? source : "all");
         return result;
     }
 
@@ -369,6 +460,7 @@ public class SupportTicketService {
     }
 
     @Transactional
+    @CacheEvict(cacheNames = {"supportTicketList", "supportTicketAdminStats", "supportTicketUserStats"}, allEntries = true)
     public SupportTicketResponseDto setImportant(String displayId, boolean important) {
         SupportTicket ticket = resolveTicket(displayId);
         ticket.setImportant(important);
@@ -380,6 +472,7 @@ public class SupportTicketService {
     }
 
     @Transactional
+    @CacheEvict(cacheNames = {"supportTicketList", "supportTicketAdminStats", "supportTicketUserStats"}, allEntries = true)
     public SupportTicketResponseDto setArchived(String displayId, boolean archived) {
         SupportTicket ticket = resolveTicket(displayId);
         ticket.setArchived(archived);
@@ -407,6 +500,7 @@ public class SupportTicketService {
      * ADMIN: Set ticket status (ADMIN or SUPERADMIN)
      */
     @Transactional
+    @CacheEvict(cacheNames = {"supportTicketList", "supportTicketAdminStats", "supportTicketUserStats"}, allEntries = true)
     public SupportTicketResponseDto setStatusAdmin(String displayId, String statusStr) {
         SupportTicket ticket = resolveTicket(displayId);
         try {
@@ -473,6 +567,7 @@ public class SupportTicketService {
      * ADMIN: Reply to any ticket
      */
     @Transactional
+    @CacheEvict(cacheNames = {"supportTicketList", "supportTicketAdminStats", "supportTicketUserStats"}, allEntries = true)
     public SupportTicketResponseDto adminReplyToTicket(String adminEmail, String displayId, String reply) {
         if (reply == null || reply.isBlank()) {
             throw new IllegalArgumentException("Reply cannot be empty");
@@ -534,6 +629,7 @@ public class SupportTicketService {
      * ADMIN: Resolve ticket
      */
     @Transactional
+    @CacheEvict(cacheNames = {"supportTicketList", "supportTicketAdminStats", "supportTicketUserStats"}, allEntries = true)
     public SupportTicketResponseDto resolveTicketAdmin(String adminEmail, String displayId, String resolution) {
         SupportTicket ticket = ticketRepository.findByDisplayId(displayId)
                 .orElseThrow(() -> new ResourceNotFoundException("Ticket not found: " + displayId));
@@ -595,6 +691,9 @@ public class SupportTicketService {
     @Autowired
     private FileStorageService fileStorageService;
 
+    @Autowired
+    private SequenceGeneratorService sequenceGeneratorService;
+
     private void notifyTicketOwner(SupportTicket ticket, String title, String message, String actionUrl, NotificationPriority priority) {
         if (ticket == null || ticket.getUser() == null) {
             return;
@@ -606,6 +705,7 @@ public class SupportTicketService {
      * ADMIN: Upload attachment for a support ticket and append link to admin notes
      */
     @Transactional
+    @CacheEvict(cacheNames = {"supportTicketList", "supportTicketAdminStats", "supportTicketUserStats"}, allEntries = true)
     public SupportTicketResponseDto adminUploadAttachment(String displayId, org.springframework.web.multipart.MultipartFile file, String adminEmail) {
         SupportTicket ticket = ticketRepository.findByDisplayId(displayId)
                 .orElseThrow(() -> new ResourceNotFoundException("Ticket not found: " + displayId));
@@ -656,6 +756,7 @@ public class SupportTicketService {
     }
 
     @Transactional
+    @CacheEvict(cacheNames = {"supportTicketList", "supportTicketAdminStats", "supportTicketUserStats"}, allEntries = true)
     public SupportTicketResponseDto adminReplyWithAttachments(String adminEmail, String displayId, String reply, List<MultipartFile> files) {
         boolean hasReply = reply != null && !reply.isBlank();
         List<StoredAttachment> storedAttachments = storeAttachments(files);
@@ -750,6 +851,7 @@ public class SupportTicketService {
     }
 
     @Transactional
+    @CacheEvict(cacheNames = {"supportTicketList", "supportTicketAdminStats", "supportTicketUserStats"}, allEntries = true)
     public SupportTicketResponseDto createTicketWithAttachments(String userEmail, SupportTicketDto dto, List<MultipartFile> files) {
         User user = userRepository.findByEmail(userEmail)
                 .orElseThrow(() -> new ResourceNotFoundException("User not found"));
@@ -787,13 +889,11 @@ public class SupportTicketService {
         ticket.setContactPhone(dto.getContactPhone() != null ? dto.getContactPhone() : user.getPhone());
         ticket.setOrderId(dto.getOrderId());
         ticket.setServiceId(dto.getServiceId());
+        ticket.setDisplayId(sequenceGeneratorService.getNextSupportTicketDisplayId());
+        assignTicketToAvailableAgent(ticket);
 
         // Save to get ID
         SupportTicket saved = ticketRepository.save(ticket);
-        
-        // Generate display ID
-        saved.setDisplayId(String.format("INC%05d", saved.getId()));
-        saved = ticketRepository.save(saved);
 
         List<StoredAttachment> storedAttachments = storeAttachments(files);
 
@@ -857,9 +957,17 @@ public class SupportTicketService {
 
     @Transactional(readOnly = true)
     public SupportTicketResponseDto getPublicTicketByDisplayId(String displayId) {
-        SupportTicket ticket = ticketRepository.findByDisplayId(displayId)
-                .orElseThrow(() -> new ResourceNotFoundException("Ticket not found: " + displayId));
+        SupportTicket ticket = requirePublicAccessibleTicket(displayId);
         return SupportTicketResponseDto.fromEntity(ticket);
+    }
+
+    @Transactional(readOnly = true)
+    public java.util.List<com.farmeazy.dto.SupportTicketMessageDto> getPublicTicketMessages(String displayId) {
+        SupportTicket ticket = requirePublicAccessibleTicket(displayId);
+        return supportTicketMessageRepository.findBySupportTicketIdOrderByCreatedAtAsc(ticket.getId())
+                .stream()
+                .map(com.farmeazy.dto.SupportTicketMessageDto::fromEntity)
+                .collect(Collectors.toCollection(ArrayList::new));
     }
 
     @Transactional
@@ -874,6 +982,7 @@ public class SupportTicketService {
     }
 
     @Transactional
+    @CacheEvict(cacheNames = {"supportTicketList", "supportTicketAdminStats", "supportTicketUserStats"}, allEntries = true)
     public SupportTicketResponseDto addPublicResponseWithAttachments(String displayId, String response, String senderEmail, List<MultipartFile> files) {
         boolean hasResponse = response != null && !response.isBlank();
         List<StoredAttachment> storedAttachments = storeAttachments(files);
@@ -881,8 +990,7 @@ public class SupportTicketService {
             throw new IllegalArgumentException("Response message or attachment is required");
         }
 
-        SupportTicket ticket = ticketRepository.findByDisplayId(displayId)
-                .orElseThrow(() -> new ResourceNotFoundException("Ticket not found: " + displayId));
+        SupportTicket ticket = requirePublicAccessibleTicket(displayId);
 
         if (ticket.getStatus() == TicketStatus.CLOSED || ticket.getStatus() == TicketStatus.CANCELLED) {
             throw new IllegalStateException("Cannot respond to a closed/cancelled ticket");
@@ -919,9 +1027,9 @@ public class SupportTicketService {
     }
 
     @Transactional
+    @CacheEvict(cacheNames = {"supportTicketList", "supportTicketAdminStats", "supportTicketUserStats"}, allEntries = true)
     public SupportTicketResponseDto reopenPublicTicket(String displayId, String requesterEmail) {
-        SupportTicket ticket = ticketRepository.findByDisplayId(displayId)
-                .orElseThrow(() -> new ResourceNotFoundException("Ticket not found: " + displayId));
+        SupportTicket ticket = requirePublicAccessibleTicket(displayId);
 
         if (ticket.getStatus() == TicketStatus.CANCELLED) {
             throw new IllegalStateException("Cannot reopen a cancelled ticket");
@@ -1008,6 +1116,7 @@ public class SupportTicketService {
      * Cancel a ticket (user action)
      */
     @Transactional
+    @CacheEvict(cacheNames = {"supportTicketList", "supportTicketAdminStats", "supportTicketUserStats"}, allEntries = true)
     public SupportTicketResponseDto cancelTicket(String userEmail, String displayId) {
         User user = userRepository.findByEmail(userEmail)
                 .orElseThrow(() -> new ResourceNotFoundException("User not found"));
@@ -1057,6 +1166,7 @@ public class SupportTicketService {
     }
 
     @Transactional
+    @CacheEvict(cacheNames = {"supportTicketList", "supportTicketAdminStats", "supportTicketUserStats"}, allEntries = true)
     public SupportTicketResponseDto addResponseWithAttachments(String userEmail, String displayId, String response, List<MultipartFile> files) {
         User user = userRepository.findByEmail(userEmail)
                 .orElseThrow(() -> new ResourceNotFoundException("User not found"));
@@ -1132,6 +1242,79 @@ public class SupportTicketService {
         }
 
         return SupportTicketResponseDto.fromEntity(ticket);
+    }
+
+    @Transactional
+    @CacheEvict(cacheNames = {"supportTicketList", "supportTicketAdminStats", "supportTicketUserStats"}, allEntries = true)
+    public SupportTicketResponseDto assignTicket(String displayId, String assigneeEmail, String requestedByEmail) {
+        SupportTicket ticket = resolveTicket(displayId);
+
+        User assignee = userRepository.findByEmail(assigneeEmail)
+                .orElseThrow(() -> new ResourceNotFoundException("User not found: " + assigneeEmail));
+
+        if (!isSupportAgent(assignee)) {
+            throw new IllegalArgumentException("Assignee must be an active ADMIN or SUPERADMIN user");
+        }
+
+        ticket.setAssignedTo(assignee.getEmail());
+        if (ticket.getStatus() == TicketStatus.OPEN) {
+            ticket.setStatus(TicketStatus.IN_PROGRESS);
+        }
+        ticket.setUpdatedAt(LocalDateTime.now());
+        ticketRepository.save(ticket);
+
+        createSupportTicketMessage(ticket, "SYSTEM", "Assignment", "Ticket assigned to " + assignee.getEmail() + " by " + requestedByEmail, null);
+        return SupportTicketResponseDto.fromEntity(ticket);
+    }
+
+    @Transactional(readOnly = true)
+    @Cacheable(cacheNames = "supportTicketAdminStats", key = "'global'", unless = "#result == null")
+    public Map<String, Object> getAdminChatStats() {
+        Map<String, Object> stats = new LinkedHashMap<>();
+        long totalTickets = ticketRepository.count();
+        long openTickets = ticketRepository.countByStatus(TicketStatus.OPEN);
+        long inProgressTickets = ticketRepository.countByStatus(TicketStatus.IN_PROGRESS);
+        long pendingUserTickets = ticketRepository.countByStatus(TicketStatus.PENDING_USER);
+        long resolvedTickets = ticketRepository.countByStatus(TicketStatus.RESOLVED);
+        long closedTickets = ticketRepository.countByStatus(TicketStatus.CLOSED);
+        long unassignedActiveTickets = ticketRepository.countByAssignedToIsNullAndStatusIn(ACTIVE_TICKET_STATUSES);
+        long assignedActiveTickets = ticketRepository.countByAssignedToIsNotNullAndStatusIn(ACTIVE_TICKET_STATUSES);
+
+        List<String> activeAgents = userRepository.findAll().stream()
+                .filter(this::isSupportAgent)
+                .map(User::getEmail)
+                .collect(Collectors.toList());
+
+        stats.put("totalTickets", totalTickets);
+        stats.put("openTickets", openTickets);
+        stats.put("inProgressTickets", inProgressTickets);
+        stats.put("pendingUserTickets", pendingUserTickets);
+        stats.put("resolvedTickets", resolvedTickets);
+        stats.put("closedTickets", closedTickets);
+        stats.put("assignedActiveTickets", assignedActiveTickets);
+        stats.put("unassignedActiveTickets", unassignedActiveTickets);
+        stats.put("activeAgents", activeAgents.size());
+        stats.put("activeAgentEmails", activeAgents);
+        return stats;
+    }
+
+    @Transactional(readOnly = true)
+    @Cacheable(cacheNames = "supportTicketUserStats", key = "#userEmail", unless = "#result == null")
+    public Map<String, Object> getUserChatStats(String userEmail) {
+        User user = userRepository.findByEmail(userEmail)
+                .orElseThrow(() -> new ResourceNotFoundException("User not found"));
+
+        Map<String, Object> stats = new LinkedHashMap<>();
+        long totalTickets = ticketRepository.countByUser(user);
+        long activeTickets = ticketRepository.countByUserAndStatusIn(user, ACTIVE_TICKET_STATUSES);
+        long resolvedTickets = ticketRepository.countByUserAndStatus(user, TicketStatus.RESOLVED);
+        long closedTickets = ticketRepository.countByUserAndStatus(user, TicketStatus.CLOSED);
+
+        stats.put("totalTickets", totalTickets);
+        stats.put("activeTickets", activeTickets);
+        stats.put("resolvedTickets", resolvedTickets);
+        stats.put("closedTickets", closedTickets);
+        return stats;
     }
 
     /**

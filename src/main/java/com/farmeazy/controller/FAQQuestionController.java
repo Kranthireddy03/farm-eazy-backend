@@ -7,6 +7,8 @@ import org.springframework.http.MediaType;
 import org.springframework.web.multipart.MultipartFile;
 import org.springframework.security.core.Authentication;
 import jakarta.validation.Valid;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import com.farmeazy.dto.FAQQuestionDto;
 import com.farmeazy.exception.UnauthorizedException;
 import com.farmeazy.service.FAQQuestionService;
@@ -19,6 +21,8 @@ import java.util.ArrayList;
 @RequestMapping("/api/faq/question")
 @CrossOrigin(origins = {"http://localhost:3000", "http://localhost:4200", "http://localhost:5173"})
 public class FAQQuestionController {
+
+    private static final Logger logger = LoggerFactory.getLogger(FAQQuestionController.class);
 
     private String requireAuthenticatedEmail(Authentication authentication) {
         if (authentication == null || !authentication.isAuthenticated() || "anonymousUser".equals(authentication.getPrincipal())) {
@@ -65,6 +69,7 @@ public class FAQQuestionController {
 
     @PostMapping
     public ResponseEntity<String> submitQuestion(@Valid @RequestBody FAQQuestionDto dto, Authentication authentication) {
+        logger.info("AUTH_FAQ_SUBMIT source={} authUser={}", dto != null ? dto.getSource() : null, authentication != null ? authentication.getName() : null);
         if (authentication != null && authentication.isAuthenticated() && !"anonymousUser".equals(authentication.getPrincipal())) {
             String authEmail = authentication.getName();
             dto.setEmail(authEmail);
@@ -82,6 +87,7 @@ public class FAQQuestionController {
             @RequestParam(value = "files", required = false) MultipartFile[] files,
             @RequestParam(value = "file", required = false) MultipartFile file,
             Authentication authentication) {
+        logger.info("AUTH_FAQ_SUBMIT_MULTIPART source={} authUser={}", source, authentication != null ? authentication.getName() : null);
 
         FAQQuestionDto dto = new FAQQuestionDto();
         dto.setQuestion(question);
@@ -102,6 +108,7 @@ public class FAQQuestionController {
 
     @GetMapping("/my")
     public ResponseEntity<List<FAQQuestionDto>> getMyQuestions(Authentication authentication) {
+        logger.info("AUTH_FAQ_MY_QUESTIONS authUser={}", authentication != null ? authentication.getName() : null);
         String email = null;
         String userId = null;
         if (authentication != null && authentication.isAuthenticated() && !"anonymousUser".equals(authentication.getPrincipal())) {
@@ -116,6 +123,7 @@ public class FAQQuestionController {
             @PathVariable Long id,
             @RequestBody(required = false) java.util.Map<String, Object> body,
             Authentication authentication) {
+        logger.info("AUTH_FAQ_FEEDBACK id={} authUser={}", id, authentication != null ? authentication.getName() : null);
         String email = requireAuthenticatedEmail(authentication);
         boolean satisfied = Boolean.parseBoolean(String.valueOf(body != null ? body.getOrDefault("satisfied", false) : false));
         String feedback = String.valueOf(body != null ? body.getOrDefault("feedback", "") : "");
@@ -130,6 +138,7 @@ public class FAQQuestionController {
             @RequestParam(value = "files", required = false) MultipartFile[] files,
             @RequestParam(value = "file", required = false) MultipartFile file,
             Authentication authentication) {
+        logger.info("AUTH_FAQ_FEEDBACK_MULTIPART id={} authUser={}", id, authentication != null ? authentication.getName() : null);
         String email = requireAuthenticatedEmail(authentication);
         String feedbackText = appendAttachments(feedback != null ? feedback : "", files, file);
         return ResponseEntity.ok(faqQuestionService.submitFaqFeedback(id, Boolean.TRUE.equals(satisfied), feedbackText, email));
@@ -140,6 +149,7 @@ public class FAQQuestionController {
             @PathVariable Long id,
             @RequestBody(required = false) java.util.Map<String, String> body,
             Authentication authentication) {
+        logger.info("AUTH_FAQ_REOPEN id={} authUser={}", id, authentication != null ? authentication.getName() : null);
         String email = requireAuthenticatedEmail(authentication);
         String subQuestion = body != null ? body.getOrDefault("subQuestion", "") : "";
         return ResponseEntity.ok(faqQuestionService.reopenQuestion(id, email, subQuestion));
@@ -152,6 +162,7 @@ public class FAQQuestionController {
             @RequestParam(value = "files", required = false) MultipartFile[] files,
             @RequestParam(value = "file", required = false) MultipartFile file,
             Authentication authentication) {
+        logger.info("AUTH_FAQ_REOPEN_MULTIPART id={} authUser={}", id, authentication != null ? authentication.getName() : null);
         String email = requireAuthenticatedEmail(authentication);
         String composed = appendAttachments(subQuestion != null ? subQuestion : "", files, file);
         return ResponseEntity.ok(faqQuestionService.reopenQuestion(id, email, composed));
@@ -161,6 +172,7 @@ public class FAQQuestionController {
     public ResponseEntity<FAQQuestionDto> markAuthenticatedFaqSolved(
             @PathVariable Long id,
             Authentication authentication) {
+        logger.info("AUTH_FAQ_MARK_SOLVED id={} authUser={}", id, authentication != null ? authentication.getName() : null);
         String email = requireAuthenticatedEmail(authentication);
         return ResponseEntity.ok(faqQuestionService.markQuestionSolved(id, email));
     }

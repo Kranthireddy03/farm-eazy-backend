@@ -7,6 +7,7 @@ import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.jdbc.CannotGetJdbcConnectionException;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -139,6 +140,18 @@ public class GlobalExceptionHandler {
                                 request.getRequestURI()
                 );
                 return new ResponseEntity<>(errorResponse, HttpStatus.SERVICE_UNAVAILABLE);
+        }
+
+        @ExceptionHandler(DataIntegrityViolationException.class)
+        public ResponseEntity<ErrorResponse> handleDataIntegrityViolationException(
+                        DataIntegrityViolationException ex, HttpServletRequest request) {
+                ErrorResponse errorResponse = new ErrorResponse(
+                                HttpStatus.BAD_REQUEST.value(),
+                                "Request data violates database constraints. Please reduce text length or check required fields.",
+                                LocalDateTime.now(),
+                                request.getRequestURI()
+                );
+                return new ResponseEntity<>(errorResponse, HttpStatus.BAD_REQUEST);
         }
 
     @ExceptionHandler(Exception.class)

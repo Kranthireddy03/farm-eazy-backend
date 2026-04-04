@@ -9,6 +9,8 @@ import com.farmeazy.dto.ServiceListingCreateDto;
 import com.farmeazy.dto.ServiceListingResponseDto;
 import com.farmeazy.entity.Crop;
 import com.farmeazy.entity.Farm;
+import com.farmeazy.entity.Notification.NotificationPriority;
+import com.farmeazy.entity.Notification.NotificationType;
 import com.farmeazy.entity.ServiceBooking;
 import com.farmeazy.entity.ServiceBooking.BookingStatus;
 import com.farmeazy.entity.ServiceBooking.PaymentStatus;
@@ -64,6 +66,9 @@ public class ServiceService {
     @Autowired
     private SmsService smsService;
 
+    @Autowired
+    private NotificationService notificationService;
+
     @Value("${farmeazy.platform.fee.percentage:5.00}")
     private BigDecimal platformFeePercentage;
 
@@ -75,16 +80,41 @@ public class ServiceService {
         ServiceListing entity = new ServiceListing();
         entity.setTitle(dto.getServiceName());
         entity.setUser(user);
+        entity.setVendorId(dto.getVendorId());
+        entity.setVendorName(dto.getVendorName());
+        entity.setVendorLocation(dto.getVendorLocation());
+        entity.setVendorType(dto.getVendorType());
         entity.setRate(dto.getPrice());
         entity.setContactName(dto.getContactName() != null ? dto.getContactName() : user.getUsername());
         entity.setContactPhone(dto.getContactPhone() != null ? dto.getContactPhone() : user.getPhone());
         entity.setContactEmail(dto.getContactEmail() != null ? dto.getContactEmail() : user.getEmail());
         entity.setDescription(dto.getDescription());
+        if (dto.getAttachmentUrls() != null && !dto.getAttachmentUrls().isEmpty()) {
+            String joined = dto.getAttachmentUrls().stream()
+                    .filter(url -> url != null && !url.isBlank())
+                    .map(String::trim)
+                    .collect(Collectors.joining(","));
+            entity.setAttachmentUrls(joined.isBlank() ? null : joined);
+        } else {
+            entity.setAttachmentUrls(null);
+        }
         entity.setType(dto.getType());
         entity.setLocation(dto.getLocation());
         entity.setAvailability(dto.getAvailability() != null ? dto.getAvailability() : "Available");
 
         ServiceListing saved = serviceListingRepository.save(entity);
+
+        try {
+            notificationService.createForUser(
+                user,
+                NotificationType.PRODUCT,
+                "Service Listed Successfully",
+                "Your service has been listed: " + saved.getTitle(),
+                "/services",
+                NotificationPriority.NORMAL
+            );
+        } catch (Exception ignored) {
+        }
 
         // Send service listing creation email notification
         try {
@@ -146,8 +176,27 @@ public class ServiceService {
         if (dto.getContactEmail() != null) {
             entity.setContactEmail(dto.getContactEmail());
         }
+        if (dto.getAttachmentUrls() != null) {
+            String joined = dto.getAttachmentUrls().stream()
+                    .filter(url -> url != null && !url.isBlank())
+                    .map(String::trim)
+                    .collect(Collectors.joining(","));
+            entity.setAttachmentUrls(joined.isBlank() ? null : joined);
+        }
 
         ServiceListing updated = serviceListingRepository.save(entity);
+
+        try {
+            notificationService.createForUser(
+                user,
+                NotificationType.PRODUCT,
+                "Service Updated",
+                "Your service listing has been updated: " + updated.getTitle(),
+                "/services",
+                NotificationPriority.NORMAL
+            );
+        } catch (Exception ignored) {
+        }
 
         // Send service listing update email notification
         try {
@@ -173,6 +222,18 @@ public class ServiceService {
         }
         serviceListingRepository.delete(entity);
 
+        try {
+            notificationService.createForUser(
+                user,
+                NotificationType.PRODUCT,
+                "Service Removed",
+                "Your service listing has been removed: " + entity.getTitle(),
+                "/services",
+                NotificationPriority.NORMAL
+            );
+        } catch (Exception ignored) {
+        }
+
         // Send service listing deletion email notification
         try {
             httpEmailService.sendServiceListingDeletedNotification(
@@ -193,6 +254,10 @@ public class ServiceService {
         dto.setServiceName(entity.getTitle());
         dto.setPrice(entity.getRate() != null ? entity.getRate() : 0.0);
         dto.setProviderId(entity.getUser() != null ? entity.getUser().getId() : null);
+        dto.setVendorId(entity.getVendorId());
+        dto.setVendorName(entity.getVendorName());
+        dto.setVendorLocation(entity.getVendorLocation());
+        dto.setVendorType(entity.getVendorType());
         dto.setDescription(entity.getDescription());
         dto.setType(entity.getType());
         dto.setLocation(entity.getLocation());
@@ -200,6 +265,12 @@ public class ServiceService {
         dto.setContactName(entity.getContactName());
         dto.setContactPhone(entity.getContactPhone());
         dto.setContactEmail(entity.getContactEmail());
+        if (entity.getAttachmentUrls() != null && !entity.getAttachmentUrls().isBlank()) {
+            dto.setAttachmentUrls(Arrays.stream(entity.getAttachmentUrls().split(","))
+                    .map(String::trim)
+                    .filter(url -> !url.isBlank())
+                    .collect(Collectors.toList()));
+        }
         return dto;
     }
 
@@ -241,6 +312,29 @@ public class ServiceService {
         }
 
         ServiceBooking saved = serviceBookingRepository.save(booking);
+
+        try {
+            notificationService.createForUser(
+                user,
+                NotificationType.PRODUCT,
+                "Service booking requested",
+                "Your booking request has been submitted.",
+                "/irrigation-services",
+                NotificationPriority.NORMAL
+            );
+            if (saved.getServiceListing() != null && saved.getServiceListing().getUser() != null) {
+                notificationService.createForUser(
+                    saved.getServiceListing().getUser(),
+                    NotificationType.PRODUCT,
+                    "New service booking request",
+                    "A user requested your service: " + saved.getServiceListing().getTitle(),
+                    "/irrigation-services",
+                    NotificationPriority.HIGH
+                );
+            }
+        } catch (Exception ignored) {
+        }
+
         return toBookingDto(saved);
     }
 
@@ -272,6 +366,18 @@ public class ServiceService {
 
         booking.setStatus(BookingStatus.APPROVED);
         ServiceBooking updated = serviceBookingRepository.save(booking);
+
+        try {
+            notificationService.createForUser(
+                booking.getUser(),
+                NotificationType.PRODUCT,
+                "Service booking approved",
+                "Your booking #" + updated.getId() + " has been approved.",
+                "/irrigation-services",
+                NotificationPriority.HIGH
+            );
+        } catch (Exception ignored) {
+        }
 
         // Send email notifications
         try {
@@ -322,6 +428,18 @@ public class ServiceService {
         booking.setStatus(BookingStatus.DECLINED);
         ServiceBooking updated = serviceBookingRepository.save(booking);
 
+        try {
+            notificationService.createForUser(
+                booking.getUser(),
+                NotificationType.PRODUCT,
+                "Service booking declined",
+                "Your booking #" + updated.getId() + " was declined.",
+                "/irrigation-services",
+                NotificationPriority.NORMAL
+            );
+        } catch (Exception ignored) {
+        }
+
         // Send email notifications
         try {
             httpEmailService.sendServiceBookingDeclinedNotification(
@@ -347,6 +465,10 @@ public class ServiceService {
     public ServiceListingResponseDto createEnhancedServiceListing(User user, ServiceListingCreateDto dto) {
         ServiceListing entity = new ServiceListing();
         entity.setUser(user);
+        entity.setVendorId(dto.getVendorId());
+        entity.setVendorName(dto.getVendorName());
+        entity.setVendorLocation(dto.getVendorLocation());
+        entity.setVendorType(dto.getVendorType());
         entity.setTitle(dto.getTitle());
         entity.setDescription(dto.getDescription());
         entity.setLocation(dto.getLocation());
@@ -395,6 +517,18 @@ public class ServiceService {
         entity.setPayoutStatus(ServiceListing.PayoutStatus.NOT_APPLICABLE);
 
         ServiceListing saved = serviceListingRepository.save(entity);
+
+        try {
+            notificationService.createForUser(
+                user,
+                NotificationType.PRODUCT,
+                "Service Listed Successfully",
+                "Your service has been listed: " + saved.getTitle(),
+                "/services",
+                NotificationPriority.NORMAL
+            );
+        } catch (Exception ignored) {
+        }
 
         // Save custom attributes
         if (dto.getCustomAttributes() != null && !dto.getCustomAttributes().isEmpty()) {
@@ -496,6 +630,29 @@ public class ServiceService {
         calculateBookingPricing(booking, listing, dto);
 
         ServiceBooking saved = serviceBookingRepository.save(booking);
+
+        try {
+            notificationService.createForUser(
+                user,
+                NotificationType.PRODUCT,
+                "Enhanced booking requested",
+                "Your service booking request has been submitted.",
+                "/irrigation-services",
+                NotificationPriority.NORMAL
+            );
+            if (listing.getUser() != null) {
+                notificationService.createForUser(
+                    listing.getUser(),
+                    NotificationType.PRODUCT,
+                    "New booking for your service",
+                    "A user requested your service: " + listing.getTitle(),
+                    "/irrigation-services",
+                    NotificationPriority.HIGH
+                );
+            }
+        } catch (Exception ignored) {
+        }
+
         return toEnhancedBookingDto(saved);
     }
 
@@ -570,6 +727,29 @@ public class ServiceService {
         booking.setStatus(BookingStatus.CONFIRMED);
 
         ServiceBooking saved = serviceBookingRepository.save(booking);
+
+        try {
+            notificationService.createForUser(
+                booking.getUser(),
+                NotificationType.PAYMENT,
+                "Service payment successful",
+                "Payment received for booking #" + saved.getId() + ".",
+                "/irrigation-services",
+                NotificationPriority.NORMAL
+            );
+            if (booking.getProvider() != null) {
+                notificationService.createForUser(
+                    booking.getProvider(),
+                    NotificationType.PAYMENT,
+                    "Booking payment received",
+                    "A booking payment was completed for your service.",
+                    "/irrigation-services",
+                    NotificationPriority.NORMAL
+                );
+            }
+        } catch (Exception ignored) {
+        }
+
         return toEnhancedBookingDto(saved);
     }
 
@@ -597,6 +777,28 @@ public class ServiceService {
         booking.setCompletedAt(LocalDateTime.now());
 
         ServiceBooking saved = serviceBookingRepository.save(booking);
+
+        try {
+            notificationService.createForUser(
+                booking.getUser(),
+                NotificationType.PRODUCT,
+                "Service booking completed",
+                "Booking #" + saved.getId() + " has been marked completed.",
+                "/irrigation-services",
+                NotificationPriority.NORMAL
+            );
+            if (booking.getProvider() != null) {
+                notificationService.createForUser(
+                    booking.getProvider(),
+                    NotificationType.PRODUCT,
+                    "Service completed",
+                    "Booking #" + saved.getId() + " was completed by the user.",
+                    "/irrigation-services",
+                    NotificationPriority.NORMAL
+                );
+            }
+        } catch (Exception ignored) {
+        }
 
         // Send Service Completed SMS
         try {

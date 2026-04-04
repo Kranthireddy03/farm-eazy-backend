@@ -33,6 +33,18 @@ public interface SupportTicketRepository extends JpaRepository<SupportTicket, Lo
     
     long countByStatus(TicketStatus status);
 
+    long countByAssignedToIsNullAndStatusIn(List<TicketStatus> statuses);
+
+    long countByAssignedToIsNotNullAndStatusIn(List<TicketStatus> statuses);
+
+    long countByAssignedToAndStatusIn(String assignedTo, List<TicketStatus> statuses);
+
+    long countByUser(User user);
+
+    long countByUserAndStatusIn(User user, List<TicketStatus> statuses);
+
+    List<SupportTicket> findByAssignedToAndStatusIn(String assignedTo, List<TicketStatus> statuses);
+
     @Query(value = "SELECT COUNT(*) FROM support_tickets WHERE created_at >= :start AND created_at < :end", nativeQuery = true)
     long countByDate(@Param("start") OffsetDateTime start, @Param("end") OffsetDateTime end);
 

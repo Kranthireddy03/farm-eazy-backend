@@ -2,9 +2,13 @@ package com.farmeazy.controller;
 
 import com.farmeazy.dto.ProductCreateDto;
 import com.farmeazy.dto.ProductDto;
+import com.farmeazy.entity.UserBankDetails;
 import com.farmeazy.service.FileStorageService;
+import com.farmeazy.service.ListingEligibilityService;
 import com.farmeazy.service.ProductService;
 import com.farmeazy.entity.User;
+import com.farmeazy.exception.ResourceNotFoundException;
+import com.farmeazy.repository.UserBankDetailsRepository;
 import com.farmeazy.service.UserService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -18,7 +22,10 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 @RestController
@@ -54,12 +61,16 @@ public class ProductController {
     private final ProductService productService;
     private final FileStorageService fileStorageService;
     private final UserService userService;
+    private final ListingEligibilityService listingEligibilityService;
+    private final UserBankDetailsRepository userBankDetailsRepository;
     
     @Autowired
-    public ProductController(ProductService productService, FileStorageService fileStorageService, UserService userService) {
+    public ProductController(ProductService productService, FileStorageService fileStorageService, UserService userService, ListingEligibilityService listingEligibilityService, UserBankDetailsRepository userBankDetailsRepository) {
         this.productService = productService;
         this.fileStorageService = fileStorageService;
         this.userService = userService;
+        this.listingEligibilityService = listingEligibilityService;
+        this.userBankDetailsRepository = userBankDetailsRepository;
     }
     
     @PostMapping(consumes = {MediaType.MULTIPART_FORM_DATA_VALUE})
@@ -68,28 +79,64 @@ public class ProductController {
         ProductCreateDto dto = objectMapper.readValue(productStr, ProductCreateDto.class);
         
         String email = authentication.getName();
-        // Set vendor fields
         User seller = userService.findByEmail(email);
+        listingEligibilityService.assertEligible(seller, "PRODUCT");
+
+        UserBankDetails bankDetails = userBankDetailsRepository.findByUserId(seller.getId())
+                .orElseThrow(() -> new ResourceNotFoundException("Vendor details not found. Please complete bank details first."));
+
+        // Always derive vendor profile server-side to prevent payload-based onboarding.
         dto.setVendorId(seller.getId());
-        dto.setVendorName(seller.getUsername());
+        dto.setVendorName(bankDetails.getAccountHolderName());
+        dto.setVendorLocation(formatLocation(seller));
+        dto.setVendorType("VERIFIED_VENDOR");
+
         ProductDto createdProduct = productService.createProduct(dto, email, files);
         return new ResponseEntity<>(createdProduct, HttpStatus.CREATED);
+    }
+
+    private String formatLocation(User seller) {
+        String city = seller.getCity() != null ? seller.getCity().trim() : "";
+        String state = seller.getState() != null ? seller.getState().trim() : "";
+        if (!city.isEmpty() && !state.isEmpty()) {
+            return city + ", " + state;
+        }
+        return !city.isEmpty() ? city : state;
     }
     
     @GetMapping("/media/{filename:.+}")
     @ResponseBody
     public ResponseEntity<Resource> serveFile(@PathVariable String filename) {
         Resource file = fileStorageService.loadAsResource(filename);
-        String contentType = "application/octet-stream";
-        if (filename.endsWith(".png")) contentType = "image/png";
-        else if (filename.endsWith(".jpg") || filename.endsWith(".jpeg")) contentType = "image/jpeg";
-        else if (filename.endsWith(".webp")) contentType = "image/webp";
-        else if (filename.endsWith(".mp4")) contentType = "video/mp4";
-        else if (filename.endsWith(".webm")) contentType = "video/webm";
+        String contentType = detectContentType(filename);
         return ResponseEntity.ok()
             .header(HttpHeaders.CONTENT_DISPOSITION, "inline; filename=\"" + file.getFilename() + "\"")
             .contentType(org.springframework.http.MediaType.parseMediaType(contentType))
             .body(file);
+    }
+
+    private String detectContentType(String filename) {
+        String safeName = filename == null ? "" : filename.toLowerCase(Locale.ROOT);
+        if (safeName.endsWith(".png")) return "image/png";
+        if (safeName.endsWith(".jpg") || safeName.endsWith(".jpeg")) return "image/jpeg";
+        if (safeName.endsWith(".webp")) return "image/webp";
+        if (safeName.endsWith(".gif")) return "image/gif";
+        if (safeName.endsWith(".mp4")) return "video/mp4";
+        if (safeName.endsWith(".webm")) return "video/webm";
+        if (safeName.endsWith(".ogg")) return "video/ogg";
+        if (safeName.endsWith(".m4v")) return "video/x-m4v";
+        if (safeName.endsWith(".mov")) return "video/quicktime";
+
+        try {
+            Path filePath = fileStorageService.load(filename);
+            String probed = Files.probeContentType(filePath);
+            if (probed != null && !probed.isBlank()) {
+                return probed;
+            }
+        } catch (Exception ignored) {
+        }
+
+        return "application/octet-stream";
     }
     
     @GetMapping

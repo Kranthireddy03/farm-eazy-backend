@@ -5,6 +5,8 @@ import com.farmeazy.service.CropService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -33,6 +35,8 @@ import java.util.List;
 @Tag(name = "Crop Management", description = "Crop CRUD operations")
 public class CropController {
 
+    private static final Logger logger = LoggerFactory.getLogger(CropController.class);
+
     @Autowired
     private CropService cropService;
 
@@ -51,6 +55,7 @@ public class CropController {
     public ResponseEntity<CropDto> createCrop(@Valid @RequestBody CropDto cropDto,
                                               Authentication authentication) {
         Long userId = getUserId(authentication);
+        logger.info("CROP_CONTROLLER_CREATE userId={} farmId={} cropName={}", userId, cropDto != null ? cropDto.getFarmId() : null, cropDto != null ? cropDto.getCropName() : null);
         CropDto response = cropService.createCrop(cropDto, userId);
         return new ResponseEntity<>(response, HttpStatus.CREATED);
     }
@@ -61,6 +66,7 @@ public class CropController {
     public ResponseEntity<CropDto> getCropById(@PathVariable Long cropId,
                                                Authentication authentication) {
         Long userId = getUserId(authentication);
+        logger.info("CROP_CONTROLLER_GET_BY_ID userId={} cropId={}", userId, cropId);
         CropDto crop = cropService.getCropById(cropId, userId);
         return ResponseEntity.ok(crop);
     }
@@ -70,6 +76,7 @@ public class CropController {
     @Operation(summary = "Get all crops for user")
     public ResponseEntity<List<CropDto>> getAllCrops(Authentication authentication) {
         Long userId = getUserId(authentication);
+        logger.info("CROP_CONTROLLER_GET_ALL userId={}", userId);
         List<CropDto> crops = cropService.getAllCropsByUser(userId);
         return ResponseEntity.ok(crops);
     }
@@ -80,6 +87,7 @@ public class CropController {
     public ResponseEntity<List<CropDto>> getCropsByFarm(@PathVariable Long farmId,
                                                         Authentication authentication) {
         Long userId = getUserId(authentication);
+        logger.info("CROP_CONTROLLER_GET_BY_FARM userId={} farmId={}", userId, farmId);
         List<CropDto> crops = cropService.getCropsByFarm(farmId, userId);
         return ResponseEntity.ok(crops);
     }
@@ -93,6 +101,7 @@ public class CropController {
             @RequestParam(defaultValue = "10") int size,
             Authentication authentication) {
         Long userId = getUserId(authentication);
+        logger.info("CROP_CONTROLLER_GET_BY_FARM_PAGINATED userId={} farmId={} page={} size={}", userId, farmId, page, size);
         Pageable pageable = PageRequest.of(page, size);
         Page<CropDto> crops = cropService.getCropsByFarmPaginated(farmId, userId, pageable);
         return ResponseEntity.ok(crops);
@@ -108,6 +117,7 @@ public class CropController {
             @RequestParam(defaultValue = "10") int size,
             Authentication authentication) {
         Long userId = getUserId(authentication);
+        logger.info("CROP_CONTROLLER_SEARCH userId={} farmId={} cropName={} page={} size={}", userId, farmId, cropName, page, size);
         Pageable pageable = PageRequest.of(page, size);
         Page<CropDto> crops = cropService.searchCrops(farmId, cropName, userId, pageable);
         return ResponseEntity.ok(crops);
@@ -120,6 +130,7 @@ public class CropController {
                                               @Valid @RequestBody CropDto cropDto,
                                               Authentication authentication) {
         Long userId = getUserId(authentication);
+        logger.info("CROP_CONTROLLER_UPDATE userId={} cropId={}", userId, cropId);
         CropDto response = cropService.updateCrop(cropId, cropDto, userId);
         return ResponseEntity.ok(response);
     }
@@ -130,6 +141,7 @@ public class CropController {
     public ResponseEntity<Void> deleteCrop(@PathVariable Long cropId,
                                            Authentication authentication) {
         Long userId = getUserId(authentication);
+        logger.info("CROP_CONTROLLER_DELETE userId={} cropId={}", userId, cropId);
         cropService.deleteCrop(cropId, userId);
         return ResponseEntity.noContent().build();
     }

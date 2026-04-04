@@ -6,6 +6,7 @@ import com.farmeazy.entity.BankVerificationRequest;
 import com.farmeazy.entity.User;
 import com.farmeazy.repository.UserRepository;
 import com.farmeazy.service.BankVerificationService;
+import com.farmeazy.service.OtpService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -18,6 +19,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.HashMap;
 import java.util.Map;
 
 /**
@@ -59,6 +61,9 @@ public class BankVerificationController {
     @Autowired
     private UserRepository userRepository;
 
+    @Autowired
+    private OtpService otpService;
+
     /**
      * Gets user's verification list (Frontend-friendly endpoint).
      * Maps to: GET /api/bank-verification
@@ -71,16 +76,7 @@ public class BankVerificationController {
         Page<BankVerificationRequest> history = bankVerificationService.getUserVerifications(
                 user.getId(), pageable);
         
-        Page<?> safePage = history.map(v -> Map.of(
-                "verificationNumber", v.getVerificationNumber(),
-                "type", v.getVerificationType().name(),
-                "accountMasked", v.getAccountNumberMasked() != null ? v.getAccountNumberMasked() : 
-                        (v.getUpiIdMasked() != null ? v.getUpiIdMasked() : ""),
-                "status", v.getStatus().name(),
-                "amount", v.getTransferAmount(),
-                "createdAt", v.getCreatedAt(),
-                "verifiedAt", v.getVerifiedAt()
-        ));
+        Page<?> safePage = history.map(this::toSafeVerificationMap);
         
         return ResponseEntity.ok(safePage);
     }
@@ -171,6 +167,14 @@ public class BankVerificationController {
         }
         
         User user = getUserFromAuth(auth);
+
+        if (!otpService.isOtpVerified(user.getEmail(), "BANK_VERIFICATION")) {
+            return ResponseEntity.badRequest().body(Map.of(
+                "error", "OTP verification required",
+                "message", "Please verify OTP before initiating bank or UPI verification"
+            ));
+        }
+
         BankVerificationResponseDto response = bankVerificationService.initiateVerification(user.getId(), dto);
         
         if (!response.isSuccess()) {
@@ -232,15 +236,7 @@ public class BankVerificationController {
                 user.getId(), pageable);
         
         // Map to safe response (no sensitive data)
-        Page<?> safePage = history.map(v -> Map.of(
-                "verificationNumber", v.getVerificationNumber(),
-                "type", v.getVerificationType().name(),
-                "accountMasked", v.getAccountNumberMasked() != null ? v.getAccountNumberMasked() : v.getUpiIdMasked(),
-                "status", v.getStatus().name(),
-                "amount", v.getTransferAmount(),
-                "createdAt", v.getCreatedAt(),
-                "verifiedAt", v.getVerifiedAt()
-        ));
+        Page<?> safePage = history.map(this::toSafeVerificationMap);
         
         return ResponseEntity.ok(safePage);
     }
@@ -262,20 +258,21 @@ public class BankVerificationController {
             return ResponseEntity.status(403).body(Map.of("error", "Access denied"));
         }
         
-        return ResponseEntity.ok(Map.of(
-                "verificationNumber", request.getVerificationNumber(),
-                "type", request.getVerificationType().name(),
-                "accountMasked", request.getAccountNumberMasked() != null 
-                        ? request.getAccountNumberMasked() 
-                        : request.getUpiIdMasked(),
-                "bankName", request.getBankName(),
-                "status", request.getStatus().name(),
-                "amount", request.getTransferAmount(),
-                "transferReference", request.getTransferReferenceId(),
-                "createdAt", request.getCreatedAt(),
-                "verifiedAt", request.getVerifiedAt(),
-                "expiresAt", request.getExpiresAt()
-        ));
+        Map<String, Object> response = new HashMap<>();
+        response.put("verificationNumber", request.getVerificationNumber());
+        response.put("type", request.getVerificationType() != null ? request.getVerificationType().name() : "");
+        response.put("accountMasked", request.getAccountNumberMasked() != null
+            ? request.getAccountNumberMasked()
+            : (request.getUpiIdMasked() != null ? request.getUpiIdMasked() : ""));
+        response.put("bankName", request.getBankName() != null ? request.getBankName() : "");
+        response.put("status", request.getStatus() != null ? request.getStatus().name() : "");
+        response.put("amount", request.getTransferAmount());
+        response.put("transferReference", request.getTransferReferenceId() != null ? request.getTransferReferenceId() : "");
+        response.put("createdAt", request.getCreatedAt());
+        response.put("verifiedAt", request.getVerifiedAt());
+        response.put("expiresAt", request.getExpiresAt());
+
+        return ResponseEntity.ok(response);
     }
 
     // ========== HELPER METHODS ==========
@@ -283,5 +280,19 @@ public class BankVerificationController {
     private User getUserFromAuth(Authentication auth) {
         return userRepository.findByEmail(auth.getName())
                 .orElseThrow(() -> new RuntimeException("User not found"));
+    }
+
+    private Map<String, Object> toSafeVerificationMap(BankVerificationRequest request) {
+        Map<String, Object> item = new HashMap<>();
+        item.put("verificationNumber", request.getVerificationNumber());
+        item.put("type", request.getVerificationType() != null ? request.getVerificationType().name() : "");
+        item.put("accountMasked", request.getAccountNumberMasked() != null
+                ? request.getAccountNumberMasked()
+                : (request.getUpiIdMasked() != null ? request.getUpiIdMasked() : ""));
+        item.put("status", request.getStatus() != null ? request.getStatus().name() : "");
+        item.put("amount", request.getTransferAmount());
+        item.put("createdAt", request.getCreatedAt());
+        item.put("verifiedAt", request.getVerifiedAt());
+        return item;
     }
 }

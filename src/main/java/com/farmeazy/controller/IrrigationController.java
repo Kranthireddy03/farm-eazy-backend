@@ -6,6 +6,8 @@ import com.farmeazy.service.IrrigationService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -35,6 +37,8 @@ import java.util.stream.Collectors;
 @Tag(name = "Irrigation Management", description = "Irrigation schedule operations")
 public class IrrigationController {
 
+    private static final Logger logger = LoggerFactory.getLogger(IrrigationController.class);
+
     @Autowired
     private IrrigationService irrigationService;
 
@@ -53,6 +57,7 @@ public class IrrigationController {
     public ResponseEntity<List<IrrigationScheduleDto>> getAllSchedules(
             Authentication authentication) {
         Long userId = getUserId(authentication);
+        logger.info("IRRIGATION_CONTROLLER_GET_ALL userId={}", userId);
         List<IrrigationScheduleDto> schedules = irrigationService.getAllSchedulesByUser(userId);
         return ResponseEntity.ok(schedules);
     }
@@ -64,6 +69,7 @@ public class IrrigationController {
             @Valid @RequestBody IrrigationScheduleDto scheduleDto,
             Authentication authentication) {
         Long userId = getUserId(authentication);
+        logger.info("IRRIGATION_CONTROLLER_CREATE userId={} farmId={} cropId={}", userId, scheduleDto != null ? scheduleDto.getFarmId() : null, scheduleDto != null ? scheduleDto.getCropId() : null);
         IrrigationScheduleDto response = irrigationService.createSchedule(scheduleDto, userId);
         return new ResponseEntity<>(response, HttpStatus.CREATED);
     }
@@ -75,6 +81,7 @@ public class IrrigationController {
             @PathVariable Long scheduleId,
             Authentication authentication) {
         Long userId = getUserId(authentication);
+        logger.info("IRRIGATION_CONTROLLER_GET_BY_ID userId={} scheduleId={}", userId, scheduleId);
         IrrigationScheduleDto schedule = irrigationService.getScheduleById(scheduleId, userId);
         return ResponseEntity.ok(schedule);
     }
@@ -88,6 +95,7 @@ public class IrrigationController {
             @RequestParam(defaultValue = "10") int size,
             Authentication authentication) {
         Long userId = getUserId(authentication);
+        logger.info("IRRIGATION_CONTROLLER_GET_BY_FARM userId={} farmId={} page={} size={}", userId, farmId, page, size);
         Pageable pageable = PageRequest.of(page, size);
         Page<IrrigationScheduleDto> schedules = irrigationService.getSchedulesByFarm(farmId, userId, pageable);
         return ResponseEntity.ok(schedules);
@@ -99,6 +107,7 @@ public class IrrigationController {
     public ResponseEntity<List<IrrigationScheduleDto>> getUpcomingSchedules(
             Authentication authentication) {
         Long userId = getUserId(authentication);
+        logger.info("IRRIGATION_CONTROLLER_GET_UPCOMING userId={}", userId);
         List<IrrigationScheduleDto> schedules = irrigationService.getUpcomingSchedules(userId);
         return ResponseEntity.ok(schedules);
     }
@@ -111,6 +120,7 @@ public class IrrigationController {
             @Valid @RequestBody IrrigationScheduleDto scheduleDto,
             Authentication authentication) {
         Long userId = getUserId(authentication);
+        logger.info("IRRIGATION_CONTROLLER_UPDATE userId={} scheduleId={}", userId, scheduleId);
         IrrigationScheduleDto response = irrigationService.updateSchedule(scheduleId, scheduleDto, userId);
         return ResponseEntity.ok(response);
     }
@@ -122,6 +132,7 @@ public class IrrigationController {
             @PathVariable Long scheduleId,
             Authentication authentication) {
         Long userId = getUserId(authentication);
+        logger.info("IRRIGATION_CONTROLLER_COMPLETE userId={} scheduleId={}", userId, scheduleId);
         IrrigationScheduleDto response = irrigationService.markAsCompleted(scheduleId, userId);
         return ResponseEntity.ok(response);
     }
@@ -133,6 +144,7 @@ public class IrrigationController {
             @PathVariable Long scheduleId,
             Authentication authentication) {
         Long userId = getUserId(authentication);
+        logger.info("IRRIGATION_CONTROLLER_DELETE userId={} scheduleId={}", userId, scheduleId);
         irrigationService.deleteSchedule(scheduleId, userId);
         return ResponseEntity.noContent().build();
     }
@@ -142,6 +154,7 @@ public class IrrigationController {
     @Operation(summary = "Get dashboard statistics")
     public ResponseEntity<DashboardStatsDto> getDashboardStats(Authentication authentication) {
         Long userId = getUserId(authentication);
+        logger.info("IRRIGATION_CONTROLLER_DASHBOARD_STATS userId={}", userId);
         DashboardStatsDto stats = irrigationService.getDashboardStats(userId);
         return ResponseEntity.ok(stats);
     }

@@ -4,6 +4,8 @@ import com.farmeazy.dto.FAQQuestionDto;
 import com.farmeazy.entity.FAQQuestion;
 import com.farmeazy.service.FAQQuestionService;
 import com.farmeazy.service.FileStorageService;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
@@ -19,6 +21,8 @@ import java.util.ArrayList;
 @CrossOrigin(origins = {"http://localhost:3000", "http://localhost:4200", "http://localhost:5173"})
 @PreAuthorize("hasAnyRole('ADMIN','SUPERADMIN')")
 public class AdminFAQQuestionController {
+
+    private static final Logger logger = LoggerFactory.getLogger(AdminFAQQuestionController.class);
 
     @Autowired
     private FAQQuestionService faqQuestionService;
@@ -55,6 +59,7 @@ public class AdminFAQQuestionController {
 
     @GetMapping
     public ResponseEntity<List<FAQQuestionDto>> getAllQuestions() {
+        logger.info("ADMIN_FAQ_GET_ALL");
         // support query param ?unanswered=true to fetch only new notifications
         // Note: Spring will map query params automatically via @RequestParam if provided; here we read from request
         return ResponseEntity.ok(faqQuestionService.getAllQuestionsForAdmin());
@@ -62,19 +67,23 @@ public class AdminFAQQuestionController {
 
     @GetMapping(path = "", params = "unanswered=true")
     public ResponseEntity<List<FAQQuestionDto>> getUnansweredNotifications() {
+        logger.info("ADMIN_FAQ_GET_UNANSWERED");
         return ResponseEntity.ok(faqQuestionService.getUnansweredNotificationDtos());
     }
 
     @GetMapping("/{id}")
     public ResponseEntity<FAQQuestionDto> getQuestionById(@PathVariable Long id) {
+        logger.info("ADMIN_FAQ_GET_BY_ID id={}", id);
         return ResponseEntity.ok(faqQuestionService.getPublicFaqById(id));
     }
 
     @PostMapping(value = "/{id}/answer", consumes = MediaType.APPLICATION_JSON_VALUE)
     public ResponseEntity<Map<String, String>> answerQuestion(@PathVariable Long id, @RequestBody Map<String, Object> payload) {
+        logger.info("ADMIN_FAQ_ANSWER id={}", id);
         String answer = (String) payload.get("answer");
         boolean addToFAQ = Boolean.TRUE.equals(payload.get("addToFAQ"));
-        faqQuestionService.answerQuestion(id, answer, addToFAQ);
+        String visibilityTarget = payload.get("visibilityTarget") != null ? String.valueOf(payload.get("visibilityTarget")) : "USER";
+        faqQuestionService.answerQuestion(id, answer, addToFAQ, visibilityTarget);
         return ResponseEntity.ok(Map.of("message", addToFAQ ? "Question added to FAQ and user notified." : "Answer sent to user."));
     }
 
@@ -83,16 +92,19 @@ public class AdminFAQQuestionController {
             @PathVariable Long id,
             @RequestParam String answer,
             @RequestParam(required = false) Boolean addToFAQ,
+            @RequestParam(required = false, defaultValue = "USER") String visibilityTarget,
             @RequestParam(value = "files", required = false) MultipartFile[] files,
             @RequestParam(value = "file", required = false) MultipartFile file) {
+        logger.info("ADMIN_FAQ_ANSWER_MULTIPART id={}", id);
         boolean publish = Boolean.TRUE.equals(addToFAQ);
         String composedAnswer = appendAttachments(answer, files, file);
-        faqQuestionService.answerQuestion(id, composedAnswer, publish);
+        faqQuestionService.answerQuestion(id, composedAnswer, publish, visibilityTarget);
         return ResponseEntity.ok(Map.of("message", publish ? "Question added to FAQ and user notified." : "Answer sent to user."));
     }
 
     @PostMapping(value = "/{id}/answer-only", consumes = MediaType.APPLICATION_JSON_VALUE)
     public ResponseEntity<Map<String, String>> answerOnly(@PathVariable Long id, @RequestBody Map<String, Object> payload) {
+        logger.info("ADMIN_FAQ_ANSWER_ONLY id={}", id);
         String answer = (String) payload.get("answer");
         faqQuestionService.answerQuestion(id, answer, false);
         return ResponseEntity.ok(Map.of("message", "Answer added to history and user notified (no FAQ publish)."));
@@ -104,6 +116,7 @@ public class AdminFAQQuestionController {
             @RequestParam String answer,
             @RequestParam(value = "files", required = false) MultipartFile[] files,
             @RequestParam(value = "file", required = false) MultipartFile file) {
+        logger.info("ADMIN_FAQ_ANSWER_ONLY_MULTIPART id={}", id);
         String composedAnswer = appendAttachments(answer, files, file);
         faqQuestionService.answerQuestion(id, composedAnswer, false);
         return ResponseEntity.ok(Map.of("message", "Answer added to history and user notified (no FAQ publish)."));
@@ -111,12 +124,14 @@ public class AdminFAQQuestionController {
 
     @DeleteMapping("/{id}")
     public ResponseEntity<Map<String, String>> deleteQuestion(@PathVariable Long id) {
+        logger.info("ADMIN_FAQ_DELETE id={}", id);
         faqQuestionService.deleteQuestion(id);
         return ResponseEntity.ok(Map.of("message", "Question deleted."));
     }
 
     @PostMapping("/{id}/cancel")
     public ResponseEntity<Map<String, String>> cancelReview(@PathVariable Long id, @RequestBody(required = false) Map<String, Object> payload) {
+        logger.info("ADMIN_FAQ_CANCEL id={}", id);
         // payload may contain adminEmail if available
         String adminEmail = payload != null && payload.get("adminEmail") != null ? (String) payload.get("adminEmail") : "admin@farm-eazy.com";
         faqQuestionService.recordAdminCancel(id, adminEmail);
@@ -125,12 +140,14 @@ public class AdminFAQQuestionController {
 
     @PostMapping("/{id}/mark-read")
     public ResponseEntity<Map<String, String>> markRead(@PathVariable Long id) {
+        logger.info("ADMIN_FAQ_MARK_READ id={}", id);
         faqQuestionService.markNotificationRead(id);
         return ResponseEntity.ok(Map.of("message", "Notification marked read."));
     }
 
     @PostMapping("/{id}/internal-note")
     public ResponseEntity<FAQQuestionDto> addInternalNote(@PathVariable Long id, @RequestBody java.util.Map<String, String> body) {
+        logger.info("ADMIN_FAQ_INTERNAL_NOTE id={}", id);
         String note = body.getOrDefault("note", "");
         String author = body.getOrDefault("author", "admin");
         return ResponseEntity.ok(faqQuestionService.addInternalNote(id, note, author));
@@ -138,6 +155,7 @@ public class AdminFAQQuestionController {
 
     @PostMapping("/{id}/reopen")
     public ResponseEntity<FAQQuestionDto> reopenQuestion(@PathVariable Long id, @RequestBody(required = false) java.util.Map<String, String> body) {
+        logger.info("ADMIN_FAQ_REOPEN id={}", id);
         String requester = body != null ? body.getOrDefault("requester", "admin") : "admin";
         String subQuestion = body != null ? body.getOrDefault("subQuestion", "") : "";
         return ResponseEntity.ok(faqQuestionService.reopenQuestion(id, requester, subQuestion));
@@ -145,6 +163,7 @@ public class AdminFAQQuestionController {
 
     @PostMapping("/{id}/solved")
     public ResponseEntity<FAQQuestionDto> markSolved(@PathVariable Long id, @RequestBody(required = false) java.util.Map<String, String> body) {
+        logger.info("ADMIN_FAQ_MARK_SOLVED id={}", id);
         String resolver = body != null ? body.getOrDefault("resolver", "admin") : "admin";
         return ResponseEntity.ok(faqQuestionService.markQuestionSolved(id, resolver));
     }

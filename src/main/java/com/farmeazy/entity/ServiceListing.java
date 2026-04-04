@@ -35,6 +35,9 @@ public class ServiceListing {
 
     @Column(length = 1000)
     private String description;
+    
+    @Column(name = "attachment_urls", columnDefinition = "TEXT")
+    private String attachmentUrls;
 
     @Column(nullable = false)
     private String location;
@@ -270,12 +273,52 @@ public class ServiceListing {
         this.contactEmail = contactEmail;
     }
 
+    public Long getVendorId() {
+        return vendorId;
+    }
+
+    public void setVendorId(Long vendorId) {
+        this.vendorId = vendorId;
+    }
+
+    public String getVendorName() {
+        return vendorName;
+    }
+
+    public void setVendorName(String vendorName) {
+        this.vendorName = vendorName;
+    }
+
+    public String getVendorLocation() {
+        return vendorLocation;
+    }
+
+    public void setVendorLocation(String vendorLocation) {
+        this.vendorLocation = vendorLocation;
+    }
+
+    public String getVendorType() {
+        return vendorType;
+    }
+
+    public void setVendorType(String vendorType) {
+        this.vendorType = vendorType;
+    }
+
     public String getDescription() {
         return description;
+    }
+    
+    public String getAttachmentUrls() {
+        return attachmentUrls;
     }
 
     public void setDescription(String description) {
         this.description = description;
+    }
+    
+    public void setAttachmentUrls(String attachmentUrls) {
+        this.attachmentUrls = attachmentUrls;
     }
 
     public String getAvailability() {

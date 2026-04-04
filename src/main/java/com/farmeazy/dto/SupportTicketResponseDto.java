@@ -35,6 +35,7 @@ public class SupportTicketResponseDto {
     private Boolean overdue;
     private String source;
     private String roleRequest;
+    private String assignedTo;
 
     public static SupportTicketResponseDto fromEntity(SupportTicket ticket) {
         SupportTicketResponseDto dto = new SupportTicketResponseDto();
@@ -59,6 +60,7 @@ public class SupportTicketResponseDto {
         dto.setAdminNotes(ticket.getAdminNotes());
         dto.setSource(ticket.getSource());
         dto.setRoleRequest(ticket.getRoleRequest());
+        dto.setAssignedTo(ticket.getAssignedTo());
         // compute overdue
         boolean overdue = false;
         if (ticket.getSlaBy() != null) {
@@ -135,4 +137,7 @@ public class SupportTicketResponseDto {
 
     public String getRoleRequest() { return roleRequest; }
     public void setRoleRequest(String roleRequest) { this.roleRequest = roleRequest; }
+
+    public String getAssignedTo() { return assignedTo; }
+    public void setAssignedTo(String assignedTo) { this.assignedTo = assignedTo; }
 }

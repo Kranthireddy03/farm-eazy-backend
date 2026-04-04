@@ -7,6 +7,8 @@ import com.farmeazy.exception.ResourceNotFoundException;
 import com.farmeazy.exception.UnauthorizedException;
 import com.farmeazy.repository.CropRepository;
 import com.farmeazy.repository.FarmRepository;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -17,6 +19,8 @@ import java.util.List;
 
 @Service
 public class CropService {
+
+    private static final Logger logger = LoggerFactory.getLogger(CropService.class);
 
     @Autowired
     private CropRepository cropRepository;
@@ -35,6 +39,7 @@ public class CropService {
 
     @Transactional
     public CropDto createCrop(CropDto cropDto, Long userId) {
+        logger.info("CROP_SERVICE_CREATE_START userId={} farmId={} cropName={}", userId, cropDto != null ? cropDto.getFarmId() : null, cropDto != null ? cropDto.getCropName() : null);
         Farm farm = farmRepository.findById(cropDto.getFarmId())
                 .orElseThrow(() -> new ResourceNotFoundException("Farm not found"));
         
@@ -70,7 +75,7 @@ public class CropService {
                 com.farmeazy.entity.Notification.NotificationPriority.NORMAL
             );
         } catch (Exception e) {
-            System.err.println("Failed to send crop creation notification: " + e.getMessage());
+            logger.warn("CROP_SERVICE_CREATE_NOTIFICATION_FAILED userId={} cropId={} message={}", userId, crop.getId(), e.getMessage());
         }
         
         // Send notification email using HTTP service (works on Render)
@@ -80,13 +85,16 @@ public class CropService {
             httpEmailService.sendNotification(farm.getUser().getEmail(), farm.getUser().getUsername(),
                 "New Crop Added - FarmEazy", message);
         } catch (Exception e) {
-            System.err.println("Failed to send crop creation email: " + e.getMessage());
+            logger.warn("CROP_SERVICE_CREATE_EMAIL_FAILED userId={} cropId={} message={}", userId, crop.getId(), e.getMessage());
         }
+
+        logger.info("CROP_SERVICE_CREATE_SUCCESS userId={} cropId={}", userId, crop.getId());
         
         return mapCropToDto(crop, farm.getUser().getId());
     }
 
     public CropDto getCropById(Long cropId, Long userId) {
+        logger.info("CROP_SERVICE_GET_BY_ID cropId={} userId={}", cropId, userId);
         Crop crop = cropRepository.findById(cropId)
                 .orElseThrow(() -> new ResourceNotFoundException("Crop not found"));
         
@@ -98,6 +106,7 @@ public class CropService {
     }
 
     public List<CropDto> getAllCropsByUser(Long userId) {
+        logger.info("CROP_SERVICE_GET_ALL_BY_USER userId={}", userId);
         return cropRepository.findAll()
                 .stream()
                 .filter(crop -> crop.getFarm().getUser().getId().equals(userId))
@@ -106,6 +115,7 @@ public class CropService {
     }
 
     public List<CropDto> getCropsByFarm(Long farmId, Long userId) {
+        logger.info("CROP_SERVICE_GET_BY_FARM farmId={} userId={}", farmId, userId);
         Farm farm = farmRepository.findById(farmId)
                 .orElseThrow(() -> new ResourceNotFoundException("Farm not found"));
         
@@ -120,6 +130,7 @@ public class CropService {
     }
 
     public Page<CropDto> getCropsByFarmPaginated(Long farmId, Long userId, Pageable pageable) {
+        logger.info("CROP_SERVICE_GET_BY_FARM_PAGINATED farmId={} userId={} page={} size={}", farmId, userId, pageable.getPageNumber(), pageable.getPageSize());
         Farm farm = farmRepository.findById(farmId)
                 .orElseThrow(() -> new ResourceNotFoundException("Farm not found"));
         
@@ -132,6 +143,7 @@ public class CropService {
     }
 
     public Page<CropDto> searchCrops(Long farmId, String cropName, Long userId, Pageable pageable) {
+        logger.info("CROP_SERVICE_SEARCH farmId={} userId={} cropName={} page={} size={}", farmId, userId, cropName, pageable.getPageNumber(), pageable.getPageSize());
         Farm farm = farmRepository.findById(farmId)
                 .orElseThrow(() -> new ResourceNotFoundException("Farm not found"));
         
@@ -145,6 +157,7 @@ public class CropService {
 
     @Transactional
     public CropDto updateCrop(Long cropId, CropDto cropDto, Long userId) {
+        logger.info("CROP_SERVICE_UPDATE_START cropId={} userId={} cropName={}", cropId, userId, cropDto != null ? cropDto.getCropName() : null);
         Crop crop = cropRepository.findById(cropId)
                 .orElseThrow(() -> new ResourceNotFoundException("Crop not found"));
         
@@ -174,14 +187,17 @@ public class CropService {
             httpEmailService.sendNotification(crop.getFarm().getUser().getEmail(), crop.getFarm().getUser().getUsername(),
                 "Crop Updated - FarmEazy", message);
         } catch (Exception e) {
-            System.err.println("Failed to send crop update email: " + e.getMessage());
+            logger.warn("CROP_SERVICE_UPDATE_EMAIL_FAILED cropId={} userId={} message={}", cropId, userId, e.getMessage());
         }
+
+        logger.info("CROP_SERVICE_UPDATE_SUCCESS cropId={} userId={}", cropId, userId);
         
         return mapCropToDto(crop, userId);
     }
 
     @Transactional
     public void deleteCrop(Long cropId, Long userId) {
+        logger.info("CROP_SERVICE_DELETE_START cropId={} userId={}", cropId, userId);
         Crop crop = cropRepository.findById(cropId)
                 .orElseThrow(() -> new ResourceNotFoundException("Crop not found"));
         
@@ -198,10 +214,11 @@ public class CropService {
             httpEmailService.sendNotification(crop.getFarm().getUser().getEmail(), crop.getFarm().getUser().getUsername(),
                 "Crop Deleted - FarmEazy", message);
         } catch (Exception e) {
-            System.err.println("Failed to send crop deletion email: " + e.getMessage());
+            logger.warn("CROP_SERVICE_DELETE_EMAIL_FAILED cropId={} userId={} message={}", cropId, userId, e.getMessage());
         }
 
         cropRepository.delete(crop);
+        logger.info("CROP_SERVICE_DELETE_SUCCESS cropId={} userId={}", cropId, userId);
     }
 
     private CropDto mapCropToDto(Crop crop, Long userId) {

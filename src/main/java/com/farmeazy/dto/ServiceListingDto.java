@@ -2,6 +2,8 @@ package com.farmeazy.dto;
 
 import com.farmeazy.entity.ServiceListing.ServiceType;
 
+import java.util.List;
+
 public class ServiceListingDto {
         private Long vendorId;
         private String vendorName;
@@ -18,6 +20,7 @@ public class ServiceListingDto {
     private String contactName;
     private String contactPhone;
     private String contactEmail;
+    private List<String> attachmentUrls;
 
     public ServiceListingDto() {
     }
@@ -149,5 +152,13 @@ public class ServiceListingDto {
 
     public void setContactEmail(String contactEmail) {
         this.contactEmail = contactEmail;
+    }
+
+    public List<String> getAttachmentUrls() {
+        return attachmentUrls;
+    }
+
+    public void setAttachmentUrls(List<String> attachmentUrls) {
+        this.attachmentUrls = attachmentUrls;
     }
 }

@@ -35,13 +35,11 @@ public class User {
     
     /**
      * UNIQUE IDENTIFIER FOR USER
-     * - Auto-generated primary key using sequence starting at 10000
+        * - Auto-generated primary key using database identity
      * - Used to uniquely identify each user in the system
-     * - Format: 5-digit display ID (e.g., 10000, 10001, ...)
      */
     @Id
-    @GeneratedValue(strategy = GenerationType.SEQUENCE, generator = "user_seq")
-    @SequenceGenerator(name = "user_seq", sequenceName = "USER_SEQ", initialValue = 10000, allocationSize = 1)
+        @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
     
     /**

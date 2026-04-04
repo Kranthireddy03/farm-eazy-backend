@@ -35,6 +35,8 @@ public class UserRefundDetailsDto {
 
     private String preferredMethod = "UPI"; // BANK or UPI
 
+    private String otpCode;
+
     private Boolean isVerified;
 
     private String createdAt;
@@ -115,6 +117,14 @@ public class UserRefundDetailsDto {
 
     public void setPreferredMethod(String preferredMethod) {
         this.preferredMethod = preferredMethod;
+    }
+
+    public String getOtpCode() {
+        return otpCode;
+    }
+
+    public void setOtpCode(String otpCode) {
+        this.otpCode = otpCode;
     }
 
     public Boolean getIsVerified() {

@@ -38,6 +38,7 @@ public class SequenceGeneratorService {
     public static final String USER_SEQUENCE = "USER_ID";
     public static final String ORDER_SEQUENCE = "ORDER_ID";
     public static final String SERVICE_REQUEST_SEQUENCE = "SERVICE_REQUEST_ID";
+    public static final String SUPPORT_TICKET_SEQUENCE = "SUPPORT_TICKET_ID";
     public static final String PAYMENT_SEQUENCE = "PAYMENT_ID";
     public static final String PAYOUT_SEQUENCE = "PAYOUT_ID";
     public static final String BANK_VERIFICATION_SEQUENCE = "BANK_VERIFICATION_ID";
@@ -67,6 +68,15 @@ public class SequenceGeneratorService {
     @Transactional
     public String getNextServiceRequestId() {
         return getNextDisplayId(SERVICE_REQUEST_SEQUENCE);
+    }
+
+    /**
+     * Gets the next display ID for support tickets / live chat cases.
+     * Format: CHT10000, CHT10001, etc.
+     */
+    @Transactional
+    public String getNextSupportTicketDisplayId() {
+        return getNextDisplayId(SUPPORT_TICKET_SEQUENCE);
     }
 
     /**
@@ -133,6 +143,7 @@ public class SequenceGeneratorService {
             case USER_SEQUENCE -> sequence.setPrefix("USR");
             case ORDER_SEQUENCE -> sequence.setPrefix("ORD");
             case SERVICE_REQUEST_SEQUENCE -> sequence.setPrefix("SRV");
+            case SUPPORT_TICKET_SEQUENCE -> sequence.setPrefix("CHT");
             case PAYMENT_SEQUENCE -> sequence.setPrefix("PAY");
             case PAYOUT_SEQUENCE -> sequence.setPrefix("PYT");
             case BANK_VERIFICATION_SEQUENCE -> sequence.setPrefix("BNK");
@@ -159,6 +170,7 @@ public class SequenceGeneratorService {
     public void initializeSequences() {
         String[] sequences = {
                 USER_SEQUENCE, ORDER_SEQUENCE, SERVICE_REQUEST_SEQUENCE,
+                SUPPORT_TICKET_SEQUENCE,
                 PAYMENT_SEQUENCE, PAYOUT_SEQUENCE, BANK_VERIFICATION_SEQUENCE
         };
         

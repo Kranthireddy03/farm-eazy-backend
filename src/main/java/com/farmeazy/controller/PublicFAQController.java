@@ -5,6 +5,8 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import com.farmeazy.dto.FAQQuestionDto;
 import com.farmeazy.service.FAQQuestionService;
 import java.util.List;
@@ -20,6 +22,8 @@ import java.util.List;
     "http://localhost:5173"
 })
 public class PublicFAQController {
+    private static final Logger logger = LoggerFactory.getLogger(PublicFAQController.class);
+
     private boolean hasAnyAttachment(MultipartFile[] files, MultipartFile file) {
         if (file != null && !file.isEmpty()) {
             return true;
@@ -36,6 +40,7 @@ public class PublicFAQController {
 
     @PostMapping({"/public/faq-question", "/faq-question"})
     public ResponseEntity<String> submitPublicFaqQuestion(@RequestBody FAQQuestionDto dto) {
+        logger.info("PUBLIC_FAQ_SUBMIT email={} source={}", dto != null ? dto.getEmail() : null, dto != null ? dto.getSource() : null);
         if (dto.getSource() == null || dto.getSource().isBlank()) {
             if (dto.getUserId() != null && !dto.getUserId().isBlank()) {
                 dto.setSource("FAQ_USER_APP");
@@ -56,6 +61,7 @@ public class PublicFAQController {
             @RequestParam(required = false) String userId,
             @RequestParam(value = "files", required = false) MultipartFile[] files,
             @RequestParam(value = "file", required = false) MultipartFile file) {
+        logger.info("PUBLIC_FAQ_SUBMIT_MULTIPART email={} source={}", email, source);
 
         if (hasAnyAttachment(files, file)) {
             return ResponseEntity.badRequest().body("Attachments are disabled for public FAQ submissions. Please sign in to attach files.");
@@ -76,18 +82,21 @@ public class PublicFAQController {
     private FAQQuestionService faqQuestionService;
 
     @GetMapping({"/public/faq-questions", "/faq-questions"})
-    public ResponseEntity<List<FAQQuestionDto>> getPublicFaqs() {
-        List<FAQQuestionDto> faqs = faqQuestionService.getAllApprovedFaqs();
+    public ResponseEntity<List<FAQQuestionDto>> getPublicFaqs(@RequestParam(required = false) String source) {
+        logger.info("PUBLIC_FAQ_LIST source={}", source);
+        List<FAQQuestionDto> faqs = faqQuestionService.getAllApprovedFaqs(source);
         return ResponseEntity.ok(faqs);
     }
 
     @GetMapping({"/public/faq-question/{id}", "/faq-question/{id}"})
-    public ResponseEntity<FAQQuestionDto> getPublicFaq(@PathVariable Long id) {
-        return ResponseEntity.ok(faqQuestionService.getPublicFaqById(id));
+    public ResponseEntity<FAQQuestionDto> getPublicFaq(@PathVariable Long id, @RequestParam(required = false) String source) {
+        logger.info("PUBLIC_FAQ_GET_BY_ID id={} source={}", id, source);
+        return ResponseEntity.ok(faqQuestionService.getPublicFaqById(id, source));
     }
 
     @PostMapping({"/public/faq-question/{id}/feedback", "/faq-question/{id}/feedback"})
     public ResponseEntity<FAQQuestionDto> submitFaqFeedback(@PathVariable Long id, @RequestBody java.util.Map<String, Object> body) {
+        logger.info("PUBLIC_FAQ_FEEDBACK id={}", id);
         Boolean satisfied = Boolean.valueOf(String.valueOf(body.getOrDefault("satisfied", "false")));
         String feedback = body.getOrDefault("feedback", "").toString();
         String email = body.getOrDefault("email", "").toString();
@@ -102,6 +111,7 @@ public class PublicFAQController {
             @RequestParam(required = false) String email,
             @RequestParam(value = "files", required = false) MultipartFile[] files,
             @RequestParam(value = "file", required = false) MultipartFile file) {
+        logger.info("PUBLIC_FAQ_FEEDBACK_MULTIPART id={}", id);
 
         if (hasAnyAttachment(files, file)) {
             throw new IllegalArgumentException("Attachments are disabled for public FAQ feedback. Please sign in to attach files.");
@@ -112,6 +122,7 @@ public class PublicFAQController {
 
     @PostMapping({"/public/faq-question/{id}/reopen", "/faq-question/{id}/reopen"})
     public ResponseEntity<FAQQuestionDto> reopenFaq(@PathVariable Long id, @RequestBody(required = false) java.util.Map<String, String> body) {
+        logger.info("PUBLIC_FAQ_REOPEN id={}", id);
         String requester = body != null ? body.getOrDefault("requester", "public") : "public";
         String userSubQuestion = body != null ? body.getOrDefault("subQuestion", "") : "";
         return ResponseEntity.ok(faqQuestionService.reopenQuestion(id, requester, userSubQuestion));
@@ -123,6 +134,7 @@ public class PublicFAQController {
             @RequestParam(required = false) String requester,
             @RequestParam(required = false) String subQuestion,
             @RequestParam(value = "files", required = false) MultipartFile[] files) {
+        logger.info("PUBLIC_FAQ_REOPEN_MULTIPART id={} requester={}", id, requester);
 
         if (hasAnyAttachment(files, null)) {
             throw new IllegalArgumentException("Attachments are disabled for public FAQ follow-up. Please sign in to attach files.");
@@ -136,6 +148,7 @@ public class PublicFAQController {
 
     @PostMapping({"/public/faq-question/{id}/solved", "/faq-question/{id}/solved"})
     public ResponseEntity<FAQQuestionDto> markFaqSolved(@PathVariable Long id, @RequestBody(required = false) java.util.Map<String, String> body) {
+        logger.info("PUBLIC_FAQ_MARK_SOLVED id={}", id);
         String resolver = body != null ? body.getOrDefault("resolver", "public") : "public";
         return ResponseEntity.ok(faqQuestionService.markQuestionSolved(id, resolver));
     }

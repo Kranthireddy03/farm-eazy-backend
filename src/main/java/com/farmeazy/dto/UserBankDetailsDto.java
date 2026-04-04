@@ -45,6 +45,7 @@ public class UserBankDetailsDto {
     private Boolean hasSecurityQuestion;
     private String securityQuestion;
     private String securityAnswer; // Only used for input, never returned
+    private String otpCode;
 
     public UserBankDetailsDto() {
     }
@@ -199,5 +200,13 @@ public class UserBankDetailsDto {
 
     public void setSecurityAnswer(String securityAnswer) {
         this.securityAnswer = securityAnswer;
+    }
+
+    public String getOtpCode() {
+        return otpCode;
+    }
+
+    public void setOtpCode(String otpCode) {
+        this.otpCode = otpCode;
     }
 }

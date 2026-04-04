@@ -1,6 +1,5 @@
 package com.farmeazy.service;
 
-import jakarta.mail.MessagingException;
 import jakarta.mail.internet.MimeMessage;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -73,6 +72,9 @@ public class EmailService {
     @org.springframework.beans.factory.annotation.Qualifier("infoMailSender")
     private JavaMailSender infoMailSender;
 
+    @Autowired(required = false)
+    private UnifiedEmailService unifiedEmailService;
+
     @Value("${farmeazy.mail.from}")
     private String fromEmail;
 
@@ -108,6 +110,25 @@ public class EmailService {
 
     private String getAppBaseUrl() {
         return System.getenv().getOrDefault("APP_BASE_URL", appBaseUrl);
+    }
+
+    private UnifiedEmailService.SenderType mapSenderType(EmailType emailType) {
+        return switch (emailType) {
+            case NOREPLY -> UnifiedEmailService.SenderType.NOREPLY;
+            case INFO -> UnifiedEmailService.SenderType.INFO;
+            case SUPPORT -> UnifiedEmailService.SenderType.SUPPORT;
+        };
+    }
+
+    private String toHtml(String text) {
+        if (text == null) {
+            return "";
+        }
+        return text
+                .replace("&", "&amp;")
+                .replace("<", "&lt;")
+                .replace(">", "&gt;")
+                .replace("\n", "<br/>");
     }
 
     /**
@@ -171,6 +192,18 @@ public class EmailService {
             }
         }
         if (!sent) {
+            if (unifiedEmailService != null) {
+                boolean fallbackSent = unifiedEmailService.sendEmail(
+                        to,
+                        subject,
+                        toHtml(body),
+                        mapSenderType(emailType)
+                );
+                if (fallbackSent) {
+                    logger.info("Email fallback succeeded via UnifiedEmailService for {}", to);
+                    return;
+                }
+            }
             throw new RuntimeException("Communication failed: Email could not be sent. Please retry.", lastException);
         }
     }
@@ -220,8 +253,20 @@ public class EmailService {
             helper.setText(htmlBody, true); // true = isHtml
             selectedSender.send(message);
             logger.info("HTML email sent successfully to: {} from: {}", to, senderEmail);
-        } catch (MessagingException e) {
+        } catch (Exception e) {
             logger.error("Failed to send HTML email to: {} from: {}", to, senderEmail, e);
+            if (unifiedEmailService != null) {
+                boolean fallbackSent = unifiedEmailService.sendEmail(
+                        to,
+                        subject,
+                        htmlBody,
+                        mapSenderType(emailType)
+                );
+                if (fallbackSent) {
+                    logger.info("HTML email fallback succeeded via UnifiedEmailService for {}", to);
+                    return;
+                }
+            }
             throw new RuntimeException("Failed to send HTML email", e);
         }
     }

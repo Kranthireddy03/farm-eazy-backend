@@ -1,6 +1,9 @@
 package com.farmeazy.service;
 
 import com.farmeazy.dto.UserRefundDetailsDto;
+import com.farmeazy.dto.OtpRequestDto;
+import com.farmeazy.dto.OtpResponseDto;
+import com.farmeazy.dto.OtpVerifyDto;
 import com.farmeazy.entity.User;
 import com.farmeazy.entity.UserRefundDetails;
 import com.farmeazy.entity.UserRefundDetails.RefundMethod;
@@ -29,6 +32,15 @@ public class UserRefundDetailsService {
 
     @Autowired
     private UserRefundDetailsRepository refundDetailsRepository;
+
+    @Autowired
+    private OtpService otpService;
+
+    @Autowired
+    private SecurityAuditService securityAuditService;
+
+    private static final String REFUND_UPDATE_PURPOSE = "REFUND_DETAILS_UPDATE";
+    private static final String REFUND_DELETE_PURPOSE = "REFUND_DETAILS_DELETE";
 
     /**
      * Save or update refund details for a user.
@@ -85,6 +97,115 @@ public class UserRefundDetailsService {
 
         UserRefundDetails saved = refundDetailsRepository.save(entity);
         return convertToDto(saved);
+    }
+
+    public OtpResponseDto sendSensitiveActionOtp(User user, String action) {
+        String purpose = resolvePurpose(action);
+        String normalizedAction = action == null ? "UNKNOWN" : action.toUpperCase();
+
+        OtpRequestDto request = new OtpRequestDto();
+        request.setEmail(user.getEmail());
+        request.setPhone(user.getPhone());
+        request.setPurpose(purpose);
+
+        try {
+            OtpResponseDto response = otpService.generateAndSendOtpWithDetails(request);
+            securityAuditService.logRefundAction(
+                    user,
+                    "Sensitive refund OTP sent for action: " + normalizedAction,
+                    true,
+                    "purpose=" + purpose);
+            return response;
+        } catch (Exception ex) {
+            securityAuditService.logRefundAction(
+                    user,
+                    "Sensitive refund OTP send failed for action: " + normalizedAction,
+                    false,
+                    "purpose=" + purpose + ";reason=" + ex.getMessage());
+            throw ex;
+        }
+    }
+
+    public UserRefundDetailsDto saveOrUpdateWithOtp(User user, UserRefundDetailsDto dto, String otpCode) {
+        try {
+            validateOtpForAction(user, otpCode, "UPDATE");
+            UserRefundDetailsDto saved = saveOrUpdate(user, dto);
+            securityAuditService.logRefundAction(
+                    user,
+                    "Refund details updated after OTP re-auth",
+                    true,
+                    "method=" + (dto.getPreferredMethod() != null ? dto.getPreferredMethod() : "UNKNOWN"));
+            return saved;
+        } catch (Exception ex) {
+            securityAuditService.logRefundAction(
+                    user,
+                    "Refund details update blocked",
+                    false,
+                    "reason=" + ex.getMessage());
+            throw ex;
+        }
+    }
+
+    public void deleteByUserWithOtp(User user, String otpCode) {
+        try {
+            validateOtpForAction(user, otpCode, "DELETE");
+            deleteByUser(user);
+            securityAuditService.logRefundAction(
+                    user,
+                    "Refund details deleted after OTP re-auth",
+                    true,
+                    null);
+        } catch (Exception ex) {
+            securityAuditService.logRefundAction(
+                    user,
+                    "Refund details delete blocked",
+                    false,
+                    "reason=" + ex.getMessage());
+            throw ex;
+        }
+    }
+
+    private void validateOtpForAction(User user, String otpCode, String action) {
+        if (otpCode == null || otpCode.isBlank()) {
+            securityAuditService.logRefundAction(
+                    user,
+                    "Refund OTP validation failed: missing OTP",
+                    false,
+                    "action=" + action);
+            throw new IllegalArgumentException("OTP code is required for this action");
+        }
+
+        OtpVerifyDto verifyDto = new OtpVerifyDto();
+        verifyDto.setEmail(user.getEmail());
+        verifyDto.setPhone(user.getPhone());
+        verifyDto.setOtpCode(otpCode);
+        verifyDto.setPurpose(resolvePurpose(action));
+
+        try {
+            otpService.verifyOtp(verifyDto);
+            securityAuditService.logRefundAction(
+                    user,
+                    "Refund OTP verified",
+                    true,
+                    "action=" + action);
+        } catch (Exception ex) {
+            securityAuditService.logRefundAction(
+                    user,
+                    "Refund OTP verification failed",
+                    false,
+                    "action=" + action + ";reason=" + ex.getMessage());
+            throw ex;
+        }
+    }
+
+    private String resolvePurpose(String action) {
+        if ("DELETE".equalsIgnoreCase(action)) {
+            return REFUND_DELETE_PURPOSE;
+        }
+        if (!"UPDATE".equalsIgnoreCase(action)) {
+            throw new IllegalArgumentException("Unsupported sensitive action");
+        }
+        return REFUND_UPDATE_PURPOSE;
     }
 
     /**

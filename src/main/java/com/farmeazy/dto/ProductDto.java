@@ -23,6 +23,8 @@ public class ProductDto {
     private String weight;
     private String specifications;
     private String warrantyInfo;
+    private Integer deliveryDaysMin;
+    private Integer deliveryDaysMax;
     private String status;
     private String imageUrls; // Comma-separated image URLs for frontend
     private String videoUrls; // Comma-separated video URLs for frontend
@@ -191,6 +193,22 @@ public class ProductDto {
     
     public void setWarrantyInfo(String warrantyInfo) {
         this.warrantyInfo = warrantyInfo;
+    }
+
+    public Integer getDeliveryDaysMin() {
+        return deliveryDaysMin;
+    }
+
+    public void setDeliveryDaysMin(Integer deliveryDaysMin) {
+        this.deliveryDaysMin = deliveryDaysMin;
+    }
+
+    public Integer getDeliveryDaysMax() {
+        return deliveryDaysMax;
+    }
+
+    public void setDeliveryDaysMax(Integer deliveryDaysMax) {
+        this.deliveryDaysMax = deliveryDaysMax;
     }
     
     public String getStatus() {

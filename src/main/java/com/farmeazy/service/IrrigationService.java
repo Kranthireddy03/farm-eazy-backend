@@ -10,6 +10,8 @@ import com.farmeazy.exception.UnauthorizedException;
 import com.farmeazy.repository.CropRepository;
 import com.farmeazy.repository.FarmRepository;
 import com.farmeazy.repository.IrrigationScheduleRepository;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -22,6 +24,8 @@ import java.util.List;
 
 @Service
 public class IrrigationService {
+
+    private static final Logger logger = LoggerFactory.getLogger(IrrigationService.class);
 
     @Autowired
     private IrrigationScheduleRepository irrigationRepository;
@@ -43,6 +47,7 @@ public class IrrigationService {
 
     @Transactional
     public IrrigationScheduleDto createSchedule(IrrigationScheduleDto scheduleDto, Long userId) {
+        logger.info("IRRIGATION_SERVICE_CREATE_START userId={} farmId={} cropId={} irrigationDate={}", userId, scheduleDto != null ? scheduleDto.getFarmId() : null, scheduleDto != null ? scheduleDto.getCropId() : null, scheduleDto != null ? scheduleDto.getIrrigationDate() : null);
         Crop crop = cropRepository.findById(scheduleDto.getCropId())
                 .orElseThrow(() -> new ResourceNotFoundException("Crop not found"));
         
@@ -76,7 +81,7 @@ public class IrrigationService {
             httpEmailService.sendNotification(farm.getUser().getEmail(), farm.getUser().getUsername(),
                 "Irrigation Schedule Created - FarmEazy", message);
         } catch (Exception e) {
-            System.err.println("Failed to send irrigation schedule email: " + e.getMessage());
+            logger.warn("IRRIGATION_SERVICE_CREATE_EMAIL_FAILED userId={} scheduleId={} message={}", userId, schedule.getId(), e.getMessage());
         }
         
         // Send SMS notification for irrigation reminder
@@ -90,13 +95,16 @@ public class IrrigationService {
                 );
             }
         } catch (Exception smsEx) {
-            System.err.println("Failed to send irrigation schedule SMS: " + smsEx.getMessage());
+            logger.warn("IRRIGATION_SERVICE_CREATE_SMS_FAILED userId={} scheduleId={} message={}", userId, schedule.getId(), smsEx.getMessage());
         }
+
+        logger.info("IRRIGATION_SERVICE_CREATE_SUCCESS userId={} scheduleId={}", userId, schedule.getId());
         
         return mapScheduleToDto(schedule, userId);
     }
 
     public IrrigationScheduleDto getScheduleById(Long scheduleId, Long userId) {
+        logger.info("IRRIGATION_SERVICE_GET_BY_ID scheduleId={} userId={}", scheduleId, userId);
         IrrigationSchedule schedule = irrigationRepository.findById(scheduleId)
                 .orElseThrow(() -> new ResourceNotFoundException("Schedule not found"));
         
@@ -108,6 +116,7 @@ public class IrrigationService {
     }
 
     public Page<IrrigationScheduleDto> getSchedulesByFarm(Long farmId, Long userId, Pageable pageable) {
+        logger.info("IRRIGATION_SERVICE_GET_BY_FARM farmId={} userId={} page={} size={}", farmId, userId, pageable.getPageNumber(), pageable.getPageSize());
         Farm farm = farmRepository.findById(farmId)
                 .orElseThrow(() -> new ResourceNotFoundException("Farm not found"));
         
@@ -120,6 +129,7 @@ public class IrrigationService {
     }
 
     public List<IrrigationScheduleDto> getUpcomingSchedules(Long userId) {
+        logger.info("IRRIGATION_SERVICE_GET_UPCOMING userId={}", userId);
         List<Farm> farms = farmRepository.findByUserId(userId);
         List<Long> farmIds = farms.stream().map(Farm::getId).toList();
         
@@ -132,6 +142,7 @@ public class IrrigationService {
 
     @Transactional
     public IrrigationScheduleDto updateSchedule(Long scheduleId, IrrigationScheduleDto scheduleDto, Long userId) {
+        logger.info("IRRIGATION_SERVICE_UPDATE_START scheduleId={} userId={} irrigationDate={}", scheduleId, userId, scheduleDto != null ? scheduleDto.getIrrigationDate() : null);
         IrrigationSchedule schedule = irrigationRepository.findById(scheduleId)
                 .orElseThrow(() -> new ResourceNotFoundException("Schedule not found"));
         
@@ -158,14 +169,17 @@ public class IrrigationService {
             httpEmailService.sendNotification(schedule.getFarm().getUser().getEmail(), schedule.getFarm().getUser().getUsername(),
                 "Irrigation Schedule Updated - FarmEazy", message);
         } catch (Exception e) {
-            System.err.println("Failed to send irrigation update email: " + e.getMessage());
+            logger.warn("IRRIGATION_SERVICE_UPDATE_EMAIL_FAILED scheduleId={} userId={} message={}", scheduleId, userId, e.getMessage());
         }
+
+        logger.info("IRRIGATION_SERVICE_UPDATE_SUCCESS scheduleId={} userId={}", scheduleId, userId);
         
         return mapScheduleToDto(schedule, userId);
     }
 
     @Transactional
     public IrrigationScheduleDto markAsCompleted(Long scheduleId, Long userId) {
+        logger.info("IRRIGATION_SERVICE_MARK_COMPLETED_START scheduleId={} userId={}", scheduleId, userId);
         IrrigationSchedule schedule = irrigationRepository.findById(scheduleId)
                 .orElseThrow(() -> new ResourceNotFoundException("Schedule not found"));
         
@@ -179,12 +193,15 @@ public class IrrigationService {
         
         // Log activity
         userActivityService.logActivity(schedule.getFarm().getUser(), com.farmeazy.entity.UserActivity.ActivityType.IRRIGATION_COMPLETED, "Marked irrigation as completed for crop '" + schedule.getCrop().getCropName() + "'");
+
+        logger.info("IRRIGATION_SERVICE_MARK_COMPLETED_SUCCESS scheduleId={} userId={}", scheduleId, userId);
         
         return mapScheduleToDto(schedule, userId);
     }
 
     @Transactional
     public void deleteSchedule(Long scheduleId, Long userId) {
+        logger.info("IRRIGATION_SERVICE_DELETE_START scheduleId={} userId={}", scheduleId, userId);
         IrrigationSchedule schedule = irrigationRepository.findById(scheduleId)
                 .orElseThrow(() -> new ResourceNotFoundException("Schedule not found"));
         
@@ -201,13 +218,15 @@ public class IrrigationService {
             httpEmailService.sendNotification(schedule.getFarm().getUser().getEmail(), schedule.getFarm().getUser().getUsername(),
                 "Irrigation Schedule Deleted - FarmEazy", message);
         } catch (Exception e) {
-            System.err.println("Failed to send irrigation deletion email: " + e.getMessage());
+            logger.warn("IRRIGATION_SERVICE_DELETE_EMAIL_FAILED scheduleId={} userId={} message={}", scheduleId, userId, e.getMessage());
         }
 
         irrigationRepository.delete(schedule);
+        logger.info("IRRIGATION_SERVICE_DELETE_SUCCESS scheduleId={} userId={}", scheduleId, userId);
     }
 
     public List<IrrigationScheduleDto> getAllSchedulesByUser(Long userId) {
+        logger.info("IRRIGATION_SERVICE_GET_ALL_BY_USER userId={}", userId);
         List<Farm> farms = farmRepository.findByUserId(userId);
         List<Long> farmIds = farms.stream().map(Farm::getId).toList();
         
@@ -218,6 +237,7 @@ public class IrrigationService {
     }
 
     public DashboardStatsDto getDashboardStats(Long userId) {
+        logger.info("IRRIGATION_SERVICE_DASHBOARD_STATS userId={}", userId);
         List<Farm> farms = farmRepository.findByUserId(userId);
         
             int totalFarms = farms.size();

@@ -6,22 +6,36 @@ import com.farmeazy.dto.ServiceBookingCreateDto;
 import com.farmeazy.dto.ServiceBookingResponseDto;
 import com.farmeazy.dto.ServiceListingCreateDto;
 import com.farmeazy.dto.ServiceListingResponseDto;
+import com.farmeazy.entity.UserBankDetails;
 import com.farmeazy.entity.User;
+import com.farmeazy.exception.ResourceNotFoundException;
+import com.farmeazy.repository.UserBankDetailsRepository;
+import com.farmeazy.service.FileStorageService;
+import com.farmeazy.service.ListingEligibilityService;
 import com.farmeazy.service.ServiceService;
 import com.farmeazy.service.UserService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.core.io.Resource;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.data.domain.PageRequest;
+import org.springframework.web.multipart.MultipartFile;
 
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.security.Principal;
+import java.util.ArrayList;
 import java.util.Map;
+import java.util.List;
+import java.util.Locale;
 
 @RestController
 @RequestMapping("/api/services")
@@ -41,13 +55,30 @@ public class ServiceController {
     @Autowired
     private UserService userService;
 
+    @Autowired
+    private ListingEligibilityService listingEligibilityService;
+
+    @Autowired
+    private UserBankDetailsRepository userBankDetailsRepository;
+
+    @Autowired
+    private FileStorageService fileStorageService;
+
 
     @PostMapping("/listings")
     public ResponseEntity<ServiceListingDto> createServiceListing(@Valid @RequestBody ServiceListingDto serviceListingDto, Principal principal) {
         User user = userService.findByEmail(principal.getName());
-        // Set vendor fields
+        listingEligibilityService.assertEligible(user, "SERVICE");
+
+        UserBankDetails bankDetails = userBankDetailsRepository.findByUserId(user.getId())
+                .orElseThrow(() -> new ResourceNotFoundException("Vendor details not found. Please complete bank details first."));
+
+        // Always derive vendor profile server-side to prevent payload-based onboarding.
         serviceListingDto.setVendorId(user.getId());
-        serviceListingDto.setVendorName(user.getUsername());
+        serviceListingDto.setVendorName(bankDetails.getAccountHolderName());
+        serviceListingDto.setVendorLocation(formatLocation(user));
+        serviceListingDto.setVendorType("VERIFIED_VENDOR");
+
         ServiceListingDto createdListing = serviceService.createServiceListing(user, serviceListingDto);
         return new ResponseEntity<>(createdListing, HttpStatus.CREATED);
     }
@@ -129,8 +160,80 @@ public class ServiceController {
     public ResponseEntity<ServiceListingResponseDto> createEnhancedServiceListing(
             @Valid @RequestBody ServiceListingCreateDto dto, Principal principal) {
         User user = userService.findByEmail(principal.getName());
+        listingEligibilityService.assertEligible(user, "SERVICE");
+
+        UserBankDetails bankDetails = userBankDetailsRepository.findByUserId(user.getId())
+                .orElseThrow(() -> new ResourceNotFoundException("Vendor details not found. Please complete bank details first."));
+        dto.setVendorId(user.getId());
+        dto.setVendorName(bankDetails.getAccountHolderName());
+        dto.setVendorLocation(formatLocation(user));
+        dto.setVendorType("VERIFIED_VENDOR");
+
         ServiceListingResponseDto created = serviceService.createEnhancedServiceListing(user, dto);
         return new ResponseEntity<>(created, HttpStatus.CREATED);
+    }
+
+    private String formatLocation(User user) {
+        String city = user.getCity() != null ? user.getCity().trim() : "";
+        String state = user.getState() != null ? user.getState().trim() : "";
+        if (!city.isEmpty() && !state.isEmpty()) {
+            return city + ", " + state;
+        }
+        return !city.isEmpty() ? city : state;
+    }
+
+    @PostMapping(value = "/attachments/upload", consumes = {MediaType.MULTIPART_FORM_DATA_VALUE})
+    @Operation(summary = "Upload service attachments", description = "Upload image/video files for service listings")
+    public ResponseEntity<Map<String, Object>> uploadAttachments(@RequestParam("files") List<MultipartFile> files) {
+        List<String> urls = new ArrayList<>();
+        if (files == null || files.isEmpty()) {
+            return ResponseEntity.badRequest().body(Map.of("message", "No files were provided"));
+        }
+
+        for (MultipartFile file : files) {
+            String fileName = fileStorageService.store(file);
+            String fileDownloadUri = org.springframework.web.servlet.support.ServletUriComponentsBuilder.fromCurrentContextPath()
+                    .path("/api/services/media/")
+                    .path(fileName)
+                    .toUriString();
+            urls.add(fileDownloadUri);
+        }
+
+        return ResponseEntity.ok(Map.of("urls", urls, "count", urls.size()));
+    }
+
+    @GetMapping("/media/{filename:.+}")
+    @ResponseBody
+    public ResponseEntity<Resource> serveServiceMedia(@PathVariable String filename) {
+        Resource file = fileStorageService.loadAsResource(filename);
+        String contentType = detectContentType(filename);
+        return ResponseEntity.ok()
+                .header(HttpHeaders.CONTENT_DISPOSITION, "inline; filename=\"" + file.getFilename() + "\"")
+                .contentType(MediaType.parseMediaType(contentType))
+                .body(file);
+    }
+
+    private String detectContentType(String filename) {
+        String safeName = filename == null ? "" : filename.toLowerCase(Locale.ROOT);
+        if (safeName.endsWith(".png")) return "image/png";
+        if (safeName.endsWith(".jpg") || safeName.endsWith(".jpeg")) return "image/jpeg";
+        if (safeName.endsWith(".webp")) return "image/webp";
+        if (safeName.endsWith(".gif")) return "image/gif";
+        if (safeName.endsWith(".mp4")) return "video/mp4";
+        if (safeName.endsWith(".webm")) return "video/webm";
+        if (safeName.endsWith(".ogg")) return "video/ogg";
+        if (safeName.endsWith(".m4v")) return "video/x-m4v";
+        if (safeName.endsWith(".mov")) return "video/quicktime";
+
+        try {
+            Path filePath = fileStorageService.load(filename);
+            String probed = Files.probeContentType(filePath);
+            if (probed != null && !probed.isBlank()) {
+                return probed;
+            }
+        } catch (Exception ignored) {
+        }
+        return "application/octet-stream";
     }
 
     /**

@@ -5,6 +5,8 @@ import com.farmeazy.service.FarmService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
@@ -33,6 +35,8 @@ import java.util.List;
 @Tag(name = "Farm Management", description = "Farm CRUD operations")
 public class FarmController {
 
+    private static final Logger logger = LoggerFactory.getLogger(FarmController.class);
+
     @Autowired
     private FarmService farmService;
 
@@ -51,6 +55,7 @@ public class FarmController {
     public ResponseEntity<FarmDto> createFarm(@Valid @RequestBody FarmDto farmDto, 
                                               Authentication authentication) {
         Long userId = getUserId(authentication);
+        logger.info("FARM_CONTROLLER_CREATE userId={} farmName={}", userId, farmDto != null ? farmDto.getFarmName() : null);
         FarmDto response = farmService.createFarm(farmDto, userId);
         return new ResponseEntity<>(response, HttpStatus.CREATED);
     }
@@ -61,6 +66,7 @@ public class FarmController {
     public ResponseEntity<FarmDto> getFarmById(@PathVariable Long farmId, 
                                                Authentication authentication) {
         Long userId = getUserId(authentication);
+        logger.info("FARM_CONTROLLER_GET_BY_ID userId={} farmId={}", userId, farmId);
         FarmDto farm = farmService.getFarmById(farmId, userId);
         return ResponseEntity.ok(farm);
     }
@@ -70,6 +76,7 @@ public class FarmController {
     @Operation(summary = "Get all farms")
     public ResponseEntity<List<FarmDto>> getAllFarms(Authentication authentication) {
         Long userId = getUserId(authentication);
+        logger.info("FARM_CONTROLLER_GET_ALL userId={}", userId);
         List<FarmDto> farms = farmService.getAllFarmsByUser(userId);
         return ResponseEntity.ok(farms);
     }
@@ -82,6 +89,7 @@ public class FarmController {
             @RequestParam(defaultValue = "10") int size,
             Authentication authentication) {
         Long userId = getUserId(authentication);
+        logger.info("FARM_CONTROLLER_GET_PAGINATED userId={} page={} size={}", userId, page, size);
         Pageable pageable = PageRequest.of(page, size);
         Page<FarmDto> farms = farmService.getFarmsByUserPaginated(userId, pageable);
         return ResponseEntity.ok(farms);
@@ -96,6 +104,7 @@ public class FarmController {
             @RequestParam(defaultValue = "10") int size,
             Authentication authentication) {
         Long userId = getUserId(authentication);
+        logger.info("FARM_CONTROLLER_SEARCH userId={} farmName={} page={} size={}", userId, farmName, page, size);
         Pageable pageable = PageRequest.of(page, size);
         Page<FarmDto> farms = farmService.searchFarms(userId, farmName, pageable);
         return ResponseEntity.ok(farms);
@@ -108,6 +117,7 @@ public class FarmController {
                                               @Valid @RequestBody FarmDto farmDto,
                                               Authentication authentication) {
         Long userId = getUserId(authentication);
+        logger.info("FARM_CONTROLLER_UPDATE userId={} farmId={}", userId, farmId);
         FarmDto response = farmService.updateFarm(farmId, farmDto, userId);
         return ResponseEntity.ok(response);
     }
@@ -118,6 +128,7 @@ public class FarmController {
     public ResponseEntity<Void> deleteFarm(@PathVariable Long farmId, 
                                            Authentication authentication) {
         Long userId = getUserId(authentication);
+        logger.info("FARM_CONTROLLER_DELETE userId={} farmId={}", userId, farmId);
         farmService.deleteFarm(farmId, userId);
         return ResponseEntity.noContent().build();
     }

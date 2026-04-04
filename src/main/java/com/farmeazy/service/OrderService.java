@@ -5,6 +5,8 @@ import com.farmeazy.dto.OrderCreateDto;
 import com.farmeazy.dto.OrderDto;
 import com.farmeazy.dto.OrderItemDetailDto;
 import com.farmeazy.entity.*;
+import com.farmeazy.entity.Notification.NotificationPriority;
+import com.farmeazy.entity.Notification.NotificationType;
 import com.farmeazy.entity.Order.OrderStatus;
 import com.farmeazy.entity.Order.PaymentMethod;
 import com.farmeazy.entity.Order.PaymentStatus;
@@ -142,6 +144,9 @@ public class OrderService {
     @Autowired
     private SmsService smsService;
 
+    @Autowired
+    private NotificationService notificationService;
+
     /**
      * Create new order from cart
      */
@@ -192,6 +197,8 @@ public class OrderService {
                 order.setOrderStatus(OrderStatus.CONFIRMED);
                 order.setTransactionId(createDto.getPaymentId());
                 order.setPaidAt(LocalDateTime.now());
+            } else if ("RAZORPAY".equals(createDto.getPaymentMethod())) {
+                throw new IllegalArgumentException("Razorpay payment is not successful. Please complete payment before placing order.");
             } else {
                 // For other payment methods or Razorpay without paymentId, mark as processing
                 order.setPaymentStatus(PaymentStatus.PROCESSING);
@@ -225,6 +232,41 @@ public class OrderService {
             // Save order
             Order savedOrder = orderRepository.save(order);
 
+            try {
+                notificationService.createForUser(
+                    user,
+                    NotificationType.ORDER,
+                    "Order placed successfully",
+                    "Your order #" + savedOrder.getId() + " has been placed.",
+                    "/orders",
+                    NotificationPriority.NORMAL
+                );
+            } catch (Exception ignored) {
+            }
+
+            try {
+                java.util.HashSet<Long> notifiedSellerIds = new java.util.HashSet<>();
+                for (OrderItem item : items) {
+                    Product itemProduct = item.getProduct();
+                    if (itemProduct == null || itemProduct.getSeller() == null || itemProduct.getSeller().getId() == null) {
+                        continue;
+                    }
+                    User seller = itemProduct.getSeller();
+                    if (!notifiedSellerIds.add(seller.getId())) {
+                        continue;
+                    }
+                    notificationService.createForUser(
+                        seller,
+                        NotificationType.ORDER,
+                        "You received a new order",
+                        "A buyer placed an order containing your product listing(s).",
+                        "/orders",
+                        NotificationPriority.HIGH
+                    );
+                }
+            } catch (Exception ignored) {
+            }
+
             // Deduct coins if used
             if (coinsUsed > 0) {
                 coinService.deductCoins(user, coinsUsed, "Used in order #" + savedOrder.getId());
@@ -250,13 +292,18 @@ public class OrderService {
                     "Order"
             );
 
-            // Send confirmation email using HTTP service (works on Render)
+            // Send order communication based on payment method/status.
             // Calculate coin discount: coinsUsed * 1 rupee per coin
             BigDecimal coinDiscount = BigDecimal.valueOf(savedOrder.getCoinsUsed());
 
-            // Only send confirmation email if payment is already COMPLETED (e.g., COD or payment completed)
-            if (savedOrder.getPaymentStatus() == PaymentStatus.COMPLETED || savedOrder.getPaymentStatus() == PaymentStatus.PENDING) {
-                // For COD, PENDING is considered as placed
+            PaymentMethod paymentMethod = savedOrder.getPaymentMethod();
+            PaymentStatus paymentStatus = savedOrder.getPaymentStatus();
+            OrderStatus orderStatus = savedOrder.getOrderStatus();
+            boolean isCodOrder = PaymentMethod.CASH_ON_DELIVERY.equals(paymentMethod);
+            boolean isPaymentCompleted = PaymentStatus.COMPLETED.equals(paymentStatus);
+            boolean isPaymentFailed = PaymentStatus.FAILED.equals(paymentStatus);
+
+            if (isPaymentCompleted || (isCodOrder && PaymentStatus.PENDING.equals(paymentStatus))) {
                 httpEmailService.sendOrderConfirmationEmailAsync(
                     user.getEmail(),
                     user.getUsername(),
@@ -264,29 +311,33 @@ public class OrderService {
                     savedOrder.getSubtotal().toPlainString(),
                     coinDiscount.toPlainString(),
                     savedOrder.getTaxAmount().toPlainString(),
-                    savedOrder.getFinalAmount().toPlainString()
+                    savedOrder.getFinalAmount().toPlainString(),
+                    paymentMethod.name(),
+                    paymentStatus.name(),
+                    orderStatus.name()
                 );
-                
-                // Send SMS notification for payment success (order confirmation)
+
+                // Send SMS notification based on order type.
                 try {
                     if (user.getPhone() != null && !user.getPhone().isBlank()) {
-                        smsService.sendPaymentSuccess(
-                            user.getPhone(),
-                            user.getUsername(),
-                            savedOrder.getFinalAmount().toPlainString(),
-                            "ORD" + savedOrder.getId()
-                        );
-                            // Booking confirmation SMS
-                            smsService.sendBookingConfirm(
+                        if (isPaymentCompleted) {
+                            smsService.sendPaymentSuccess(
                                 user.getPhone(),
                                 user.getUsername(),
+                                savedOrder.getFinalAmount().toPlainString(),
                                 "ORD" + savedOrder.getId()
                             );
+                        }
+                        smsService.sendBookingConfirm(
+                            user.getPhone(),
+                            user.getUsername(),
+                            "ORD" + savedOrder.getId()
+                        );
                     }
                 } catch (Exception smsEx) {
                     log.warn("Failed to send order confirmation SMS for order {}: {}", savedOrder.getId(), smsEx.getMessage());
                 }
-            } else if (savedOrder.getPaymentStatus() == PaymentStatus.FAILED) {
+            } else if (isPaymentFailed) {
                 // Optional: Send payment failure email
                 httpEmailService.sendNotificationEmail(
                         user.getEmail(),

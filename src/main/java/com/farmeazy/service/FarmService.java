@@ -7,6 +7,8 @@ import com.farmeazy.exception.ResourceNotFoundException;
 import com.farmeazy.exception.UnauthorizedException;
 import com.farmeazy.repository.FarmRepository;
 import com.farmeazy.repository.UserRepository;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -17,6 +19,8 @@ import java.util.List;
 
 @Service
 public class FarmService {
+
+    private static final Logger logger = LoggerFactory.getLogger(FarmService.class);
 
     @Autowired
     private FarmRepository farmRepository;
@@ -38,6 +42,7 @@ public class FarmService {
 
     @Transactional
     public FarmDto createFarm(FarmDto farmDto, Long userId) {
+        logger.info("FARM_SERVICE_CREATE_FARM_START userId={} farmName={}", userId, farmDto != null ? farmDto.getFarmName() : null);
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new ResourceNotFoundException("User not found"));
 
@@ -59,7 +64,7 @@ public class FarmService {
         try {
             coinService.addCoins(user.getEmail(), 10, "Created farm: " + farm.getFarmName());
         } catch (Exception e) {
-            System.err.println("Failed to award coins for farm creation: " + e.getMessage());
+            logger.warn("FARM_SERVICE_CREATE_FARM_COIN_AWARD_FAILED userId={} farmId={} message={}", userId, farm.getId(), e.getMessage());
         }
 
         // Send in-app notification for farm creation
@@ -73,7 +78,7 @@ public class FarmService {
                 com.farmeazy.entity.Notification.NotificationPriority.NORMAL
             );
         } catch (Exception e) {
-            System.err.println("Failed to send farm creation notification: " + e.getMessage());
+            logger.warn("FARM_SERVICE_CREATE_FARM_NOTIFICATION_FAILED userId={} farmId={} message={}", userId, farm.getId(), e.getMessage());
         }
 
         // Send notification email using HTTP service (works on Render)
@@ -83,13 +88,16 @@ public class FarmService {
             httpEmailService.sendNotification(user.getEmail(), user.getUsername(),
                 "New Farm Created - FarmEazy", message);
         } catch (Exception e) {
-            System.err.println("Failed to send farm creation email: " + e.getMessage());
+            logger.warn("FARM_SERVICE_CREATE_FARM_EMAIL_FAILED userId={} farmId={} message={}", userId, farm.getId(), e.getMessage());
         }
+
+        logger.info("FARM_SERVICE_CREATE_FARM_SUCCESS userId={} farmId={}", userId, farm.getId());
         
         return mapFarmToDto(farm);
     }
 
     public FarmDto getFarmById(Long farmId, Long userId) {
+        logger.info("FARM_SERVICE_GET_BY_ID farmId={} userId={}", farmId, userId);
         Farm farm = farmRepository.findById(farmId)
                 .orElseThrow(() -> new ResourceNotFoundException("Farm not found"));
         
@@ -101,6 +109,7 @@ public class FarmService {
     }
 
     public List<FarmDto> getAllFarmsByUser(Long userId) {
+        logger.info("FARM_SERVICE_GET_ALL_BY_USER userId={}", userId);
         return farmRepository.findByUserId(userId)
                 .stream()
                 .map(this::mapFarmToDto)
@@ -108,17 +117,20 @@ public class FarmService {
     }
 
     public Page<FarmDto> getFarmsByUserPaginated(Long userId, Pageable pageable) {
+        logger.info("FARM_SERVICE_GET_PAGINATED userId={} page={} size={}", userId, pageable.getPageNumber(), pageable.getPageSize());
         return farmRepository.findByUserId(userId, pageable)
                 .map(this::mapFarmToDto);
     }
 
     public Page<FarmDto> searchFarms(Long userId, String farmName, Pageable pageable) {
+        logger.info("FARM_SERVICE_SEARCH userId={} farmName={} page={} size={}", userId, farmName, pageable.getPageNumber(), pageable.getPageSize());
         return farmRepository.findByUserIdAndFarmNameContainingIgnoreCase(userId, farmName, pageable)
                 .map(this::mapFarmToDto);
     }
 
     @Transactional
     public FarmDto updateFarm(Long farmId, FarmDto farmDto, Long userId) {
+        logger.info("FARM_SERVICE_UPDATE_START farmId={} userId={} farmName={}", farmId, userId, farmDto != null ? farmDto.getFarmName() : null);
         Farm farm = farmRepository.findById(farmId)
                 .orElseThrow(() -> new ResourceNotFoundException("Farm not found"));
         
@@ -145,14 +157,17 @@ public class FarmService {
             httpEmailService.sendNotification(farm.getUser().getEmail(), farm.getUser().getUsername(),
                 "Farm Updated - FarmEazy", message);
         } catch (Exception e) {
-            System.err.println("Failed to send farm update email: " + e.getMessage());
+            logger.warn("FARM_SERVICE_UPDATE_EMAIL_FAILED farmId={} userId={} message={}", farmId, userId, e.getMessage());
         }
+
+        logger.info("FARM_SERVICE_UPDATE_SUCCESS farmId={} userId={}", farmId, userId);
 
         return mapFarmToDto(farm);
     }
 
     @Transactional
     public void deleteFarm(Long farmId, Long userId) {
+        logger.info("FARM_SERVICE_DELETE_START farmId={} userId={}", farmId, userId);
         Farm farm = farmRepository.findById(farmId)
                 .orElseThrow(() -> new ResourceNotFoundException("Farm not found"));
         
@@ -172,8 +187,10 @@ public class FarmService {
             httpEmailService.sendNotification(farm.getUser().getEmail(), farm.getUser().getUsername(),
                 "Farm Deleted - FarmEazy", message);
         } catch (Exception e) {
-            System.err.println("Failed to send farm deletion email: " + e.getMessage());
+            logger.warn("FARM_SERVICE_DELETE_EMAIL_FAILED farmId={} userId={} message={}", farmId, userId, e.getMessage());
         }
+
+        logger.info("FARM_SERVICE_DELETE_SUCCESS farmId={} userId={}", farmId, userId);
     }
 
     private FarmDto mapFarmToDto(Farm farm) {

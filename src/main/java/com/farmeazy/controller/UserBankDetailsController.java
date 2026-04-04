@@ -1,6 +1,8 @@
 package com.farmeazy.controller;
 
 import com.farmeazy.dto.UserBankDetailsDto;
+import com.farmeazy.dto.OtpResponseDto;
+import com.farmeazy.dto.SensitiveActionOtpRequestDto;
 import com.farmeazy.service.UserBankDetailsService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -37,6 +39,16 @@ public class UserBankDetailsController {
     public ResponseEntity<UserBankDetailsDto> addBankDetails(@Valid @RequestBody UserBankDetailsDto dto) {
         UserBankDetailsDto saved = bankDetailsService.addBankDetails(dto);
         return ResponseEntity.status(HttpStatus.CREATED).body(saved);
+    }
+
+    /**
+     * Send OTP for sensitive bank detail actions.
+     */
+    @PostMapping("/reauth/send")
+    @Operation(summary = "Send OTP for sensitive bank action", description = "Send OTP before add/update/delete bank details")
+    public ResponseEntity<OtpResponseDto> sendSensitiveActionOtp(@Valid @RequestBody SensitiveActionOtpRequestDto requestDto) {
+        OtpResponseDto response = bankDetailsService.sendSensitiveActionOtp(requestDto.getAction());
+        return ResponseEntity.ok(response);
     }
 
     /**
@@ -119,8 +131,8 @@ public class UserBankDetailsController {
      */
     @DeleteMapping
     @Operation(summary = "Delete bank details", description = "Delete current user's bank details")
-    public ResponseEntity<Map<String, String>> deleteBankDetails() {
-        bankDetailsService.deleteBankDetails();
+    public ResponseEntity<Map<String, String>> deleteBankDetails(@RequestParam String otpCode) {
+        bankDetailsService.deleteBankDetails(otpCode);
         Map<String, String> response = new HashMap<>();
         response.put("message", "Bank details deleted successfully");
         return ResponseEntity.ok(response);

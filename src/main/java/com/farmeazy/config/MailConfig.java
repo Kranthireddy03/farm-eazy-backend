@@ -1,7 +1,6 @@
 package com.farmeazy.config;
 
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.mail.javamail.JavaMailSender;
@@ -16,7 +15,6 @@ import java.util.Properties;
  * When using Resend (default), this bean is not created.
  */
 @Configuration
-@ConditionalOnProperty(name = "farmeazy.mail.provider", havingValue = "zoho")
 public class MailConfig {
 
     @Value("${mail.noreply.host}")
@@ -63,15 +61,31 @@ public class MailConfig {
 
     private JavaMailSender createMailSender(String host, int port, String username, String password) {
         JavaMailSenderImpl mailSender = new JavaMailSenderImpl();
-        mailSender.setHost(host);
+        mailSender.setHost(cleanValue(host));
         mailSender.setPort(port);
-        mailSender.setUsername(username);
-        mailSender.setPassword(password);
+        mailSender.setUsername(cleanValue(username));
+        mailSender.setPassword(cleanValue(password));
         Properties props = mailSender.getJavaMailProperties();
         props.put("mail.transport.protocol", "smtp");
         props.put("mail.smtp.auth", "true");
         props.put("mail.smtp.starttls.enable", "true");
         props.put("mail.debug", "true");
         return mailSender;
+    }
+
+    private String cleanValue(String raw) {
+        if (raw == null) {
+            return null;
+        }
+
+        String value = raw.trim();
+
+        // Remove wrapping quotes commonly introduced in env vars.
+        if ((value.startsWith("\"") && value.endsWith("\"")) ||
+            (value.startsWith("'") && value.endsWith("'"))) {
+            value = value.substring(1, value.length() - 1).trim();
+        }
+
+        return value;
     }
 }

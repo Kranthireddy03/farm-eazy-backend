@@ -8,6 +8,8 @@ import com.farmeazy.dto.RefreshTokenRequestDto;
 import com.farmeazy.dto.ResetPasswordDto;
 import com.farmeazy.dto.OtpRequestDto;
 import com.farmeazy.dto.OtpVerifyDto;
+import com.farmeazy.dto.OtpLoginPreviewRequestDto;
+import com.farmeazy.dto.RegistrationAvailabilityRequestDto;
 import com.farmeazy.service.AuthService;
 import com.farmeazy.service.OtpService;
 import io.swagger.v3.oas.annotations.Operation;
@@ -111,6 +113,16 @@ public class AuthController {
         AuthResponseDto response = authService.register(registerDto);
         // Return 201 CREATED status (user successfully created)
         return new ResponseEntity<>(response, HttpStatus.CREATED);
+    }
+
+    @PostMapping("/register/availability")
+    @Operation(summary = "Check registration availability for username, email, and phone")
+    public ResponseEntity<?> checkRegistrationAvailability(@Valid @RequestBody RegistrationAvailabilityRequestDto requestDto) {
+        return ResponseEntity.ok(authService.checkRegistrationAvailability(
+                requestDto.getUsername(),
+                requestDto.getEmail(),
+                requestDto.getPhone()
+        ));
     }
 
     /**
@@ -398,6 +410,12 @@ public class AuthController {
     public ResponseEntity<?> requestLoginOtp(@Valid @RequestBody com.farmeazy.dto.OtpLoginRequestDto dto) {
         com.farmeazy.dto.OtpResponseDto response = otpService.generateLoginOtp(dto.getPhone());
         return ResponseEntity.ok(response);
+    }
+
+    @PostMapping("/login/preview-user")
+    @Operation(summary = "Preview username for phone OTP login before sending OTP")
+    public ResponseEntity<?> previewLoginUser(@Valid @RequestBody OtpLoginPreviewRequestDto dto) {
+        return ResponseEntity.ok(authService.getOtpLoginUserPreview(dto.getPhone()));
     }
     
     /**

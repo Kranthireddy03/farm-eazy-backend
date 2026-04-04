@@ -1848,9 +1848,9 @@ public class HttpEmailService {
      * Send order confirmation email (async - does not block caller)
      */
     @Async
-    public CompletableFuture<Boolean> sendOrderConfirmationEmailAsync(String userEmail, String userName, Long orderId, String subtotal, String coinsDiscount, String taxAmount, String finalAmount) {
+    public CompletableFuture<Boolean> sendOrderConfirmationEmailAsync(String userEmail, String userName, Long orderId, String subtotal, String coinsDiscount, String taxAmount, String finalAmount, String paymentMethod, String paymentStatus, String orderStatus) {
         try {
-            boolean result = sendOrderConfirmationEmail(userEmail, userName, orderId, subtotal, coinsDiscount, taxAmount, finalAmount);
+            boolean result = sendOrderConfirmationEmail(userEmail, userName, orderId, subtotal, coinsDiscount, taxAmount, finalAmount, paymentMethod, paymentStatus, orderStatus);
             return CompletableFuture.completedFuture(result);
         } catch (Exception e) {
             logger.error("Async order confirmation email failed for {}: {}", userEmail, e.getMessage());
@@ -1862,9 +1862,12 @@ public class HttpEmailService {
      * Send order confirmation email with detailed breakdown
      * Uses ORDERS sender - order-related communications
      */
-    public boolean sendOrderConfirmationEmail(String userEmail, String userName, Long orderId, String subtotal, String coinsDiscount, String taxAmount, String finalAmount) {
-        String subject = "Order Confirmed #FZ" + orderId + " - FarmEazy";
-        String html = buildOrderConfirmationEmailHtml(userName, orderId, subtotal, coinsDiscount, taxAmount, finalAmount);
+    public boolean sendOrderConfirmationEmail(String userEmail, String userName, Long orderId, String subtotal, String coinsDiscount, String taxAmount, String finalAmount, String paymentMethod, String paymentStatus, String orderStatus) {
+        String normalizedPaymentMethod = paymentMethod == null ? "UNKNOWN" : paymentMethod;
+        String normalizedPaymentStatus = paymentStatus == null ? "UNKNOWN" : paymentStatus;
+        String normalizedOrderStatus = orderStatus == null ? "UNKNOWN" : orderStatus;
+        String subject = "Order Update #FZ" + orderId + " - " + normalizedOrderStatus + " / " + normalizedPaymentStatus;
+        String html = buildOrderConfirmationEmailHtml(userName, orderId, subtotal, coinsDiscount, taxAmount, finalAmount, normalizedPaymentMethod, normalizedPaymentStatus, normalizedOrderStatus);
         return sendEmail(userEmail, subject, html, SenderType.ORDERS);
     }
 
@@ -2060,11 +2063,22 @@ public class HttpEmailService {
     /**
      * Build order confirmation email HTML with detailed pricing breakdown
      */
-    private String buildOrderConfirmationEmailHtml(String userName, Long orderId, String subtotal, String coinsDiscount, String taxAmount, String finalAmount) {
+    private String buildOrderConfirmationEmailHtml(String userName, Long orderId, String subtotal, String coinsDiscount, String taxAmount, String finalAmount, String paymentMethod, String paymentStatus, String orderStatus) {
         // Calculate coin discount display
         String discountDisplay = (coinsDiscount != null && !coinsDiscount.equals("0"))
             ? String.format("<div class=\"price-row discount\"><span>Coin Discount:</span><span>- ₹%s</span></div>", coinsDiscount)
             : "";
+
+        String statusTitle = "Order Confirmed!";
+        String statusMessage = "Thank you for your order! Your purchase has been confirmed.";
+
+        if ("CASH_ON_DELIVERY".equalsIgnoreCase(paymentMethod)) {
+            statusTitle = "Order Placed!";
+            statusMessage = "Your order is placed successfully. Payment will be collected at delivery.";
+        } else if ("COMPLETED".equalsIgnoreCase(paymentStatus)) {
+            statusTitle = "Payment Successful!";
+            statusMessage = "Your payment is successful and your order is confirmed.";
+        }
 
         return String.format("""
             <!DOCTYPE html>
@@ -2092,11 +2106,11 @@ public class HttpEmailService {
             <body>
                 <div class="container">
                     <div class="header">
-                        <h1>✅ Order Confirmed!</h1>
+                        <h1>✅ %s</h1>
                     </div>
                     <div class="content">
                         <p>Hello, %s! 👋</p>
-                        <p>Thank you for your order! Your purchase has been confirmed.</p>
+                        <p>%s</p>
 
                         <div class="order-box">
                             <div class="check-icon">✓</div>
@@ -2115,7 +2129,9 @@ public class HttpEmailService {
                         <div class="info-box">
                             <strong>📦 Delivery Information</strong>
                             <p style="margin: 5px 0 0 0;">Expected delivery: 3-5 business days</p>
-                            <p style="margin: 5px 0 0 0;">Status: Processing</p>
+                            <p style="margin: 5px 0 0 0;">Order Status: %s</p>
+                            <p style="margin: 5px 0 0 0;">Payment Status: %s</p>
+                            <p style="margin: 5px 0 0 0;">Payment Method: %s</p>
                         </div>
 
                         <p>You can track your order status in your dashboard.</p>
@@ -2128,7 +2144,7 @@ public class HttpEmailService {
                 </div>
             </body>
             </html>
-            """, userName, orderId, subtotal, discountDisplay, taxAmount, finalAmount);
+            """, statusTitle, userName, statusMessage, orderId, subtotal, discountDisplay, taxAmount, finalAmount, orderStatus, paymentStatus, paymentMethod);
     }
 }
 

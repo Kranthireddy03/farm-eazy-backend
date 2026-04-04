@@ -56,7 +56,7 @@ public class DashboardServiceImpl implements DashboardService {
     private String normalizeSource(String source) {
         if (source == null) return "all";
         source = source.trim().toLowerCase();
-        if (!source.equals("all") && !source.equals("public") && !source.equals("login")) {
+        if (!source.equals("all") && !source.equals("public") && !source.equals("login") && !source.equals("admin")) {
             return "all";
         }
         return source;
@@ -109,14 +109,22 @@ public class DashboardServiceImpl implements DashboardService {
         if ("public".equals(source)) {
             return (root, query, cb) -> cb.or(
                     cb.equal(cb.lower(root.get("source")), "public"),
-                    cb.and(cb.isNull(root.get("source")), cb.isNull(root.get("user")))
+                    cb.equal(cb.lower(root.get("source")), "support_public"),
+                    cb.equal(cb.lower(root.get("source")), "public_app"),
+                    cb.and(cb.isNull(root.get("source")), cb.isNull(root.get("user"))),
+                    cb.isNull(root.get("user"))
             );
         }
         if ("login".equals(source)) {
             return (root, query, cb) -> cb.or(
                     cb.equal(cb.lower(root.get("source")), "login"),
+                    cb.equal(cb.lower(root.get("source")), "support_user"),
+                    cb.equal(cb.lower(root.get("source")), "app_user"),
                     cb.isNotNull(root.get("user"))
             );
+        }
+        if ("admin".equals(source)) {
+            return (root, query, cb) -> cb.like(cb.lower(root.get("source")), "%admin%");
         }
         return null;
     }
@@ -176,6 +184,7 @@ public class DashboardServiceImpl implements DashboardService {
     private Specification<FAQQuestion> faqSourceSpecification(String source) {
         if ("public".equals(source)) {
             return (root, query, cb) -> cb.or(
+                    cb.equal(cb.lower(root.get("source")), "faq_public_page"),
                     cb.isNull(root.get("userId")),
                     cb.equal(root.get("userId"), "")
             );
@@ -183,8 +192,12 @@ public class DashboardServiceImpl implements DashboardService {
         if ("login".equals(source)) {
             return (root, query, cb) -> cb.and(
                     cb.isNotNull(root.get("userId")),
-                    cb.notEqual(root.get("userId"), "")
+                    cb.notEqual(root.get("userId"), ""),
+                    cb.notLike(cb.lower(root.get("source")), "%admin%")
             );
+        }
+        if ("admin".equals(source)) {
+            return (root, query, cb) -> cb.like(cb.lower(root.get("source")), "%admin%");
         }
         return null;
     }

@@ -64,6 +64,12 @@ public class Product {
     
     @Column(name = "warranty_info")
     private String warrantyInfo;
+
+    @Column(name = "delivery_days_min")
+    private Integer deliveryDaysMin = 3;
+
+    @Column(name = "delivery_days_max")
+    private Integer deliveryDaysMax = 5;
     
     @Column(nullable = false)
     private String status; // ACTIVE, OUT_OF_STOCK, DISCONTINUED
@@ -271,6 +277,22 @@ public class Product {
     
     public void setWarrantyInfo(String warrantyInfo) {
         this.warrantyInfo = warrantyInfo;
+    }
+
+    public Integer getDeliveryDaysMin() {
+        return deliveryDaysMin;
+    }
+
+    public void setDeliveryDaysMin(Integer deliveryDaysMin) {
+        this.deliveryDaysMin = deliveryDaysMin;
+    }
+
+    public Integer getDeliveryDaysMax() {
+        return deliveryDaysMax;
+    }
+
+    public void setDeliveryDaysMax(Integer deliveryDaysMax) {
+        this.deliveryDaysMax = deliveryDaysMax;
     }
     
     public String getStatus() {

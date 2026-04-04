@@ -207,24 +207,45 @@ public class UnifiedEmailService {
             return true;
         }
 
-        // Try Zoho first
-        boolean zohoResult = sendViaZoho(to, subject, htmlContent, sender);
-        if (zohoResult) {
-            logger.info("UnifiedEmailService: Email sent via Zoho to {}", to);
-            logger.info("UnifiedEmailService: Provider used = ZOHO for {}", to);
-            return true;
-        } else {
+        String preferredProvider = provider == null ? "resend" : provider.trim().toLowerCase();
+
+        if ("zoho".equals(preferredProvider)) {
+            boolean zohoResult = sendViaZoho(to, subject, htmlContent, sender);
+            if (zohoResult) {
+                logger.info("UnifiedEmailService: Email sent via Zoho to {}", to);
+                logger.info("UnifiedEmailService: Provider used = ZOHO for {}", to);
+                return true;
+            }
+
             logger.warn("UnifiedEmailService: Zoho failed for {}. Retrying with Resend...", to);
             boolean resendResult = sendViaResend(to, subject, htmlContent, sender);
             if (resendResult) {
                 logger.info("UnifiedEmailService: Email sent via Resend to {}", to);
                 logger.info("UnifiedEmailService: Provider used = RESEND for {}", to);
                 return true;
-            } else {
-                logger.error("UnifiedEmailService: Both Zoho and Resend failed for {}", to);
-                return false;
             }
+
+            logger.error("UnifiedEmailService: Both Zoho and Resend failed for {}", to);
+            return false;
         }
+
+        boolean resendResult = sendViaResend(to, subject, htmlContent, sender);
+        if (resendResult) {
+            logger.info("UnifiedEmailService: Email sent via Resend to {}", to);
+            logger.info("UnifiedEmailService: Provider used = RESEND for {}", to);
+            return true;
+        }
+
+        logger.warn("UnifiedEmailService: Resend failed for {}. Retrying with Zoho...", to);
+        boolean zohoResult = sendViaZoho(to, subject, htmlContent, sender);
+        if (zohoResult) {
+            logger.info("UnifiedEmailService: Email sent via Zoho to {}", to);
+            logger.info("UnifiedEmailService: Provider used = ZOHO for {}", to);
+            return true;
+        }
+
+        logger.error("UnifiedEmailService: Both Resend and Zoho failed for {}", to);
+        return false;
     }
 
     /**

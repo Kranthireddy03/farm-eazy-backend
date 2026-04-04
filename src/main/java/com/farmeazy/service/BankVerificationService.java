@@ -2,6 +2,7 @@ package com.farmeazy.service;
 
 import com.farmeazy.dto.BankVerificationRequestDto;
 import com.farmeazy.dto.BankVerificationResponseDto;
+import com.farmeazy.dto.SmsResponseDto;
 import com.farmeazy.entity.*;
 import com.farmeazy.entity.BankVerificationRequest.*;
 import com.farmeazy.entity.CommunicationLog.CommunicationPurpose;
@@ -9,6 +10,8 @@ import com.farmeazy.entity.CommunicationLog.CommunicationType;
 import com.farmeazy.entity.CommunicationLog.CommunicationStatus;
 import com.farmeazy.exception.ResourceNotFoundException;
 import com.farmeazy.repository.*;
+import jakarta.annotation.PostConstruct;
+import org.json.JSONObject;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -19,10 +22,15 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.math.BigDecimal;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.Duration;
 import java.util.Base64;
 import java.util.List;
 
@@ -88,6 +96,29 @@ public class BankVerificationService {
 
     @Value("${farmeazy.bank-verification.amount:1.00}")
     private BigDecimal verificationAmount;
+
+    @Value("${bank.verification.mode:simulate}")
+    private String verificationMode;
+
+    @Value("${razorpay.key.id:}")
+    private String razorpayKeyId;
+
+    @Value("${razorpay.key.secret:}")
+    private String razorpayKeySecret;
+
+    @PostConstruct
+    private void validateBankVerificationConfiguration() {
+        if (!"razorpay".equalsIgnoreCase(verificationMode)) {
+            logger.info("BANK_VERIFY_MODE_CONFIG: mode={}", verificationMode);
+            return;
+        }
+
+        if (razorpayKeyId == null || razorpayKeyId.isBlank() || razorpayKeySecret == null || razorpayKeySecret.isBlank()) {
+            throw new IllegalStateException("bank.verification.mode is razorpay but Razorpay credentials are missing");
+        }
+
+        logger.info("BANK_VERIFY_MODE_CONFIG: mode=razorpay, credentialsConfigured=true");
+    }
 
     // ========== VERIFICATION REQUEST ==========
 
@@ -233,15 +264,14 @@ public class BankVerificationService {
             request.setStatus(VerificationStatus.TRANSFER_PENDING);
             request.setTransferAttemptedAt(LocalDateTime.now());
             verificationRepository.save(request);
-            
-            // TODO: Integrate with Razorpay Payouts API
-            // For now, simulate transfer
-            // In production, this would call:
-            // - Razorpay Payouts API for bank transfers
-            // - UPI transfer API for UPI verification
-            
-            // Simulate successful transfer (replace with actual API call)
-            simulateTransfer(request);
+
+            if ("simulate".equalsIgnoreCase(verificationMode)) {
+                simulateTransfer(request);
+            } else if ("razorpay".equalsIgnoreCase(verificationMode)) {
+                initiateRazorpayTransfer(request, dto);
+            } else {
+                throw new IllegalStateException("Unsupported bank verification mode: " + verificationMode);
+            }
             
         } catch (Exception e) {
             logger.error("BANK_VERIFY_TRANSFER_FAILED: verificationNumber={}, error={}",
@@ -253,6 +283,237 @@ public class BankVerificationService {
             
             sendVerificationResultNotification(request, false);
         }
+    }
+
+    /**
+     * Initiates transfer in Razorpay Route mode.
+     * Flow: create linked account -> attach bank account -> create transfer.
+     */
+    private void initiateRazorpayTransfer(BankVerificationRequest request, BankVerificationRequestDto dto) {
+        if (razorpayKeyId == null || razorpayKeyId.isBlank() || razorpayKeySecret == null || razorpayKeySecret.isBlank()) {
+            throw new IllegalStateException("Razorpay credentials are not configured");
+        }
+        if (!VerificationType.BANK_ACCOUNT.name().equalsIgnoreCase(dto.getVerificationType())) {
+            throw new IllegalStateException("Razorpay Route verification currently supports BANK_ACCOUNT only");
+        }
+
+        try {
+            JSONObject linkedAccount = createRazorpayLinkedAccount(request);
+            String linkedAccountId = linkedAccount.optString("id", "");
+            if (linkedAccountId.isBlank()) {
+                throw new IllegalStateException("Failed to create Razorpay linked account");
+            }
+            auditLogger.info("BANK_VERIFY_LINKED_ACCOUNT_CREATED: verificationNumber={}, userId={}, linkedAccountId={}",
+                    request.getVerificationNumber(), request.getUser().getId(), linkedAccountId);
+
+            JSONObject bankAccount = createRazorpayLinkedBankAccount(request, dto, linkedAccountId);
+            String linkedBankAccountId = bankAccount.optString("id", "");
+            if (linkedBankAccountId.isBlank()) {
+                throw new IllegalStateException("Failed to attach bank account to linked account");
+            }
+            auditLogger.info("BANK_VERIFY_LINKED_BANK_ATTACHED: verificationNumber={}, linkedAccountId={}, linkedBankAccountId={}",
+                    request.getVerificationNumber(), linkedAccountId, linkedBankAccountId);
+
+            JSONObject transfer = createRazorpayTransfer(request, linkedAccountId);
+            String transferId = transfer.optString("id", "");
+            String transferStatus = transfer.optString("status", "pending");
+
+            request.setTransferReferenceId(transferId.isBlank() ? "TRF_BNK_" + System.currentTimeMillis() : transferId);
+            request.setTransferGateway("RazorpayRoute");
+            request.setTransferStatus(transferStatus);
+            request.setRazorpayContactId(linkedAccountId);
+            request.setRazorpayFundAccountId(linkedBankAccountId);
+                auditLogger.info("BANK_VERIFY_TRANSFER_CREATED: verificationNumber={}, linkedAccountId={}, transferId={}, status={}",
+                    request.getVerificationNumber(), linkedAccountId, request.getTransferReferenceId(), transferStatus);
+
+            String statusLower = transferStatus.toLowerCase();
+            if ("processed".equals(statusLower)) {
+                request.setStatus(VerificationStatus.TRANSFER_SUCCESS);
+                request.setTransferCompletedAt(LocalDateTime.now());
+                verificationRepository.save(request);
+
+                sendVerificationResultNotification(request, true);
+                logger.info("BANK_VERIFY_TRANSFER_SUCCESS: verificationNumber={}, transferId={}",
+                        request.getVerificationNumber(), request.getTransferReferenceId());
+                return;
+            }
+
+            if ("failed".equals(statusLower) || "rejected".equals(statusLower) || "cancelled".equals(statusLower)) {
+                request.setStatus(VerificationStatus.TRANSFER_FAILED);
+                request.setTransferCompletedAt(LocalDateTime.now());
+                request.setTransferErrorMessage(extractTransferFailureReason(transfer));
+                verificationRepository.save(request);
+
+                sendVerificationResultNotification(request, false);
+                logger.warn("BANK_VERIFY_TRANSFER_FAILED: verificationNumber={}, transferId={}, reason={}",
+                        request.getVerificationNumber(), request.getTransferReferenceId(), request.getTransferErrorMessage());
+                return;
+            }
+
+            request.setStatus(VerificationStatus.TRANSFER_PENDING);
+            verificationRepository.save(request);
+
+            logger.info("BANK_VERIFY_TRANSFER_INITIATED: verificationNumber={}, mode=razorpay-route, transferId={}, status={}",
+                    request.getVerificationNumber(), request.getTransferReferenceId(), transferStatus);
+        } catch (Exception ex) {
+            throw new IllegalStateException("Razorpay Route transfer initiation failed: " + ex.getMessage(), ex);
+        }
+    }
+
+    private JSONObject createRazorpayLinkedAccount(BankVerificationRequest request) throws Exception {
+        String phone = normalizePhoneForRazorpay(request.getUser().getPhone());
+        if (phone == null || phone.isBlank()) {
+            throw new IllegalStateException("Valid 10-digit phone is required for Razorpay linked account");
+        }
+
+        JSONObject payload = new JSONObject();
+        payload.put("name", request.getAccountHolderName() != null && !request.getAccountHolderName().isBlank()
+                ? request.getAccountHolderName()
+                : request.getUser().getUsername());
+        payload.put("email", request.getUser().getEmail());
+        payload.put("contact", phone);
+        payload.put("type", "route");
+        payload.put("reference_id", request.getVerificationNumber());
+
+        JSONObject notes = new JSONObject();
+        notes.put("verification_number", request.getVerificationNumber());
+        notes.put("user_id", String.valueOf(request.getUser().getId()));
+        payload.put("notes", notes);
+
+        return postToRazorpay("/v2/accounts", payload);
+    }
+
+    private JSONObject createRazorpayLinkedBankAccount(BankVerificationRequest request, BankVerificationRequestDto dto, String linkedAccountId) throws Exception {
+        if (dto.getAccountNumber() == null || dto.getAccountNumber().isBlank() || dto.getIfscCode() == null || dto.getIfscCode().isBlank()) {
+            throw new IllegalStateException("Account number and IFSC are required for bank verification transfer");
+        }
+
+        JSONObject payload = new JSONObject();
+        JSONObject bankAccount = new JSONObject();
+        bankAccount.put("name", dto.getAccountHolderName());
+        bankAccount.put("account_number", dto.getAccountNumber());
+        bankAccount.put("ifsc", dto.getIfscCode());
+        payload.put("bank_account", bankAccount);
+
+        return postToRazorpay("/v2/accounts/" + linkedAccountId + "/bank_accounts", payload);
+    }
+
+    private JSONObject createRazorpayTransfer(BankVerificationRequest request, String linkedAccountId) throws Exception {
+        JSONObject payload = new JSONObject();
+        payload.put("account", linkedAccountId);
+        payload.put("amount", request.getTransferAmount().multiply(new BigDecimal("100")).intValue());
+        payload.put("currency", "INR");
+
+        JSONObject notes = new JSONObject();
+        notes.put("purpose", "bank_verification");
+        notes.put("verification_number", request.getVerificationNumber());
+        notes.put("user_id", String.valueOf(request.getUser().getId()));
+        payload.put("notes", notes);
+
+        return postToRazorpay("/v1/transfers", payload);
+    }
+
+    private JSONObject postToRazorpay(String path, JSONObject payload) throws Exception {
+        String authRaw = razorpayKeyId + ":" + razorpayKeySecret;
+        String auth = "Basic " + Base64.getEncoder().encodeToString(authRaw.getBytes(StandardCharsets.UTF_8));
+
+        HttpRequest request = HttpRequest.newBuilder()
+                .uri(URI.create("https://api.razorpay.com" + path))
+                .timeout(Duration.ofSeconds(30))
+                .header("Authorization", auth)
+                .header("Content-Type", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofString(payload.toString()))
+                .build();
+
+        HttpResponse<String> response = HttpClient.newHttpClient().send(request, HttpResponse.BodyHandlers.ofString());
+        String body = response.body() == null ? "{}" : response.body();
+        JSONObject json = new JSONObject(body);
+
+        if (response.statusCode() >= 200 && response.statusCode() < 300) {
+            return json;
+        }
+
+        String errorMessage = "Razorpay API call failed with status " + response.statusCode();
+        JSONObject error = json.optJSONObject("error");
+        if (error != null) {
+            errorMessage = error.optString("description", errorMessage);
+        }
+
+        throw new IllegalStateException(errorMessage);
+    }
+
+    private String extractTransferFailureReason(JSONObject transfer) {
+        JSONObject statusDetails = transfer.optJSONObject("status_details");
+        if (statusDetails != null) {
+            String reason = statusDetails.optString("description", "");
+            if (reason != null && !reason.isBlank()) {
+                return reason;
+            }
+        }
+        String status = transfer.optString("status", "failed");
+        return "Transfer status: " + status;
+    }
+
+    private String normalizePhoneForRazorpay(String phone) {
+        if (phone == null || phone.isBlank()) {
+            return null;
+        }
+        String digits = phone.replaceAll("\\D", "");
+        if (digits.length() < 10) {
+            return null;
+        }
+        return digits.substring(digits.length() - 10);
+    }
+
+    @Transactional
+    public void handleTransferProcessedWebhook(String transferReferenceId) {
+        BankVerificationRequest request = verificationRepository.findByTransferReferenceId(transferReferenceId)
+                .orElse(null);
+        if (request == null) {
+            logger.warn("BANK_VERIFY_WEBHOOK_TRANSFER_NOT_FOUND: transferReferenceId={}", transferReferenceId);
+            return;
+        }
+
+        if (request.getStatus() == VerificationStatus.VERIFIED || request.getStatus() == VerificationStatus.TRANSFER_SUCCESS) {
+            logger.info("BANK_VERIFY_WEBHOOK_IDEMPOTENT_SUCCESS: verificationNumber={}, transferReferenceId={}",
+                    request.getVerificationNumber(), transferReferenceId);
+            return;
+        }
+
+        request.setTransferStatus("processed");
+        request.setStatus(VerificationStatus.TRANSFER_SUCCESS);
+        request.setTransferCompletedAt(LocalDateTime.now());
+        verificationRepository.save(request);
+
+        sendVerificationResultNotification(request, true);
+        logger.info("BANK_VERIFY_WEBHOOK_TRANSFER_SUCCESS: verificationNumber={}, transferReferenceId={}",
+                request.getVerificationNumber(), transferReferenceId);
+    }
+
+    @Transactional
+    public void handleTransferFailedWebhook(String transferReferenceId, String failureReason) {
+        BankVerificationRequest request = verificationRepository.findByTransferReferenceId(transferReferenceId)
+                .orElse(null);
+        if (request == null) {
+            logger.warn("BANK_VERIFY_WEBHOOK_TRANSFER_NOT_FOUND: transferReferenceId={}", transferReferenceId);
+            return;
+        }
+
+        if (request.getStatus() == VerificationStatus.TRANSFER_FAILED) {
+            logger.info("BANK_VERIFY_WEBHOOK_IDEMPOTENT_FAILURE: verificationNumber={}, transferReferenceId={}",
+                    request.getVerificationNumber(), transferReferenceId);
+            return;
+        }
+
+        request.setTransferStatus("failed");
+        request.setStatus(VerificationStatus.TRANSFER_FAILED);
+        request.setTransferErrorMessage(failureReason != null && !failureReason.isBlank() ? failureReason : "Transfer failed");
+        request.setTransferCompletedAt(LocalDateTime.now());
+        verificationRepository.save(request);
+
+        sendVerificationResultNotification(request, false);
+        logger.warn("BANK_VERIFY_WEBHOOK_TRANSFER_FAILED: verificationNumber={}, transferReferenceId={}, reason={}",
+                request.getVerificationNumber(), transferReferenceId, request.getTransferErrorMessage());
     }
 
     /**
@@ -368,40 +629,69 @@ public class BankVerificationService {
      * Sends verification result notification to user.
      */
     private void sendVerificationResultNotification(BankVerificationRequest request, boolean success) {
+        boolean emailSent = false;
+        boolean smsSent = false;
+
+        String subject = success
+                ? "Bank Verification Successful - " + request.getVerificationNumber()
+                : "Bank Verification Failed - " + request.getVerificationNumber();
+
+        String body = buildVerificationEmailBody(request, success);
+
         try {
-            String subject = success 
-                    ? "Bank Verification Successful - " + request.getVerificationNumber()
-                    : "Bank Verification Failed - " + request.getVerificationNumber();
-            
-            String body = buildVerificationEmailBody(request, success);
-            
             emailService.sendEmail(request.getUser().getEmail(), subject, body);
-            
+            emailSent = true;
+        } catch (Exception emailEx) {
+            logger.error("BANK_VERIFY_EMAIL_FAILED: verificationNumber={}, error={}",
+                    request.getVerificationNumber(), emailEx.getMessage());
+        }
+
+        // SMS should not depend on email success. Trigger with the configured
+        // msg91.template.bank.details.alert template for bank verification updates.
+        try {
+            String userPhone = request.getUser().getPhone();
+            if (userPhone != null && !userPhone.isBlank()) {
+                String smsAction = resolveBankDetailsSmsAction(request, success);
+                SmsResponseDto smsResponse = smsService.sendBankDetailsAlert(userPhone, smsAction);
+                smsSent = smsResponse != null && smsResponse.isSuccess();
+
+                if (!smsSent) {
+                    logger.warn("BANK_VERIFY_SMS_NOT_SENT: verificationNumber={}, reason={}",
+                            request.getVerificationNumber(),
+                            smsResponse != null ? smsResponse.getMessage() : "No response from SMS service");
+                }
+            } else {
+                logger.warn("BANK_VERIFY_SMS_SKIPPED_NO_PHONE: verificationNumber={}",
+                        request.getVerificationNumber());
+            }
+        } catch (Exception smsEx) {
+            logger.error("BANK_VERIFY_SMS_FAILED: verificationNumber={}, error={}",
+                    request.getVerificationNumber(), smsEx.getMessage());
+        }
+
+        if (emailSent || smsSent) {
             request.setUserNotified(true);
-            request.setNotificationType(NotificationType.EMAIL);
+            request.setNotificationType(emailSent ? NotificationType.EMAIL : NotificationType.SMS);
             request.setNotificationSentAt(LocalDateTime.now());
             verificationRepository.save(request);
-            
-            logCommunication(request, success);
-            
-            // Send Bank Verification SMS
-            try {
-                String userPhone = request.getUser().getPhone();
-                if (userPhone != null && !userPhone.isBlank()) {
-                    smsService.sendBankDetailsAlert(
-                        userPhone,
-                        success ? "VERIFICATION_SUCCESS" : "VERIFICATION_FAILED"
-                    );
-                }
-            } catch (Exception smsEx) {
-                logger.error("BANK_VERIFY_SMS_FAILED: verificationNumber={}, error={}", 
-                        request.getVerificationNumber(), smsEx.getMessage());
-            }
 
-        } catch (Exception e) {
-            logger.error("BANK_VERIFY_NOTIFICATION_FAILED: verificationNumber={}, error={}", 
-                    request.getVerificationNumber(), e.getMessage());
+            logCommunication(request, success);
+        } else {
+            logger.error("BANK_VERIFY_NOTIFICATION_FAILED: verificationNumber={}, error=No notification channel succeeded",
+                    request.getVerificationNumber());
         }
+    }
+
+    private String resolveBankDetailsSmsAction(BankVerificationRequest request, boolean success) {
+        if (!success) {
+            return "verification failed";
+        }
+
+        boolean hasPriorRequests = verificationRepository.existsByUserIdAndIdNot(
+                request.getUser().getId(),
+                request.getId());
+
+        return hasPriorRequests ? "updated" : "added";
     }
 
     private String buildVerificationEmailBody(BankVerificationRequest request, boolean success) {
@@ -489,16 +779,27 @@ public class BankVerificationService {
             BankVerificationLimit limit) {
         
         BankVerificationResponseDto response = new BankVerificationResponseDto();
-        response.setSuccess(true);
+        response.setSuccess(request.getStatus() != VerificationStatus.TRANSFER_FAILED);
         response.setVerificationNumber(request.getVerificationNumber());
         response.setStatus(request.getStatus().name());
         response.setTransferAmount(request.getTransferAmount());
-        response.setCanVerify(true);
+        response.setTransferReferenceId(request.getTransferReferenceId());
+        response.setCanVerify(limit.canVerify());
         response.setRemainingToday(limit.getRemainingToday());
         response.setRemainingThisMonth(limit.getRemainingThisMonth());
         response.setRemainingTotal(limit.getRemainingTotal());
-        response.setMessage("Verification initiated. ₹" + verificationAmount + 
-                " will be transferred to your account within 24 hours.");
+
+        if (request.getStatus() == VerificationStatus.TRANSFER_FAILED) {
+            String error = request.getTransferErrorMessage() != null && !request.getTransferErrorMessage().isBlank()
+                    ? request.getTransferErrorMessage()
+                    : "Transfer could not be initiated. Please try again.";
+            response.setMessage("Verification initiation failed: " + error);
+        } else if (request.getStatus() == VerificationStatus.TRANSFER_SUCCESS) {
+            response.setMessage("₹" + verificationAmount + " transfer is successful. Please confirm verification.");
+        } else {
+            response.setMessage("Verification initiated. ₹" + verificationAmount +
+                    " transfer is pending and will be processed shortly.");
+        }
         return response;
     }
 

@@ -108,6 +108,7 @@ public class AdminTicketingDashboardController {
             Authentication authentication,
             @RequestParam(defaultValue = "0") int page,
             @RequestParam(defaultValue = "10") int size,
+            @RequestParam(defaultValue = "all") String source,
             @RequestParam(required = false) String status,
             @RequestParam(required = false) String category,
             @RequestParam(required = false) String priority,
@@ -115,7 +116,7 @@ public class AdminTicketingDashboardController {
             @RequestParam(required = false) Boolean archived,
             @RequestParam(required = false) String search
     ) {
-        return ResponseEntity.ok(supportTicketService.getAllTicketsFiltered(page, size, status, category, priority, important, archived, search));
+        return ResponseEntity.ok(supportTicketService.getAllTicketsFiltered(page, size, status, category, priority, important, archived, search, source));
     }
 
     // Update ticket (reply, resolve, cancel, assign)
@@ -151,9 +152,15 @@ public class AdminTicketingDashboardController {
         if (userOpt.isEmpty()) {
             return ResponseEntity.notFound().build();
         }
-        // Assignment logic (update ticket entity)
-        // ...existing code...
-        return ResponseEntity.ok("Ticket assigned to: " + userEmail);
+        SupportTicketResponseDto updated = supportTicketService.assignTicket(displayId, userEmail, requesterEmail);
+        return ResponseEntity.ok(updated);
+    }
+
+    @GetMapping("/stats/chat")
+    @PreAuthorize("hasAnyRole('ADMIN','SUPERADMIN')")
+    @Operation(summary = "Get chat stats", description = "Get support chat ticket and assignment statistics for admin dashboard")
+    public ResponseEntity<?> getChatStats() {
+        return ResponseEntity.ok(supportTicketService.getAdminChatStats());
     }
 
     @PostMapping("/{displayId}/important")

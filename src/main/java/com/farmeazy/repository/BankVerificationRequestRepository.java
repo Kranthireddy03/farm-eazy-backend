@@ -28,6 +28,11 @@ public interface BankVerificationRequestRepository extends JpaRepository<BankVer
      */
     Optional<BankVerificationRequest> findByVerificationNumber(String verificationNumber);
 
+       /**
+        * Find by transfer reference ID (gateway transfer ID).
+        */
+       Optional<BankVerificationRequest> findByTransferReferenceId(String transferReferenceId);
+
     /**
      * Find requests by user ID.
      */
@@ -69,4 +74,14 @@ public interface BankVerificationRequestRepository extends JpaRepository<BankVer
      * Find latest verification for user.
      */
     Optional<BankVerificationRequest> findTopByUserIdOrderByCreatedAtDesc(Long userId);
+
+       /**
+        * Check if user has at least one verification with a specific status.
+        */
+       boolean existsByUserIdAndStatus(Long userId, VerificationStatus status);
+
+       /**
+        * Check if user has prior verification records excluding the current request.
+        */
+       boolean existsByUserIdAndIdNot(Long userId, Long id);
 }

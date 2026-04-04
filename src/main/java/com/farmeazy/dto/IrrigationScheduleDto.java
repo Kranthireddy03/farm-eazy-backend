@@ -141,6 +141,12 @@ public class IrrigationScheduleDto {
      */
     @NotNull(message = "Crop ID is required")
     private Long cropId;
+
+    /**
+     * CROP NAME - DISPLAY FIELD FOR UI
+     * Optional in requests, typically returned in responses
+     */
+    private String cropName;
     
     /**
      * FARM ID - WHICH FARM THIS IRRIGATION BELONGS TO
@@ -160,6 +166,15 @@ public class IrrigationScheduleDto {
      * Example: 1
      */
     private Long farmUserId;
+
+        // Smart Irrigation System fields
+        private LocalDate nextIrrigationDate;
+        private LocalDate lastIrrigationDate;
+        private Double recommendedWaterQuantityMm;
+        private Integer intervalDays;
+        private Boolean reminderEnabled;
+        private Integer daysUntilIrrigation;
+        private String urgencyStatus;
     
     public IrrigationScheduleDto() {}
     
@@ -194,8 +209,26 @@ public class IrrigationScheduleDto {
     public void setActualWaterUsed(Double actualWaterUsed) { this.actualWaterUsed = actualWaterUsed; }
     public Long getCropId() { return cropId; }
     public void setCropId(Long cropId) { this.cropId = cropId; }
+    public String getCropName() { return cropName; }
+    public void setCropName(String cropName) { this.cropName = cropName; }
     public Long getFarmId() { return farmId; }
     public void setFarmId(Long farmId) { this.farmId = farmId; }
     public Long getFarmUserId() { return farmUserId; }
     public void setFarmUserId(Long farmUserId) { this.farmUserId = farmUserId; }
+
+    // Smart Irrigation System getters/setters
+    public LocalDate getNextIrrigationDate() { return nextIrrigationDate; }
+    public void setNextIrrigationDate(LocalDate nextIrrigationDate) { this.nextIrrigationDate = nextIrrigationDate; }
+    public LocalDate getLastIrrigationDate() { return lastIrrigationDate; }
+    public void setLastIrrigationDate(LocalDate lastIrrigationDate) { this.lastIrrigationDate = lastIrrigationDate; }
+    public Double getRecommendedWaterQuantityMm() { return recommendedWaterQuantityMm; }
+    public void setRecommendedWaterQuantityMm(Double recommendedWaterQuantityMm) { this.recommendedWaterQuantityMm = recommendedWaterQuantityMm; }
+    public Integer getIntervalDays() { return intervalDays; }
+    public void setIntervalDays(Integer intervalDays) { this.intervalDays = intervalDays; }
+    public Boolean getReminderEnabled() { return reminderEnabled; }
+    public void setReminderEnabled(Boolean reminderEnabled) { this.reminderEnabled = reminderEnabled; }
+    public Integer getDaysUntilIrrigation() { return daysUntilIrrigation; }
+    public void setDaysUntilIrrigation(Integer daysUntilIrrigation) { this.daysUntilIrrigation = daysUntilIrrigation; }
+    public String getUrgencyStatus() { return urgencyStatus; }
+    public void setUrgencyStatus(String urgencyStatus) { this.urgencyStatus = urgencyStatus; }
 }

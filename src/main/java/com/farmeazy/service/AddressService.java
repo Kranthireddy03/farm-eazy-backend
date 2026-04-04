@@ -6,6 +6,7 @@ import com.farmeazy.entity.User;
 import com.farmeazy.exception.ResourceNotFoundException;
 import com.farmeazy.exception.UnauthorizedException;
 import com.farmeazy.repository.AddressRepository;
+import com.farmeazy.repository.UserRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -23,6 +24,30 @@ public class AddressService {
 
     @Autowired
     private AddressRepository addressRepository;
+
+    @Autowired
+    private UserRepository userRepository;
+
+    private void syncUserProfileLocationFromAddress(User user, Address address) {
+        if (user == null || address == null) {
+            return;
+        }
+
+        user.setAddress(address.getAddressLine1());
+        user.setCity(address.getCity());
+        user.setState(address.getState());
+        user.setPinCode(address.getPostalCode());
+        userRepository.save(user);
+    }
+
+    private void syncUserProfileLocationFromDefaultAddress(User user) {
+        if (user == null) {
+            return;
+        }
+
+        addressRepository.findByUserAndIsDefaultTrue(user)
+                .ifPresent(address -> syncUserProfileLocationFromAddress(user, address));
+    }
 
     /**
      * Create new address for user
@@ -48,6 +73,9 @@ public class AddressService {
         }
 
         Address saved = addressRepository.save(address);
+        if (Boolean.TRUE.equals(saved.getDefault())) {
+            syncUserProfileLocationFromAddress(user, saved);
+        }
         log.info("Address created for user {}: {}", user.getId(), saved.getId());
         return convertToDto(saved);
     }
@@ -90,6 +118,9 @@ public class AddressService {
         address.setDefault(addressDto.getIsDefault());
 
         Address updated = addressRepository.save(address);
+        if (Boolean.TRUE.equals(updated.getDefault())) {
+            syncUserProfileLocationFromAddress(user, updated);
+        }
         log.info("Address updated for user {}: {}", user.getId(), addressId);
         return convertToDto(updated);
     }
@@ -102,6 +133,7 @@ public class AddressService {
                 .orElseThrow(() -> new ResourceNotFoundException("Address not found"));
 
         addressRepository.delete(address);
+        syncUserProfileLocationFromDefaultAddress(user);
         log.info("Address deleted for user {}: {}", user.getId(), addressId);
     }
 
@@ -118,7 +150,8 @@ public class AddressService {
         Address address = addressRepository.findByIdAndUser(addressId, user)
                 .orElseThrow(() -> new ResourceNotFoundException("Address not found"));
         address.setDefault(true);
-        addressRepository.save(address);
+        Address saved = addressRepository.save(address);
+        syncUserProfileLocationFromAddress(user, saved);
         
         log.info("Default address set for user {}: {}", user.getId(), addressId);
     }

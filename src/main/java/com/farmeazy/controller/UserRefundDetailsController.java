@@ -1,6 +1,8 @@
 package com.farmeazy.controller;
 
 import com.farmeazy.dto.UserRefundDetailsDto;
+import com.farmeazy.dto.OtpResponseDto;
+import com.farmeazy.dto.SensitiveActionOtpRequestDto;
 import com.farmeazy.entity.User;
 import com.farmeazy.exception.ResourceNotFoundException;
 import com.farmeazy.repository.UserRepository;
@@ -41,8 +43,18 @@ public class UserRefundDetailsController {
             @Valid @RequestBody UserRefundDetailsDto dto) {
         
         User user = getCurrentUser(authentication);
-        UserRefundDetailsDto saved = refundDetailsService.saveOrUpdate(user, dto);
+        UserRefundDetailsDto saved = refundDetailsService.saveOrUpdateWithOtp(user, dto, dto.getOtpCode());
         return ResponseEntity.ok(saved);
+    }
+
+    @PostMapping("/reauth/send")
+    @Operation(summary = "Send OTP for sensitive refund-details action", description = "Send OTP before update/delete refund details")
+    public ResponseEntity<OtpResponseDto> sendSensitiveActionOtp(
+            Authentication authentication,
+            @Valid @RequestBody SensitiveActionOtpRequestDto requestDto) {
+        User user = getCurrentUser(authentication);
+        OtpResponseDto response = refundDetailsService.sendSensitiveActionOtp(user, requestDto.getAction());
+        return ResponseEntity.ok(response);
     }
 
     /**
@@ -84,9 +96,11 @@ public class UserRefundDetailsController {
      */
     @DeleteMapping("/delete")
     @Operation(summary = "Delete refund details", description = "Delete saved bank/UPI details")
-    public ResponseEntity<?> deleteRefundDetails(Authentication authentication) {
+    public ResponseEntity<?> deleteRefundDetails(
+            Authentication authentication,
+            @RequestParam String otpCode) {
         User user = getCurrentUser(authentication);
-        refundDetailsService.deleteByUser(user);
+        refundDetailsService.deleteByUserWithOtp(user, otpCode);
         
         return ResponseEntity.ok(Map.of(
             "success", true,

@@ -168,6 +168,72 @@ public class IrrigationSchedule {
      */
     @Column(nullable = false)
     private LocalDateTime updatedAt;
+        /**
+         * USER ID - QUICK LOOKUP FOR USER ISOLATION
+         * Denormalized for performance, avoids farm→user join
+         */
+        @Column
+        private Long userId;
+
+        /**
+         * NEXT IRRIGATION DATE - SYSTEM-CALCULATED RECOMMENDATION
+         * Used for Smart Irrigation System
+         */
+        @Column
+        private LocalDate nextIrrigationDate;
+
+        /**
+         * LAST IRRIGATION DATE - PREVIOUS IRRIGATION EXECUTION
+         * Tracks when crop was last irrigated
+         */
+        @Column
+        private LocalDate lastIrrigationDate;
+
+        /**
+         * LAST IRRIGATION QUANTITY - ACTUAL WATER USED
+         */
+        @Column
+        private Double lastIrrigationQuantityMm;
+
+        /**
+         * RECOMMENDED WATER QUANTITY - FROM IRRIGATION RULE
+         * Amount recommended by smart system (in mm)
+         */
+        @Column
+        private Double recommendedWaterQuantityMm;
+
+        /**
+         * INTERVAL DAYS - DAYS BETWEEN IRRIGATIONS
+         * From CropIrrigationRule
+         */
+        @Column
+        private Integer intervalDays;
+
+        /**
+         * REMINDER ENABLED - USER PREFERENCE FOR NOTIFICATIONS
+         */
+        @Column
+        private Boolean reminderEnabled = true;
+
+        /**
+         * REMINDER DAYS BEFORE - WHEN TO SEND REMINDER
+         * Default 1 day before next irrigation
+         */
+        @Column
+        private Integer reminderDaysBefore = 1;
+
+        /**
+         * LAST REMINDER SENT - PREVENTS DUPLICATE REMINDERS
+         */
+        @Column
+        private LocalDate lastReminderSentDate;
+
+        /**
+         * ACTIVE - SOFT DELETE FLAG
+         * false = archived crop, don't show to user
+         */
+        @Column
+        private Boolean active = true;
     
     public IrrigationSchedule() {}
     
@@ -211,6 +277,28 @@ public class IrrigationSchedule {
     public void setCreatedAt(LocalDateTime createdAt) { this.createdAt = createdAt; }
     public LocalDateTime getUpdatedAt() { return updatedAt; }
     public void setUpdatedAt(LocalDateTime updatedAt) { this.updatedAt = updatedAt; }
+
+    // Smart Irrigation System getters/setters
+    public Long getUserId() { return userId; }
+    public void setUserId(Long userId) { this.userId = userId; }
+    public LocalDate getNextIrrigationDate() { return nextIrrigationDate; }
+    public void setNextIrrigationDate(LocalDate nextIrrigationDate) { this.nextIrrigationDate = nextIrrigationDate; }
+    public LocalDate getLastIrrigationDate() { return lastIrrigationDate; }
+    public void setLastIrrigationDate(LocalDate lastIrrigationDate) { this.lastIrrigationDate = lastIrrigationDate; }
+    public Double getLastIrrigationQuantityMm() { return lastIrrigationQuantityMm; }
+    public void setLastIrrigationQuantityMm(Double lastIrrigationQuantityMm) { this.lastIrrigationQuantityMm = lastIrrigationQuantityMm; }
+    public Double getRecommendedWaterQuantityMm() { return recommendedWaterQuantityMm; }
+    public void setRecommendedWaterQuantityMm(Double recommendedWaterQuantityMm) { this.recommendedWaterQuantityMm = recommendedWaterQuantityMm; }
+    public Integer getIntervalDays() { return intervalDays; }
+    public void setIntervalDays(Integer intervalDays) { this.intervalDays = intervalDays; }
+    public Boolean getReminderEnabled() { return reminderEnabled; }
+    public void setReminderEnabled(Boolean reminderEnabled) { this.reminderEnabled = reminderEnabled; }
+    public Integer getReminderDaysBefore() { return reminderDaysBefore; }
+    public void setReminderDaysBefore(Integer reminderDaysBefore) { this.reminderDaysBefore = reminderDaysBefore; }
+    public LocalDate getLastReminderSentDate() { return lastReminderSentDate; }
+    public void setLastReminderSentDate(LocalDate lastReminderSentDate) { this.lastReminderSentDate = lastReminderSentDate; }
+    public Boolean getActive() { return active; }
+    public void setActive(Boolean active) { this.active = active; }
     
     @PrePersist
     protected void onCreate() {

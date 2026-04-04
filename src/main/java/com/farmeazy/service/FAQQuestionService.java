@@ -5,6 +5,8 @@ import com.farmeazy.entity.User;
 import com.farmeazy.entity.FAQCommunication;
 import com.farmeazy.repository.FAQCommunicationRepository;
 import com.farmeazy.repository.UserRepository;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -15,9 +17,11 @@ import com.farmeazy.entity.FAQCommunication;
 import java.time.OffsetDateTime;
 import java.time.Duration;
 import java.util.List;
+import java.util.Locale;
 
 @Service
 public class FAQQuestionService {
+    private static final Logger logger = LoggerFactory.getLogger(FAQQuestionService.class);
     private static final Duration FAQ_AUTO_RESOLVE_AFTER = Duration.ofDays(3);
 
     @Autowired
@@ -47,8 +51,114 @@ public class FAQQuestionService {
     @org.springframework.beans.factory.annotation.Value("${farmeazy.app.base-url:${farmeazy.app.public-base-url:${FARMEAZY_PUBLIC_BASE_URL:https://www.farm-easy.com}}}")
     private String fallbackFrontendBaseUrl;
 
+    private String normalizeFaqSource(String source, boolean hasUserContext) {
+        if (hasUserContext) {
+            return "FAQ_APP";
+        }
+        if (source == null || source.isBlank()) {
+            return "FAQ_USER_PUBLIC_PAGE";
+        }
+        String normalized = source.trim().toUpperCase(Locale.ROOT);
+        if (normalized.contains("ADMIN") || normalized.contains("SUPPORT")) {
+            return "FAQ_ADMIN_PUBLIC_PAGE";
+        }
+        if (normalized.contains("USER")) {
+            return "FAQ_USER_PUBLIC_PAGE";
+        }
+        if (normalized.contains("PUBLIC")) {
+            return "FAQ_USER_PUBLIC_PAGE";
+        }
+        return normalized;
+    }
+
+    private String stripVisibilityMetadata(String source) {
+        if (source == null || source.isBlank()) {
+            return source;
+        }
+        int idx = source.indexOf("|VIS:");
+        if (idx < 0) {
+            return source;
+        }
+        return source.substring(0, idx);
+    }
+
+    private String extractVisibilityTarget(String source) {
+        if (source == null || source.isBlank()) {
+            return "USER";
+        }
+        int idx = source.indexOf("|VIS:");
+        if (idx < 0) {
+            return "USER";
+        }
+        String value = source.substring(idx + 5).trim().toUpperCase(Locale.ROOT);
+        if ("ADMIN".equals(value) || "BOTH".equals(value) || "USER".equals(value)) {
+            return value;
+        }
+        return "USER";
+    }
+
+    private String applyVisibilityTarget(String source, String visibilityTarget) {
+        String origin = stripVisibilityMetadata(source);
+        String normalized = visibilityTarget == null ? "USER" : visibilityTarget.trim().toUpperCase(Locale.ROOT);
+        if (!"ADMIN".equals(normalized) && !"BOTH".equals(normalized) && !"USER".equals(normalized)) {
+            normalized = "USER";
+        }
+        return (origin == null ? "" : origin) + "|VIS:" + normalized;
+    }
+
+    private boolean matchesVisibilityTarget(String source, String sourceFilter) {
+        if (sourceFilter == null || sourceFilter.isBlank() || "all".equalsIgnoreCase(sourceFilter)) {
+            return true;
+        }
+
+        String visibility = extractVisibilityTarget(source);
+        String normalizedFilter = sourceFilter.trim().toUpperCase(Locale.ROOT);
+
+        if (normalizedFilter.contains("ADMIN") || normalizedFilter.contains("SUPPORT")) {
+            return "ADMIN".equals(visibility) || "BOTH".equals(visibility);
+        }
+        if (normalizedFilter.contains("USER") || normalizedFilter.contains("PUBLIC")) {
+            return "USER".equals(visibility) || "BOTH".equals(visibility);
+        }
+        return true;
+    }
+
+    private boolean isPublicFaq(FAQQuestion question) {
+        return question != null && question.isAddedToFAQ();
+    }
+
+    private boolean matchesSourceFilter(String source, String sourceFilter) {
+        if (sourceFilter == null || sourceFilter.isBlank() || "all".equalsIgnoreCase(sourceFilter)) {
+            return true;
+        }
+        String normalizedSource = stripVisibilityMetadata(source);
+        normalizedSource = normalizedSource == null ? "" : normalizedSource.trim().toUpperCase(Locale.ROOT);
+        String normalizedFilter = sourceFilter.trim().toUpperCase(Locale.ROOT);
+
+        if (normalizedFilter.contains("ADMIN") || normalizedFilter.contains("SUPPORT")) {
+            return normalizedSource.contains("ADMIN") || normalizedSource.contains("SUPPORT");
+        }
+        if (normalizedFilter.contains("USER")) {
+            return normalizedSource.contains("USER") || normalizedSource.contains("APP") || normalizedSource.contains("PUBLIC");
+        }
+        if (normalizedFilter.contains("PUBLIC")) {
+            return normalizedSource.contains("PUBLIC");
+        }
+        return normalizedSource.contains(normalizedFilter);
+    }
+
     public List<FAQQuestionDto> getAllApprovedFaqs() {
-        List<FAQQuestion> faqs = faqQuestionRepository.findByAddedToFAQTrue();
+        return getAllApprovedFaqs(null);
+    }
+
+    public List<FAQQuestionDto> getAllApprovedFaqs(String sourceFilter) {
+        List<FAQQuestion> faqs = faqQuestionRepository.findByAddedToFAQTrue()
+                .stream()
+                .filter(this::isPublicFaq)
+                .filter(item -> matchesSourceFilter(item.getSource(), sourceFilter))
+            .filter(item -> matchesVisibilityTarget(item.getSource(), sourceFilter))
+                .toList();
+        logger.debug("Loaded {} approved FAQ entries after source filtering source={}", faqs.size(), sourceFilter);
         return faqs.stream().map(this::toDto).toList();
     }
 
@@ -76,6 +186,8 @@ public class FAQQuestionService {
         dto.setAnsweredAt(entity.getAnsweredAt());
         dto.setSubmittedAt(entity.getSubmittedAt());
         dto.setSource(entity.getSource());
+        dto.setSource(stripVisibilityMetadata(entity.getSource()));
+        dto.setVisibilityTarget(extractVisibilityTarget(entity.getSource()));
         dto.setNotificationRead(entity.isNotificationRead());
         dto.setWorkflowStatus(calculateWorkflowStatus(entity));
         return dto;
@@ -135,7 +247,7 @@ public class FAQQuestionService {
     private String normalizeUrl(String url, String defaultUrl) {
         String out = (url != null && !url.isBlank()) ? url : defaultUrl;
         if (out == null || out.isBlank()) {
-            out = "https://www.farm-easy.com";
+            out = "https://www.farm-eazy.com";
         }
         return out.replaceAll("/$", "");
     }
@@ -287,8 +399,16 @@ public class FAQQuestionService {
     }
 
     public FAQQuestionDto getPublicFaqById(Long id) {
+        return getPublicFaqById(id, null);
+    }
+
+    public FAQQuestionDto getPublicFaqById(Long id, String sourceFilter) {
         FAQQuestion entity = faqQuestionRepository.findById(id)
                 .orElseThrow(() -> new com.farmeazy.exception.ResourceNotFoundException("FAQ question not found: " + id));
+        if (!isPublicFaq(entity) || !matchesSourceFilter(entity.getSource(), sourceFilter) || !matchesVisibilityTarget(entity.getSource(), sourceFilter)) {
+            logger.warn("Blocked public FAQ access for question id={} source={} requestedSource={}", id, entity.getSource(), sourceFilter);
+            throw new com.farmeazy.exception.ResourceNotFoundException("FAQ question not found: " + id);
+        }
 
         FAQQuestionDto dto = toDto(entity);
         dto.setCommunications(faqCommunicationRepository.findByFaqQuestionIdOrderBySentAtAsc(id)
@@ -309,6 +429,7 @@ public class FAQQuestionService {
     }
 
     public List<FAQQuestionDto> getAllQuestionsForAdmin() {
+        logger.debug("Loading full FAQ list for admin workflow");
         return faqQuestionRepository.findAll()
                 .stream()
                 .map(this::toDto)
@@ -317,6 +438,7 @@ public class FAQQuestionService {
 
     @Transactional
     public FAQQuestionDto submitFaqFeedback(Long id, Boolean satisfied, String feedback, String senderEmail) {
+        logger.info("FAQ feedback received for id={} satisfied={} sender={}", id, satisfied, senderEmail);
         FAQQuestion entity = faqQuestionRepository.findById(id)
                 .orElseThrow(() -> new com.farmeazy.exception.ResourceNotFoundException("FAQ question not found: " + id));
 
@@ -361,7 +483,7 @@ public class FAQQuestionService {
             );
             httpEmailService.sendEmail("support@farm-eazy.com", adminSubject, adminBody);
         } catch (Exception e) {
-            System.err.println("Failed to send FAQ feedback notification: " + e.getMessage());
+            logger.warn("Failed to send FAQ feedback notification for id={}: {}", id, e.getMessage());
         }
 
         // Notify SSE subscribers (admin UI) about feedback event
@@ -382,6 +504,7 @@ public class FAQQuestionService {
 
     @Transactional
     public void processQuestion(FAQQuestionDto dto) {
+        logger.info("Processing FAQ submission for email={} userId={}", dto.getEmail(), dto.getUserId());
         String rawQuestion = dto.getQuestion() != null ? dto.getQuestion().trim() : "";
         String questionTitle = extractQuestionTitle(rawQuestion);
         String questionDetails = (dto.getDetails() != null && !dto.getDetails().isBlank())
@@ -394,15 +517,10 @@ public class FAQQuestionService {
         entity.setUserId(dto.getUserId());
         entity.setSubmittedAt(OffsetDateTime.now());
 
-        if (dto.getUserId() != null && !dto.getUserId().isBlank()) {
-            entity.setSource("FAQ_APP");
-        } else if (dto.getSource() != null && !dto.getSource().isBlank()) {
-            entity.setSource(dto.getSource());
-        } else {
-            entity.setSource("FAQ_PUBLIC_PAGE");
-        }
+        entity.setSource(normalizeFaqSource(dto.getSource(), dto.getUserId() != null && !dto.getUserId().isBlank()));
 
         faqQuestionRepository.save(entity);
+        logger.info("FAQ question persisted id={} source={}", entity.getId(), entity.getSource());
 
         if (questionDetails != null && !questionDetails.isBlank()) {
             FAQCommunication detailsComm = new FAQCommunication();
@@ -439,7 +557,7 @@ public class FAQQuestionService {
             try {
                 httpEmailService.sendEmail(entity.getEmail(), subject, body);
             } catch (Exception e) {
-                System.err.println("Failed to send FAQ submission email to user: " + e.getMessage());
+                logger.warn("Failed to send FAQ submission email to user={} id={}: {}", entity.getEmail(), entity.getId(), e.getMessage());
             }
         }
 
@@ -451,12 +569,21 @@ public class FAQQuestionService {
 
     @Transactional
     public void answerQuestion(Long id, String answer, boolean addToFAQ) {
+        answerQuestion(id, answer, addToFAQ, "USER");
+    }
+
+    @Transactional
+    public void answerQuestion(Long id, String answer, boolean addToFAQ, String visibilityTarget) {
+        logger.info("Answering FAQ question id={} publishToFaq={}", id, addToFAQ);
         FAQQuestion entity = faqQuestionRepository.findById(id).orElseThrow();
         String answerContext = resolvePendingAnswerContext(entity.getId());
         String answerContextLabel = toAnswerContextLabel(answerContext);
         entity.setAnswer(answer);
         entity.setAnsweredAt(OffsetDateTime.now());
         entity.setAddedToFAQ(addToFAQ);
+        if (addToFAQ) {
+            entity.setSource(applyVisibilityTarget(entity.getSource(), visibilityTarget));
+        }
         faqQuestionRepository.save(entity);
 
         notifyFaqUser(
@@ -488,7 +615,7 @@ public class FAQQuestionService {
             try {
                 httpEmailService.sendEmail(recipientEmail, subject, body);
             } catch (Exception e) {
-                System.err.println("Failed to send FAQ addition email to user: " + e.getMessage());
+                logger.warn("Failed to send FAQ publish email for id={}: {}", id, e.getMessage());
             }
         } else {
             subject = "✅ Response to Your FarmEazy Question";
@@ -506,7 +633,7 @@ public class FAQQuestionService {
             try {
                 httpEmailService.sendEmail(recipientEmail, subject, body);
             } catch (Exception e) {
-                System.err.println("Failed to send answer email to user: " + e.getMessage());
+                logger.warn("Failed to send FAQ answer email for id={}: {}", id, e.getMessage());
             }
 
             // broadcast updated notifications
@@ -528,6 +655,7 @@ public class FAQQuestionService {
 
     @Transactional
     public FAQQuestionDto reopenQuestion(Long id, String requester, String userSubQuestion) {
+        logger.info("Reopening FAQ question id={} requester={}", id, requester);
         FAQQuestion entity = faqQuestionRepository.findById(id)
                 .orElseThrow(() -> new com.farmeazy.exception.ResourceNotFoundException("FAQ question not found: " + id));
 
@@ -587,7 +715,7 @@ public class FAQQuestionService {
                 );
                 httpEmailService.sendEmail("support@farm-eazy.com", adminSubject, adminBody);
             } catch (Exception e) {
-                System.err.println("Failed to send sub-question notification to admin: " + e.getMessage());
+                logger.warn("Failed to send sub-question notification to admin for id={}: {}", id, e.getMessage());
             }
         }
 

@@ -10,6 +10,8 @@ import com.farmeazy.service.RefundService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
@@ -25,6 +27,8 @@ import java.util.Map;
 @CrossOrigin(origins = {"http://localhost:4200", "http://localhost:3000", "http://localhost:5173"})
 @Tag(name = "Order Cancellation & Refunds", description = "Cancel orders, request returns, and track refunds")
 public class OrderCancellationController {
+
+    private static final Logger logger = LoggerFactory.getLogger(OrderCancellationController.class);
 
     @Autowired
     private OrderCancellationService cancellationService;
@@ -44,7 +48,7 @@ public class OrderCancellationController {
     public ResponseEntity<CancelOrderResponseDto> cancelOrder(
             Authentication authentication,
             @Valid @RequestBody CancelOrderRequestDto request) {
-        
+        logger.info("ORDER_CANCELLATION_CONTROLLER_CANCEL user={} orderId={}", authentication != null ? authentication.getName() : null, request != null ? request.getOrderId() : null);
         User user = getCurrentUser(authentication);
         CancelOrderResponseDto response = cancellationService.cancelOrder(user, request);
         return ResponseEntity.ok(response);
@@ -58,7 +62,7 @@ public class OrderCancellationController {
     public ResponseEntity<CancelOrderResponseDto> requestReturn(
             Authentication authentication,
             @Valid @RequestBody CancelOrderRequestDto request) {
-        
+        logger.info("ORDER_CANCELLATION_CONTROLLER_RETURN user={} orderId={}", authentication != null ? authentication.getName() : null, request != null ? request.getOrderId() : null);
         User user = getCurrentUser(authentication);
         CancelOrderResponseDto response = cancellationService.requestReturn(user, request);
         return ResponseEntity.ok(response);
@@ -73,7 +77,7 @@ public class OrderCancellationController {
     public ResponseEntity<CancelOrderResponseDto> proceedWithRefund(
             Authentication authentication,
             @PathVariable Long orderId) {
-        
+        logger.info("ORDER_CANCELLATION_CONTROLLER_PROCEED_REFUND user={} orderId={}", authentication != null ? authentication.getName() : null, orderId);
         User user = getCurrentUser(authentication);
         CancelOrderResponseDto response = cancellationService.proceedWithRefund(user, orderId);
         return ResponseEntity.ok(response);
@@ -87,7 +91,7 @@ public class OrderCancellationController {
     public ResponseEntity<CancelOrderResponseDto> getRefundStatus(
             Authentication authentication,
             @PathVariable Long orderId) {
-        
+        logger.info("ORDER_CANCELLATION_CONTROLLER_REFUND_STATUS user={} orderId={}", authentication != null ? authentication.getName() : null, orderId);
         User user = getCurrentUser(authentication);
         CancelOrderResponseDto response = cancellationService.getRefundStatus(user, orderId);
         return ResponseEntity.ok(response);
@@ -101,7 +105,7 @@ public class OrderCancellationController {
     public ResponseEntity<?> checkCanCancel(
             Authentication authentication,
             @PathVariable Long orderId) {
-        
+        logger.info("ORDER_CANCELLATION_CONTROLLER_CAN_CANCEL user={} orderId={}", authentication != null ? authentication.getName() : null, orderId);
         User user = getCurrentUser(authentication);
         CancelOrderResponseDto status = cancellationService.getRefundStatus(user, orderId);
         
@@ -124,7 +128,7 @@ public class OrderCancellationController {
             Authentication authentication,
             @PathVariable Long orderId,
             @RequestBody(required = false) Map<String, String> body) {
-        
+        logger.info("ORDER_CANCELLATION_CONTROLLER_APPROVE_REFUND user={} orderId={}", authentication != null ? authentication.getName() : null, orderId);
         User adminUser = getCurrentUser(authentication);
         // TODO: Add admin role check
         
@@ -146,7 +150,7 @@ public class OrderCancellationController {
             Authentication authentication,
             @PathVariable Long orderId,
             @RequestBody Map<String, String> body) {
-        
+        logger.info("ORDER_CANCELLATION_CONTROLLER_REJECT_REFUND user={} orderId={}", authentication != null ? authentication.getName() : null, orderId);
         User adminUser = getCurrentUser(authentication);
         // TODO: Add admin role check
         
@@ -165,6 +169,7 @@ public class OrderCancellationController {
     @PostMapping("/admin/{orderId}/process-refund")
     @Operation(summary = "Process refund (Admin)", description = "Admin action to manually trigger refund processing")
     public ResponseEntity<?> processRefund(@PathVariable Long orderId) {
+        logger.info("ORDER_CANCELLATION_CONTROLLER_PROCESS_REFUND orderId={}", orderId);
         // TODO: Add admin role check
         
         refundService.triggerManualRefund(orderId);
@@ -181,6 +186,7 @@ public class OrderCancellationController {
     @GetMapping("/admin/refund-stats")
     @Operation(summary = "Get refund stats (Admin)", description = "Get refund processing statistics")
     public ResponseEntity<?> getRefundStats() {
+        logger.info("ORDER_CANCELLATION_CONTROLLER_REFUND_STATS");
         // TODO: Add admin role check
         
         RefundService.RefundStats stats = refundService.getRefundStats();

@@ -270,6 +270,38 @@ public class ServiceListingCreateDto {
         this.contactEmail = contactEmail;
     }
 
+    public Long getVendorId() {
+        return vendorId;
+    }
+
+    public void setVendorId(Long vendorId) {
+        this.vendorId = vendorId;
+    }
+
+    public String getVendorName() {
+        return vendorName;
+    }
+
+    public void setVendorName(String vendorName) {
+        this.vendorName = vendorName;
+    }
+
+    public String getVendorLocation() {
+        return vendorLocation;
+    }
+
+    public void setVendorLocation(String vendorLocation) {
+        this.vendorLocation = vendorLocation;
+    }
+
+    public String getVendorType() {
+        return vendorType;
+    }
+
+    public void setVendorType(String vendorType) {
+        this.vendorType = vendorType;
+    }
+
     public String getAvailability() {
         return availability;
     }

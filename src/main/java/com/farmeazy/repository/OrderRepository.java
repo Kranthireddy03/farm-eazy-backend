@@ -53,6 +53,11 @@ public interface OrderRepository extends JpaRepository<Order, Long> {
     Optional<Order> findByRazorpayPaymentId(String razorpayPaymentId);
 
     /**
+     * Find order by Razorpay order ID.
+     */
+    Optional<Order> findByRazorpayOrderId(String razorpayOrderId);
+
+    /**
      * Count refunds by status.
      */
     long countByRefundStatus(RefundStatus refundStatus);

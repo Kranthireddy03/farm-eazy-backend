@@ -38,8 +38,10 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
 import java.time.LocalDateTime;
+import java.util.HashMap;
 import java.util.Base64;
 import java.util.HashSet;
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -564,6 +566,62 @@ public class AuthService implements UserDetailsService {
         return rawToken;
     }
 
+    @Transactional(readOnly = true)
+    public Map<String, Object> checkRegistrationAvailability(String username, String email, String phone) {
+        String normalizedUsername = username == null ? "" : username.trim();
+        String normalizedEmail = email == null ? "" : email.trim();
+        String normalizedPhone = phone == null ? "" : phone.trim();
+
+        boolean usernameAvailable = !userRepository.existsByUsername(normalizedUsername);
+        boolean emailAvailable = !userRepository.existsByEmail(normalizedEmail);
+        boolean phoneAvailable = !userRepository.existsByPhone(normalizedPhone);
+
+        Map<String, Object> response = new HashMap<>();
+        response.put("usernameAvailable", usernameAvailable);
+        response.put("emailAvailable", emailAvailable);
+        response.put("phoneAvailable", phoneAvailable);
+        response.put("available", usernameAvailable && emailAvailable && phoneAvailable);
+
+        if (!usernameAvailable) {
+            response.put("message", "Username is already taken");
+        } else if (!emailAvailable) {
+            response.put("message", "Email is already registered");
+        } else if (!phoneAvailable) {
+            response.put("message", "Phone number is already registered");
+        } else {
+            response.put("message", "All fields are available");
+        }
+
+        return response;
+    }
+
+    @Transactional(readOnly = true)
+    public Map<String, Object> getOtpLoginUserPreview(String phone) {
+        String normalizedPhone = phone == null ? "" : phone.trim();
+        Map<String, Object> response = new HashMap<>();
+
+        var userOpt = userRepository.findByPhone(normalizedPhone);
+        if (userOpt.isEmpty()) {
+            response.put("exists", false);
+            response.put("message", "This phone number is not registered. Please sign up first.");
+            return response;
+        }
+
+        User user = userOpt.get();
+        if (user.getActive() == null || !user.getActive()) {
+            response.put("exists", false);
+            response.put("message", "User account is inactive");
+            return response;
+        }
+
+        response.put("exists", true);
+        response.put("username", user.getUsername());
+        response.put("userId", user.getId());
+        response.put("maskedPhone", maskPhone(normalizedPhone));
+        response.put("message", "User found. Confirm details before requesting OTP.");
+        return response;
+    }
+
     private String generateRawRefreshToken() {
         byte[] bytes = new byte[REFRESH_TOKEN_BYTES];
         RANDOM.nextBytes(bytes);
@@ -578,6 +636,13 @@ public class AuthService implements UserDetailsService {
         } catch (NoSuchAlgorithmException e) {
             throw new IllegalStateException("SHA-256 algorithm unavailable", e);
         }
+    }
+
+    private String maskPhone(String phone) {
+        if (phone == null || phone.length() < 4) {
+            return "****";
+        }
+        return phone.substring(0, 2) + "****" + phone.substring(phone.length() - 2);
     }
 
     /**
@@ -851,7 +916,6 @@ public class AuthService implements UserDetailsService {
      * @return AuthResponseDto with JWT token
      * @throws UnauthorizedException if OTP invalid/expired or user not found
      */
-    @Transactional
     public AuthResponseDto loginWithOtp(String phone, String otpCode) {
         // Create a trace identifier to link OTP verification -> welcome email -> welcome SMS
         String traceId = java.util.UUID.randomUUID().toString();

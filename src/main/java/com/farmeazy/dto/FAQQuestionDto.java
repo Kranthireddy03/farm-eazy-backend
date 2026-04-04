@@ -10,11 +10,22 @@ public class FAQQuestionDto {
         // Source of the question (e.g., FAQ_PUBLIC_PAGE, ADMIN, etc.)
         private String source;
 
+    // Publish target for approved FAQ: USER, ADMIN, BOTH
+    private String visibilityTarget;
+
         public String getSource() {
             return source;
         }
         public void setSource(String source) {
             this.source = source;
+        }
+
+        public String getVisibilityTarget() {
+            return visibilityTarget;
+        }
+
+        public void setVisibilityTarget(String visibilityTarget) {
+            this.visibilityTarget = visibilityTarget;
         }
     @NotBlank(message = "Question is required")
     @Size(min = 10, max = 1000, message = "Question must be between 10 and 1000 characters")

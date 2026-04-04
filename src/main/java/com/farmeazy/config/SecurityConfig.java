@@ -31,10 +31,6 @@ import org.springframework.security.web.context.RequestAttributeSecurityContextR
 import lombok.RequiredArgsConstructor;
 
 import java.util.Arrays;
-import java.util.List;
-import java.util.stream.Collectors;
-
-import org.springframework.beans.factory.annotation.Value;
 
 import static org.springframework.security.config.Customizer.withDefaults;
 @Configuration
@@ -43,9 +39,6 @@ public class SecurityConfig {
     private final JwtAuthenticationEntryPoint jwtAuthenticationEntryPoint;
     private final JwtUtil jwtUtil;
     private final RateLimitingFilter rateLimitingFilter;
-
-    @Value("${cors.allowed-origins:https://support.farm-eazy.com,https://admin.farm-eazy.com,https://www.farm-eazy.com}")
-    private String corsAllowedOrigins;
 
     public SecurityConfig(JwtAuthenticationEntryPoint jwtAuthenticationEntryPoint,
                           JwtUtil jwtUtil,
@@ -141,11 +134,16 @@ public class SecurityConfig {
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();
-        List<String> originPatterns = Arrays.stream(corsAllowedOrigins.split(","))
-            .map(String::trim)
-            .filter(s -> !s.isBlank())
-            .collect(Collectors.toList());
-        configuration.setAllowedOriginPatterns(originPatterns);
+        configuration.setAllowedOriginPatterns(Arrays.asList(
+            "https://farm-eazy.com",
+            "https://www.farm-eazy.com",
+            "https://*.vercel.app",
+            "https://farm-eazy-backend.onrender.com",
+            "http://localhost:4200",
+            "http://localhost:3000",
+            "http://localhost:3001",
+            "http://localhost:5173"
+        ));
         configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH", "HEAD"));
         configuration.setAllowedHeaders(Arrays.asList("*"));
         configuration.setExposedHeaders(Arrays.asList("Authorization", "Content-Type"));
