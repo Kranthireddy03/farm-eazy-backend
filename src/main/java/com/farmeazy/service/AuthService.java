@@ -921,11 +921,16 @@ public class AuthService implements UserDetailsService {
         String traceId = java.util.UUID.randomUUID().toString();
         org.slf4j.MDC.put("traceId", traceId);
 
-        // Verify OTP (throws UnauthorizedException if invalid)
+        // Verify OTP once; if it was already verified in a prior step and is still valid,
+        // continue without forcing a second verify that can fail and poison transactional flows.
         try {
             logger.info("[traceId={}] Verifying OTP for phone {}", traceId, phone);
-            otpService.verifyLoginOtp(phone, otpCode);
-            logger.info("[traceId={}] OTP verified successfully for phone {}", traceId, phone);
+            if (otpService.isVerifiedLoginOtpStillValid(phone, otpCode)) {
+                logger.info("[traceId={}] Using previously verified OTP for phone {}", traceId, phone);
+            } else {
+                otpService.verifyLoginOtp(phone, otpCode);
+                logger.info("[traceId={}] OTP verified successfully for phone {}", traceId, phone);
+            }
         } catch (UnauthorizedException ue) {
             logger.warn("[traceId={}] OTP verification failed for phone {}: {}", traceId, phone, ue.getMessage());
             throw ue;
