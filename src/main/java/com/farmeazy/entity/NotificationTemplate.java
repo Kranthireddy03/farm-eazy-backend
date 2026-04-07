@@ -28,10 +28,10 @@ public class NotificationTemplate {
     @Column(nullable = false, length = 255)
     private String subjectTemplate;
 
-    @Column(nullable = false, columnDefinition = "LONGTEXT")
+    @Column(nullable = false, columnDefinition = "TEXT")
     private String htmlTemplate;
 
-    @Column(columnDefinition = "LONGTEXT")
+    @Column(columnDefinition = "TEXT")
     private String textTemplate;
 
     @Column(nullable = false)

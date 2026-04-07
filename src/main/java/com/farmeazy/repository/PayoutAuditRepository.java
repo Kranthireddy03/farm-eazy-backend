@@ -18,6 +18,7 @@ public interface PayoutAuditRepository extends JpaRepository<PayoutAudit, Long> 
     /**
      * Get audit entries for a specific payout
      */
+    @Query("SELECT a FROM PayoutAudit a WHERE a.batchPayout.id = ?1 ORDER BY a.timestamp DESC")
     List<PayoutAudit> findByPayoutIdOrderByTimestampDesc(Long payoutId);
 
     /**

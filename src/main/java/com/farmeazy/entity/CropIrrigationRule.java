@@ -56,8 +56,8 @@ public class CropIrrigationRule {
     @Column(nullable = false)
     private Double waterQuantityMm; // Water required in mm per irrigation
 
-    @Column(columnDefinition = "DECIMAL(3,2) DEFAULT 1.0")
-    private Double temperatureFactor; // Adjustment for heat (1.0 = normal)
+    @Column(precision = 3, scale = 2)
+    private Double temperatureFactor = 1.0; // Adjustment for heat (1.0 = normal)
 
     @Column(columnDefinition = "TEXT")
     private String description; // e.g., "Rice in clay soil during monsoon"
