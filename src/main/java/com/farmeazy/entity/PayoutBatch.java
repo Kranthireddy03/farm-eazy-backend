@@ -14,9 +14,9 @@ import java.time.LocalDate;
 @Table(name = "payout_batch", 
        uniqueConstraints = @UniqueConstraint(columnNames = "batch_date"),
        indexes = {
-           @Index(name = "idx_batch_date", columnList = "batch_date"),
-           @Index(name = "idx_batch_status", columnList = "status"),
-           @Index(name = "idx_batch_created_at", columnList = "created_at")
+           @Index(name = "idx_payout_batch_batch_date", columnList = "batch_date"),
+           @Index(name = "idx_payout_batch_status", columnList = "status"),
+           @Index(name = "idx_payout_batch_created_at", columnList = "created_at")
        })
 public class PayoutBatch {
 

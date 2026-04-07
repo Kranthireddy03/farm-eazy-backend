@@ -10,8 +10,8 @@ import java.time.LocalDateTime;
 @Entity
 @Table(name = "fraud_detection_log",
        indexes = {
-           @Index(name = "idx_user_id", columnList = "user_id"),
-           @Index(name = "idx_risk_level", columnList = "risk_level")
+           @Index(name = "idx_fraud_detection_log_user_id", columnList = "user_id"),
+           @Index(name = "idx_fraud_detection_log_risk_level", columnList = "risk_level")
        })
 public class FraudDetectionLog {
 

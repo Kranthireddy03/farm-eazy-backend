@@ -12,11 +12,11 @@ import java.math.BigDecimal;
 @Entity
 @Table(name = "vendor_payout_history",
        indexes = {
-           @Index(name = "idx_vendor_id", columnList = "vendor_id"),
-           @Index(name = "idx_batch_id", columnList = "batch_id"),
-           @Index(name = "idx_payout_status", columnList = "payout_status"),
-           @Index(name = "idx_created_at", columnList = "created_at"),
-           @Index(name = "idx_batch_date", columnList = "batch_date")
+           @Index(name = "idx_vendor_payout_history_vendor_id", columnList = "vendor_id"),
+           @Index(name = "idx_vendor_payout_history_batch_id", columnList = "batch_id"),
+           @Index(name = "idx_vendor_payout_history_status", columnList = "payout_status"),
+           @Index(name = "idx_vendor_payout_history_created_at", columnList = "created_at"),
+           @Index(name = "idx_vendor_payout_history_batch_date", columnList = "batch_date")
        })
 public class VendorPayoutHistory {
 
