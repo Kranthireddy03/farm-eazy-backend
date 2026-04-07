@@ -4,6 +4,7 @@ import jakarta.persistence.*;
 import lombok.AllArgsConstructor;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+import java.math.BigDecimal;
 import java.time.LocalDateTime;
 
 /**
@@ -57,7 +58,7 @@ public class CropIrrigationRule {
     private Double waterQuantityMm; // Water required in mm per irrigation
 
     @Column(precision = 3, scale = 2)
-    private Double temperatureFactor = 1.0; // Adjustment for heat (1.0 = normal)
+    private BigDecimal temperatureFactor = BigDecimal.ONE; // Adjustment for heat (1.0 = normal)
 
     @Column(columnDefinition = "TEXT")
     private String description; // e.g., "Rice in clay soil during monsoon"
