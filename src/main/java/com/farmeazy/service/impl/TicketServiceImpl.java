@@ -107,7 +107,7 @@ public class TicketServiceImpl implements TicketService {
     @Transactional
     public Ticket assign(Long ticketId, Long userId) {
         Ticket ticket = ticketRepository.findById(ticketId).orElseThrow(() -> new RuntimeException("Ticket not found"));
-        ticket.setAssignedTo(userId);
+        ticket.setAssignedTo(userId != null ? String.valueOf(userId) : null);
         ticket.setStatus("ASSIGNED");
         ticket.setUpdatedAt(OffsetDateTime.now());
         return ticketRepository.save(ticket);

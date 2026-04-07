@@ -35,7 +35,7 @@ public class Ticket {
     private Long createdBy;
 
     @Column(name = "assigned_to")
-    private Long assignedTo;
+    private String assignedTo;
 
     @Column(name = "is_important")
     private Boolean important = false;
@@ -72,7 +72,7 @@ public class Ticket {
 
     public Ticket() {}
 
-    public Ticket(Long id, String displayId, String title, String description, String category, String priority, String status, String module, Long createdBy, Long assignedTo, Boolean important, Boolean archived, OffsetDateTime slaBy, OffsetDateTime createdAt, OffsetDateTime updatedAt) {
+    public Ticket(Long id, String displayId, String title, String description, String category, String priority, String status, String module, Long createdBy, String assignedTo, Boolean important, Boolean archived, OffsetDateTime slaBy, OffsetDateTime createdAt, OffsetDateTime updatedAt) {
         this.id = id;
         this.displayId = displayId;
         this.title = title;
@@ -109,8 +109,8 @@ public class Ticket {
     public void setModule(String module) { this.module = module; }
     public Long getCreatedBy() { return createdBy; }
     public void setCreatedBy(Long createdBy) { this.createdBy = createdBy; }
-    public Long getAssignedTo() { return assignedTo; }
-    public void setAssignedTo(Long assignedTo) { this.assignedTo = assignedTo; }
+    public String getAssignedTo() { return assignedTo; }
+    public void setAssignedTo(String assignedTo) { this.assignedTo = assignedTo; }
     public Boolean getImportant() { return important; }
     public void setImportant(Boolean important) { this.important = important; }
     public Boolean getArchived() { return archived; }
