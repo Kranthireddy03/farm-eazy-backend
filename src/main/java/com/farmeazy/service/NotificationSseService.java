@@ -95,7 +95,10 @@ public class NotificationSseService {
     public java.util.Optional<String> validateAndConsumeToken(String token) {
         if (token == null || token.isBlank()) return java.util.Optional.empty();
 
-        TokenInfo info = tokenStore.remove(token); // consume token so it cannot be reused
+        cleanupExpiredTokens();
+
+        // Keep token reusable until expiry because EventSource reconnects automatically.
+        TokenInfo info = tokenStore.get(token);
         if (info == null) return java.util.Optional.empty();
         if (Instant.now().toEpochMilli() > info.expiryEpochMillis) return java.util.Optional.empty();
 

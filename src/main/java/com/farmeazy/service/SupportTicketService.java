@@ -18,6 +18,11 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.Cacheable;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
@@ -403,45 +408,86 @@ public class SupportTicketService {
     @Transactional(readOnly = true)
     @Cacheable(cacheNames = "supportTicketList", key = "'admin:' + #page + ':' + #size + ':' + #status + ':' + #category + ':' + #priority + ':' + #important + ':' + #archived + ':' + #search + ':' + #source")
     public java.util.Map<String, Object> getAllTicketsFiltered(int page, int size, String status, String category, String priority, Boolean important, Boolean archived, String search, String source) {
-        java.util.List<SupportTicket> all = ticketRepository.findAllByOrderByCreatedAtDesc();
+        int safePage = Math.max(page, 0);
+        int safeSize = Math.min(Math.max(size, 1), 100);
 
-        java.util.stream.Stream<SupportTicket> stream = all.stream();
-
-        if (source != null && !source.isBlank() && !"all".equalsIgnoreCase(source)) {
-            stream = stream.filter(t -> matchesAdminSourceFilter(source, t));
-        }
+        Pageable pageable = PageRequest.of(safePage, safeSize, Sort.by(Sort.Direction.DESC, "createdAt"));
+        Specification<SupportTicket> spec = Specification.where(null);
 
         if (status != null && !status.isBlank()) {
-            try { SupportTicket.TicketStatus st = SupportTicket.TicketStatus.valueOf(status); stream = stream.filter(t -> t.getStatus() == st); } catch (Exception e) {}
-        }
-        if (category != null && !category.isBlank()) {
-            try { SupportTicket.TicketCategory cat = SupportTicket.TicketCategory.valueOf(category); stream = stream.filter(t -> t.getCategory() == cat); } catch (Exception e) {}
-        }
-        if (priority != null && !priority.isBlank()) {
-            try { SupportTicket.TicketPriority p = SupportTicket.TicketPriority.valueOf(priority); stream = stream.filter(t -> t.getPriority() == p); } catch (Exception e) {}
-        }
-        if (important != null) {
-            stream = stream.filter(t -> Boolean.TRUE.equals(t.getImportant()) == important);
-        }
-        if (archived != null) {
-            stream = stream.filter(t -> Boolean.TRUE.equals(t.getArchived()) == archived);
-        }
-        if (search != null && !search.isBlank()) {
-            String s = search.toLowerCase();
-            stream = stream.filter(t -> (t.getDisplayId() != null && t.getDisplayId().toLowerCase().contains(s)) || (t.getSubject() != null && t.getSubject().toLowerCase().contains(s)) || (t.getDescription() != null && t.getDescription().toLowerCase().contains(s)));
+            try {
+                SupportTicket.TicketStatus st = SupportTicket.TicketStatus.valueOf(status.trim().toUpperCase(Locale.ROOT));
+                spec = spec.and((root, query, cb) -> cb.equal(root.get("status"), st));
+            } catch (Exception ignored) {
+            }
         }
 
-        java.util.List<SupportTicket> filtered = stream.collect(Collectors.toList());
-        int total = filtered.size();
-        int from = Math.min(page * size, total);
-        int to = Math.min(from + size, total);
-        java.util.List<SupportTicketResponseDto> pageList = filtered.subList(from, to).stream().map(SupportTicketResponseDto::fromEntity).collect(Collectors.toList());
+        if (category != null && !category.isBlank()) {
+            try {
+                SupportTicket.TicketCategory cat = SupportTicket.TicketCategory.valueOf(category.trim().toUpperCase(Locale.ROOT));
+                spec = spec.and((root, query, cb) -> cb.equal(root.get("category"), cat));
+            } catch (Exception ignored) {
+            }
+        }
+
+        if (priority != null && !priority.isBlank()) {
+            try {
+                SupportTicket.TicketPriority p = SupportTicket.TicketPriority.valueOf(priority.trim().toUpperCase(Locale.ROOT));
+                spec = spec.and((root, query, cb) -> cb.equal(root.get("priority"), p));
+            } catch (Exception ignored) {
+            }
+        }
+
+        if (important != null) {
+            spec = spec.and((root, query, cb) -> cb.equal(root.get("important"), important));
+        }
+
+        if (archived != null) {
+            spec = spec.and((root, query, cb) -> cb.equal(root.get("archived"), archived));
+        }
+
+        if (search != null && !search.isBlank()) {
+            String like = "%" + search.trim().toLowerCase(Locale.ROOT) + "%";
+            spec = spec.and((root, query, cb) -> cb.or(
+                    cb.like(cb.lower(root.get("displayId")), like),
+                    cb.like(cb.lower(root.get("subject")), like),
+                    cb.like(cb.lower(root.get("description")), like)
+            ));
+        }
+
+        if (source != null && !source.isBlank() && !"all".equalsIgnoreCase(source)) {
+            String normalized = source.trim().toLowerCase(Locale.ROOT);
+            if ("public".equals(normalized)) {
+                spec = spec.and((root, query, cb) -> cb.or(
+                        cb.isNull(root.get("user")),
+                        cb.equal(cb.lower(root.get("source")), "support_public"),
+                        cb.equal(cb.lower(root.get("source")), "public_app"),
+                        cb.equal(cb.lower(root.get("source")), "public")
+                ));
+            } else if ("login".equals(normalized) || "user".equals(normalized)) {
+                spec = spec.and((root, query, cb) -> cb.or(
+                        cb.isNotNull(root.get("user")),
+                        cb.equal(cb.lower(root.get("source")), "support_user"),
+                        cb.equal(cb.lower(root.get("source")), "app_user"),
+                        cb.equal(cb.lower(root.get("source")), "login")
+                ));
+            } else if ("admin".equals(normalized)) {
+                spec = spec.and((root, query, cb) -> cb.like(cb.lower(root.get("source")), "%admin%"));
+            } else {
+                spec = spec.and((root, query, cb) -> cb.equal(cb.lower(root.get("source")), normalized));
+            }
+        }
+
+        Page<SupportTicket> ticketPage = ticketRepository.findAll(spec, pageable);
+        java.util.List<SupportTicketResponseDto> pageList = ticketPage.getContent().stream()
+                .map(SupportTicketResponseDto::fromEntity)
+                .collect(Collectors.toList());
 
         java.util.Map<String, Object> result = new java.util.HashMap<>();
         result.put("tickets", pageList);
-        result.put("total", total);
-        result.put("page", page);
-        result.put("size", size);
+        result.put("total", ticketPage.getTotalElements());
+        result.put("page", safePage);
+        result.put("size", safeSize);
         result.put("source", source != null ? source : "all");
         return result;
     }

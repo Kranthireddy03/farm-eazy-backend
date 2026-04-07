@@ -6,6 +6,8 @@ import com.farmeazy.entity.User;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.repository.query.Param;
 import org.springframework.stereotype.Repository;
 
@@ -26,8 +28,12 @@ public interface SupportTicketRepository extends JpaRepository<SupportTicket, Lo
     List<SupportTicket> findByUserAndStatusOrderByCreatedAtDesc(User user, TicketStatus status);
     
     List<SupportTicket> findByStatusOrderByCreatedAtDesc(TicketStatus status);
+
+    Page<SupportTicket> findByStatusOrderByCreatedAtDesc(TicketStatus status, Pageable pageable);
     
     List<SupportTicket> findAllByOrderByCreatedAtDesc();
+
+    Page<SupportTicket> findAllByOrderByCreatedAtDesc(Pageable pageable);
     
     long countByUserAndStatus(User user, TicketStatus status);
     

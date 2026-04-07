@@ -15,6 +15,8 @@ import java.util.Map;
 @RequestMapping("/api/admin/faq-questions")
 public class AdminSseController {
 
+    private static final long TOKEN_TTL_MILLIS = 15 * 60 * 1000;
+
     private final NotificationSseService notificationSseService;
 
     public AdminSseController(NotificationSseService notificationSseService) {
@@ -28,9 +30,8 @@ public class AdminSseController {
         if (auth == null || !auth.isAuthenticated()) {
             throw new ResponseStatusException(HttpStatus.UNAUTHORIZED);
         }
-        // create token valid for 2 minutes
-        String token = notificationSseService.createTokenForUser(auth.getName(), 2 * 60 * 1000);
-        long expiresAt = System.currentTimeMillis() + (2 * 60 * 1000);
+        String token = notificationSseService.createTokenForUser(auth.getName(), TOKEN_TTL_MILLIS);
+        long expiresAt = System.currentTimeMillis() + TOKEN_TTL_MILLIS;
         return Map.of("token", token, "expiresAt", expiresAt);
     }
 
