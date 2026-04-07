@@ -497,6 +497,120 @@ public class EmailService {
     }
 
     /**
+     * Sends a professional HTML email for bank verification status updates.
+     */
+    public void sendBankVerificationStatusEmail(String userEmail,
+                                                String userName,
+                                                String verificationNumber,
+                                                String amount,
+                                                String referenceId,
+                                                String maskedAccount,
+                                                boolean success,
+                                                String failureReason) {
+        String subject = success
+                ? "Bank Verification Successful - " + verificationNumber
+                : "Bank Verification Failed - " + verificationNumber;
+
+        String dashboardUrl = getAppBaseUrl() + "/bank-verification";
+        String supportUrl = getAppBaseUrl() + "/support";
+        String safeUser = (userName == null || userName.isBlank()) ? "Farmer" : userName;
+        String safeRef = (referenceId == null || referenceId.isBlank()) ? "Not available" : referenceId;
+        String safeAccount = (maskedAccount == null || maskedAccount.isBlank()) ? "Not available" : maskedAccount;
+        String safeReason = (failureReason == null || failureReason.isBlank()) ? "Transfer failed" : failureReason;
+
+        String htmlBody = success
+                ? String.format("""
+                    <!DOCTYPE html>
+                    <html lang=\"en\">
+                    <head>
+                        <meta charset=\"UTF-8\">
+                        <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">
+                        <style>
+                            body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f4f7fb; color: #1f2937; }
+                            .card { max-width: 640px; margin: 24px auto; background: #ffffff; border-radius: 14px; overflow: hidden; border: 1px solid #e5e7eb; }
+                            .header { background: linear-gradient(135deg, #047857 0%%, #065f46 100%%); color: #ffffff; padding: 24px; }
+                            .body { padding: 24px; }
+                            .meta { width: 100%%; border-collapse: collapse; margin-top: 14px; }
+                            .meta td { padding: 10px 12px; border: 1px solid #e5e7eb; font-size: 14px; }
+                            .meta td:first-child { background: #f9fafb; font-weight: 600; width: 38%%; }
+                            .badge { display: inline-block; background: #dcfce7; color: #166534; font-weight: 700; font-size: 12px; padding: 6px 10px; border-radius: 999px; }
+                            .cta { display: inline-block; margin-top: 18px; background: #047857; color: #ffffff !important; text-decoration: none; padding: 12px 18px; border-radius: 8px; font-weight: 600; }
+                            .foot { padding: 16px 24px 22px; color: #6b7280; font-size: 12px; background: #f9fafb; border-top: 1px solid #e5e7eb; }
+                        </style>
+                    </head>
+                    <body>
+                        <div class=\"card\">
+                            <div class=\"header\">
+                                <div class=\"badge\">Verification Completed</div>
+                                <h2 style=\"margin:10px 0 0;\">Bank Verification Successful</h2>
+                                <p style=\"margin:8px 0 0; opacity:.95;\">Your account has been validated through the penny-drop process.</p>
+                            </div>
+                            <div class=\"body\">
+                                <p>Hello <strong>%s</strong>,</p>
+                                <p>Your bank verification request has been processed successfully.</p>
+                                <table class=\"meta\">
+                                    <tr><td>Verification ID</td><td>%s</td></tr>
+                                    <tr><td>Amount Transferred</td><td>INR %s</td></tr>
+                                    <tr><td>Reference ID</td><td>%s</td></tr>
+                                    <tr><td>Account</td><td>%s</td></tr>
+                                </table>
+                                <p style=\"margin-top:16px;\">Please confirm receipt from your dashboard to complete the final verification step.</p>
+                                <a class=\"cta\" href=\"%s\">Open Verification Dashboard</a>
+                            </div>
+                            <div class=\"foot\">
+                                Need help? Contact support from your portal: <a href=\"%s\">Support Center</a><br>
+                                © 2026 FarmEazy. Smart Farm Management.
+                            </div>
+                        </div>
+                    </body>
+                    </html>
+                    """, safeUser, verificationNumber, amount, safeRef, safeAccount, dashboardUrl, supportUrl)
+                : String.format("""
+                    <!DOCTYPE html>
+                    <html lang=\"en\">
+                    <head>
+                        <meta charset=\"UTF-8\">
+                        <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">
+                        <style>
+                            body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f4f7fb; color: #1f2937; }
+                            .card { max-width: 640px; margin: 24px auto; background: #ffffff; border-radius: 14px; overflow: hidden; border: 1px solid #e5e7eb; }
+                            .header { background: linear-gradient(135deg, #b91c1c 0%%, #7f1d1d 100%%); color: #ffffff; padding: 24px; }
+                            .body { padding: 24px; }
+                            .meta { width: 100%%; border-collapse: collapse; margin-top: 14px; }
+                            .meta td { padding: 10px 12px; border: 1px solid #e5e7eb; font-size: 14px; }
+                            .meta td:first-child { background: #f9fafb; font-weight: 600; width: 38%%; }
+                            .cta { display: inline-block; margin-top: 18px; background: #b91c1c; color: #ffffff !important; text-decoration: none; padding: 12px 18px; border-radius: 8px; font-weight: 600; }
+                            .foot { padding: 16px 24px 22px; color: #6b7280; font-size: 12px; background: #f9fafb; border-top: 1px solid #e5e7eb; }
+                        </style>
+                    </head>
+                    <body>
+                        <div class=\"card\">
+                            <div class=\"header\">
+                                <h2 style=\"margin:0;\">Bank Verification Failed</h2>
+                                <p style=\"margin:8px 0 0; opacity:.95;\">We could not complete your bank verification request.</p>
+                            </div>
+                            <div class=\"body\">
+                                <p>Hello <strong>%s</strong>,</p>
+                                <table class=\"meta\">
+                                    <tr><td>Verification ID</td><td>%s</td></tr>
+                                    <tr><td>Failure Reason</td><td>%s</td></tr>
+                                </table>
+                                <p style=\"margin-top:16px;\">Please review your bank details and retry from the verification page.</p>
+                                <a class=\"cta\" href=\"%s\">Retry Verification</a>
+                            </div>
+                            <div class=\"foot\">
+                                Need assistance? Visit: <a href=\"%s\">Support Center</a><br>
+                                © 2026 FarmEazy. Smart Farm Management.
+                            </div>
+                        </div>
+                    </body>
+                    </html>
+                    """, safeUser, verificationNumber, safeReason, dashboardUrl, supportUrl);
+
+        sendHtmlEmail(userEmail, subject, htmlBody, EmailType.NOREPLY);
+    }
+
+    /**
      * Sends a professional HTML OTP email.
      *
      * @param userEmail User's email address

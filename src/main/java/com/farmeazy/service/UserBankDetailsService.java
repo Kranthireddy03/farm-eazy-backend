@@ -4,6 +4,7 @@ import com.farmeazy.dto.UserBankDetailsDto;
 import com.farmeazy.dto.OtpRequestDto;
 import com.farmeazy.dto.OtpResponseDto;
 import com.farmeazy.dto.OtpVerifyDto;
+import com.farmeazy.dto.BankVerificationRequestDto;
 import com.farmeazy.entity.User;
 import com.farmeazy.entity.UserBankDetails;
 import com.farmeazy.exception.DuplicateResourceException;
@@ -11,6 +12,8 @@ import com.farmeazy.exception.ResourceNotFoundException;
 import com.farmeazy.exception.UnauthorizedException;
 import com.farmeazy.repository.UserBankDetailsRepository;
 import com.farmeazy.repository.UserRepository;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.crypto.password.PasswordEncoder;
@@ -31,6 +34,7 @@ import java.time.format.DateTimeFormatter;
 @Service
 public class UserBankDetailsService {
 
+    private static final Logger logger = LoggerFactory.getLogger(UserBankDetailsService.class);
     private final UserBankDetailsRepository bankDetailsRepository;
     private final UserRepository userRepository;
     private final PasswordEncoder passwordEncoder;
@@ -38,6 +42,7 @@ public class UserBankDetailsService {
     private final HttpEmailService emailService;
     private final OtpService otpService;
     private final SecurityAuditService securityAuditService;
+    private final BankVerificationService bankVerificationService;
     private static final DateTimeFormatter formatter = DateTimeFormatter.ISO_LOCAL_DATE_TIME;
     private static final String BANK_ADD_PURPOSE = "BANK_DETAILS_ADD";
     private static final String BANK_UPDATE_PURPOSE = "BANK_DETAILS_UPDATE";
@@ -50,7 +55,8 @@ public class UserBankDetailsService {
                                   SmsService smsService,
                                   HttpEmailService emailService,
                                   OtpService otpService,
-                                  SecurityAuditService securityAuditService) {
+                                  SecurityAuditService securityAuditService,
+                                  BankVerificationService bankVerificationService) {
         this.bankDetailsRepository = bankDetailsRepository;
         this.userRepository = userRepository;
         this.passwordEncoder = passwordEncoder;
@@ -58,6 +64,7 @@ public class UserBankDetailsService {
         this.emailService = emailService;
         this.otpService = otpService;
         this.securityAuditService = securityAuditService;
+        this.bankVerificationService = bankVerificationService;
     }
 
     /**
@@ -134,6 +141,22 @@ public class UserBankDetailsService {
             );
         } catch (Exception e) {
             System.out.println("[BankDetails] Email notification failed: " + e.getMessage());
+        }
+
+        // AUTO-TRIGGER PENNY DROP VERIFICATION
+        try {
+            logger.info("AUTO_TRIGGER_PENNY_DROP: Initiating auto penny drop for userId={}, bank={}", user.getId(), dto.getBankName());
+            BankVerificationRequestDto verificationDto = new BankVerificationRequestDto();
+            verificationDto.setVerificationType("BANK_ACCOUNT");
+            verificationDto.setAccountHolderName(dto.getAccountHolderName());
+            verificationDto.setAccountNumber(dto.getAccountNumber());
+            verificationDto.setIfscCode(dto.getIfscCode());
+            verificationDto.setBankName(dto.getBankName());
+            verificationDto.setBranchName(dto.getBranchName());
+            bankVerificationService.initiateVerification(user.getId(), verificationDto);
+            logger.info("AUTO_TRIGGER_SUCCESS: Penny drop initiated for userId={}", user.getId());
+        } catch (Exception e) {
+            logger.warn("AUTO_TRIGGER_FAILED: Penny drop auto-trigger failed for userId={}. Error: {}", user.getId(), e.getMessage());
         }
 
         return toDto(saved);

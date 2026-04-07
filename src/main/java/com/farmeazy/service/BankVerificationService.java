@@ -110,11 +110,23 @@ public class BankVerificationService {
     private void validateBankVerificationConfiguration() {
         if (!"razorpay".equalsIgnoreCase(verificationMode)) {
             logger.info("BANK_VERIFY_MODE_CONFIG: mode={}", verificationMode);
+            if ("simulate".equalsIgnoreCase(verificationMode)) {
+                logger.warn("BANK_VERIFY_MODE_SIMULATE_ACTIVE: Penny drop is simulated. No real INR transfer will happen. Set BANK_VERIFICATION_MODE=razorpay in UAT/PROD for real transfers.");
+            }
             return;
         }
 
-        if (razorpayKeyId == null || razorpayKeyId.isBlank() || razorpayKeySecret == null || razorpayKeySecret.isBlank()) {
-            throw new IllegalStateException("bank.verification.mode is razorpay but Razorpay credentials are missing");
+        boolean keyIdMissing = razorpayKeyId == null || razorpayKeyId.isBlank();
+        boolean keySecretMissing = razorpayKeySecret == null || razorpayKeySecret.isBlank();
+
+        if (keyIdMissing || keySecretMissing) {
+            if (keyIdMissing) {
+                logger.error("ENV_MISSING_VALUE: RAZORPAY_KEY_ID is missing or blank while BANK_VERIFICATION_MODE=razorpay");
+            }
+            if (keySecretMissing) {
+                logger.error("ENV_MISSING_VALUE: RAZORPAY_KEY_SECRET is missing or blank while BANK_VERIFICATION_MODE=razorpay");
+            }
+            throw new IllegalStateException("bank.verification.mode is razorpay but required Razorpay env variables are missing");
         }
 
         logger.info("BANK_VERIFY_MODE_CONFIG: mode=razorpay, credentialsConfigured=true");
@@ -291,6 +303,12 @@ public class BankVerificationService {
      */
     private void initiateRazorpayTransfer(BankVerificationRequest request, BankVerificationRequestDto dto) {
         if (razorpayKeyId == null || razorpayKeyId.isBlank() || razorpayKeySecret == null || razorpayKeySecret.isBlank()) {
+            if (razorpayKeyId == null || razorpayKeyId.isBlank()) {
+                logger.error("ENV_MISSING_VALUE: RAZORPAY_KEY_ID is missing or blank during transfer initiation");
+            }
+            if (razorpayKeySecret == null || razorpayKeySecret.isBlank()) {
+                logger.error("ENV_MISSING_VALUE: RAZORPAY_KEY_SECRET is missing or blank during transfer initiation");
+            }
             throw new IllegalStateException("Razorpay credentials are not configured");
         }
         if (!VerificationType.BANK_ACCOUNT.name().equalsIgnoreCase(dto.getVerificationType())) {
@@ -639,7 +657,15 @@ public class BankVerificationService {
         String body = buildVerificationEmailBody(request, success);
 
         try {
-            emailService.sendEmail(request.getUser().getEmail(), subject, body);
+            emailService.sendBankVerificationStatusEmail(
+                    request.getUser().getEmail(),
+                    request.getUser().getUsername(),
+                    request.getVerificationNumber(),
+                    request.getTransferAmount() != null ? request.getTransferAmount().toPlainString() : "1.00",
+                    request.getTransferReferenceId(),
+                    request.getAccountNumberMasked() != null ? request.getAccountNumberMasked() : request.getUpiIdMasked(),
+                    success,
+                    request.getTransferErrorMessage());
             emailSent = true;
         } catch (Exception emailEx) {
             logger.error("BANK_VERIFY_EMAIL_FAILED: verificationNumber={}, error={}",

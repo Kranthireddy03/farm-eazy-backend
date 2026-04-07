@@ -12,8 +12,6 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.apache.commons.csv.CSVFormat;
-import org.apache.commons.csv.CSVPrinter;
 
 import java.io.StringWriter;
 import java.math.BigDecimal;
@@ -216,25 +214,21 @@ public class PayoutBatchService {
         try {
             List<BatchPayout> payouts = batchPayoutRepository.findByBatchId(batchId);
             
-            StringWriter sw = new StringWriter();
-            CSVFormat csvFormat = CSVFormat.DEFAULT
-                    .withHeader("Account Number", "IFSC Code", "Account Holder", "Amount (INR)", "Reference");
-
-            CSVPrinter printer = new CSVPrinter(sw, csvFormat);
+            // Generate CSV with header row
+            StringBuilder csv = new StringBuilder();
+            csv.append("Account Number,IFSC Code,Account Holder,Amount (INR),Reference\n");
 
             for (BatchPayout payout : payouts) {
                 UserBankDetails bank = payout.getBankDetail();
-                printer.printRecord(
-                    bank.getAccountNumber(),
-                    bank.getIfscCode(),
-                    bank.getAccountHolderName(),
-                    payout.getAmount(),
-                    payout.getTransactionReference() != null ? payout.getTransactionReference() : batch.getId() + "-" + payout.getId()
-                );
+                String reference = payout.getTransactionReference() != null ? payout.getTransactionReference() : batch.getId() + "-" + payout.getId();
+                csv.append(escapeCsvValue(bank.getAccountNumber())).append(",")
+                   .append(escapeCsvValue(bank.getIfscCode())).append(",")
+                   .append(escapeCsvValue(bank.getAccountHolderName())).append(",")
+                   .append(payout.getAmount()).append(",")
+                   .append(escapeCsvValue(reference)).append("\n");
             }
 
-            printer.flush();
-            String csvContent = sw.toString();
+            String csvContent = csv.toString();
 
             // Log CSV export
             logAuditAction(batch, null, "CSV_EXPORTED", requester, 
@@ -337,5 +331,17 @@ public class PayoutBatchService {
 
     public List<PayoutAudit> getBatchAuditLog(Long batchId) {
         return payoutAuditRepository.findByBatchIdOrderByTimestampDesc(batchId);
+    }
+
+    /**
+     * Escape CSV values (simple implementation for security)
+     * Wraps in quotes if contains comma, quote, or newline
+     */
+    private String escapeCsvValue(String value) {
+        if (value == null) return "";
+        if (value.contains(",") || value.contains("\"") || value.contains("\n")) {
+            return "\"" + value.replace("\"", "\"\"") + "\"";
+        }
+        return value;
     }
 }

@@ -132,6 +132,8 @@ public class SecurityConfig {
         configuration.setAllowedOriginPatterns(Arrays.asList(
             "https://farm-eazy.com",
             "https://www.farm-eazy.com",
+            "https://support.farm-eazy.com",
+            "https://admin.farm-eazy.com",
             "https://*.vercel.app",
             "https://farm-eazy-backend.onrender.com",
             "http://localhost:4200",

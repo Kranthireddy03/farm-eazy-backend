@@ -96,6 +96,13 @@
             <scope>runtime</scope>
         </dependency>
 
+        <!-- Apache Commons CSV (for batch payout CSV export) -->
+        <dependency>
+            <groupId>org.apache.commons</groupId>
+            <artifactId>commons-csv</artifactId>
+            <version>1.10.0</version>
+        </dependency>
+
         <!-- JWT -->
         <dependency>
             <groupId>io.jsonwebtoken</groupId>

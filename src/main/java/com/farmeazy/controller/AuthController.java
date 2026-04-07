@@ -26,6 +26,8 @@ import jakarta.servlet.http.HttpServletRequest;
 @CrossOrigin(origins = {
     "https://farm-eazy.com",
     "https://www.farm-eazy.com",
+    "https://support.farm-eazy.com",
+    "https://admin.farm-eazy.com",
     "http://localhost:4200",
     "http://localhost:3000",
     "http://localhost:3001",
