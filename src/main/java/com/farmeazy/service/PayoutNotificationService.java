@@ -5,6 +5,7 @@ import com.farmeazy.repository.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.mail.javamail.MimeMessageHelper;
@@ -34,6 +35,7 @@ public class PayoutNotificationService {
     private static final Logger log = LoggerFactory.getLogger(PayoutNotificationService.class);
 
     @Autowired(required = false)
+    @Qualifier("supportMailSender")
     private JavaMailSender mailSender;
 
     @Autowired
