@@ -3,6 +3,8 @@ package com.farmeazy.repository;
 import com.farmeazy.entity.PayoutBatch;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Repository;
 
 import java.time.LocalDate;
@@ -26,6 +28,16 @@ public interface PayoutBatchRepository extends JpaRepository<PayoutBatch, Long> 
      * Get all batches by status
      */
     List<PayoutBatch> findByStatusOrderByCreatedAtDesc(PayoutBatch.BatchStatus status);
+
+    /**
+     * Paginated list by status (latest first)
+     */
+    Page<PayoutBatch> findByStatusOrderByCreatedAtDesc(PayoutBatch.BatchStatus status, Pageable pageable);
+
+    /**
+     * Paginated list of all batches (latest first)
+     */
+    Page<PayoutBatch> findAllByOrderByCreatedAtDesc(Pageable pageable);
 
     /**
      * Get all pending/approved batches for admin review

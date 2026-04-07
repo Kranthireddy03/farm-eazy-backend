@@ -84,6 +84,7 @@ public class SecurityConfig {
                 .requestMatchers(HttpMethod.GET, "/api/public/**").permitAll()
                 .requestMatchers(HttpMethod.POST, "/api/public/**").permitAll()
                 .requestMatchers(HttpMethod.POST, "/api/public/support-message").permitAll()
+                .requestMatchers("/api/admin/**").hasRole("ADMIN")
                 .requestMatchers(HttpMethod.POST, "/api/payment/webhook").permitAll()
                 .requestMatchers(HttpMethod.POST, "/api/razorpay/webhook/bank-verification").permitAll()
                 .requestMatchers(HttpMethod.GET, "/api/products/media/**").permitAll()

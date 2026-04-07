@@ -8,12 +8,13 @@ import com.farmeazy.repository.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.io.StringWriter;
 import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -327,6 +328,25 @@ public class PayoutBatchService {
     public PayoutBatch getBatchById(Long batchId) {
         return payoutBatchRepository.findById(batchId)
                 .orElseThrow(() -> new ResourceNotFoundException("Batch not found: " + batchId));
+    }
+
+    public Page<PayoutBatch> getBatches(PayoutBatch.BatchStatus status, Pageable pageable) {
+        if (status != null) {
+            return payoutBatchRepository.findByStatusOrderByCreatedAtDesc(status, pageable);
+        }
+        return payoutBatchRepository.findAllByOrderByCreatedAtDesc(pageable);
+    }
+
+    public List<BatchPayout> getBatchPayouts(Long batchId) {
+        getBatchById(batchId);
+        return batchPayoutRepository.findByBatchId(batchId);
+    }
+
+    @Transactional
+    public PayoutBatch updateBatchNotes(Long batchId, String notes) {
+        PayoutBatch batch = getBatchById(batchId);
+        batch.setNotes(notes);
+        return payoutBatchRepository.save(batch);
     }
 
     public List<PayoutAudit> getBatchAuditLog(Long batchId) {
