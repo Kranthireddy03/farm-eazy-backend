@@ -74,6 +74,9 @@ public class BankVerificationService {
     private UserRepository userRepository;
 
     @Autowired
+    private UserBankDetailsRepository userBankDetailsRepository;
+
+    @Autowired
     private CommunicationLogRepository communicationLogRepository;
 
     @Autowired
@@ -146,6 +149,8 @@ public class BankVerificationService {
         
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new ResourceNotFoundException("User not found: " + userId));
+
+        upsertUserBankDetailsForVerification(user, dto);
         
         // Check rate limits
         BankVerificationLimit limit = getOrCreateLimit(user);
@@ -241,6 +246,8 @@ public class BankVerificationService {
             request.setStatus(VerificationStatus.VERIFIED);
             request.setVerifiedAt(LocalDateTime.now());
             verificationRepository.save(request);
+
+            markUserBankDetailsVerified(request.getUser());
             
             logger.info("BANK_VERIFY_CONFIRMED: verificationNumber={}", verificationNumber);
             auditLogger.info("BANK_VERIFICATION_COMPLETED: verificationNumber={}, userId={}",
@@ -555,6 +562,47 @@ public class BankVerificationService {
         sendVerificationResultNotification(request, true);
     }
 
+    private void upsertUserBankDetailsForVerification(User user, BankVerificationRequestDto dto) {
+        if (user == null || dto == null || dto.getVerificationType() == null) {
+            return;
+        }
+
+        if (!VerificationType.BANK_ACCOUNT.name().equalsIgnoreCase(dto.getVerificationType())) {
+            return;
+        }
+
+        if (dto.getAccountNumber() == null || dto.getAccountNumber().isBlank()) {
+            return;
+        }
+
+        UserBankDetails details = userBankDetailsRepository.findByUserId(user.getId())
+                .orElseGet(UserBankDetails::new);
+
+        details.setUser(user);
+        details.setAccountHolderName(dto.getAccountHolderName());
+        details.setAccountNumber(dto.getAccountNumber());
+        details.setIfscCode(dto.getIfscCode());
+        details.setBankName(dto.getBankName());
+        details.setBranchName(dto.getBranchName());
+        details.setIsPrimary(true);
+        details.setIsVerified(false);
+        details.setVerificationDate(null);
+
+        userBankDetailsRepository.save(details);
+    }
+
+    private void markUserBankDetailsVerified(User user) {
+        if (user == null) {
+            return;
+        }
+
+        userBankDetailsRepository.findByUserId(user.getId()).ifPresent(details -> {
+            details.setIsVerified(true);
+            details.setVerificationDate(LocalDateTime.now());
+            userBankDetailsRepository.save(details);
+        });
+    }
+
     // ========== RATE LIMIT MANAGEMENT ==========
 
     /**
@@ -665,7 +713,13 @@ public class BankVerificationService {
                     request.getTransferReferenceId(),
                     request.getAccountNumberMasked() != null ? request.getAccountNumberMasked() : request.getUpiIdMasked(),
                     success,
-                    request.getTransferErrorMessage());
+                    request.getTransferErrorMessage(),
+                    request.getAccountHolderName(),
+                    request.getBankName(),
+                    request.getIfscCode(),
+                    request.getVerifiedAt() != null ? request.getVerifiedAt() : request.getUpdatedAt(),
+                    "FarmEazy Verification Engine",
+                    request.getStatus() != null ? request.getStatus().name() : null);
             emailSent = true;
         } catch (Exception emailEx) {
             logger.error("BANK_VERIFY_EMAIL_FAILED: verificationNumber={}, error={}",

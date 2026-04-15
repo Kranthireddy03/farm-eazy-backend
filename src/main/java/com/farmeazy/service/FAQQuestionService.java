@@ -14,6 +14,9 @@ import com.farmeazy.dto.FAQQuestionDto;
 import com.farmeazy.entity.FAQQuestion;
 import com.farmeazy.repository.FAQQuestionRepository;
 import com.farmeazy.entity.FAQCommunication;
+import org.springframework.core.io.ClassPathResource;
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.time.OffsetDateTime;
 import java.time.Duration;
 import java.util.List;
@@ -342,19 +345,21 @@ public class FAQQuestionService {
                 ? "<p style='text-align:center; margin:24px 0 0;'><a href='" + ctaUrl + "' style='display:inline-block; padding:12px 22px; background:#0b72f5; color:#fff; border-radius:8px; text-decoration:none; font-weight:700;'>" + escapeHtml(ctaText) + "</a></p>"
                 : "";
 
-        return "<div style='font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, sans-serif; background:#f4f6fb; padding:24px;'>" +
-                "<div style='max-width:640px; margin:0 auto; background:#ffffff; border-radius:16px; overflow:hidden; box-shadow:0 5px 20px rgba(30, 40, 60, .08);'>" +
-                "<div style='padding:20px; background:linear-gradient(140deg, #0b72f5 0%, #10b981 100%); color:#fff;'>" +
-                "<h2 style='margin:0; font-size:22px; font-weight:800; letter-spacing:.4px;'>" + escapeHtml(title) + "</h2>" +
-                "</div>" +
-                "<div style='padding:20px; color:#1f2937; line-height:1.6; font-size:15px;'>" +
-                "<p style='margin:0 0 12px; color:#374151;'>" + escapeHtml(intro) + "</p>" +
-                detailsSection +
-                section +
-                button +
-                "<hr style='margin:24px 0; border:none; border-top:1px solid #e5e7eb;'/>" +
-                "<p style='margin:0; font-size:13px; color:#6b7280;'>Need help? Contact <a href='mailto:support@farm-eazy.com'>support@farm-eazy.com</a>.</p>" +
-                "</div></div></div>";
+        return loadEmailTemplate("faq-notification.html")
+                .replace("{{TITLE}}", escapeHtml(title))
+                .replace("{{INTRO}}", escapeHtml(intro))
+                .replace("{{DETAILS_SECTION}}", detailsSection)
+                .replace("{{SECTION}}", section)
+                .replace("{{BUTTON}}", button);
+    }
+
+    private String loadEmailTemplate(String templateName) {
+        try {
+            ClassPathResource resource = new ClassPathResource("templates/emails/" + templateName);
+            return new String(resource.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+        } catch (IOException ex) {
+            throw new RuntimeException("Unable to load email template: " + templateName, ex);
+        }
     }
 
     public List<FAQQuestionDto> getQuestionsForUser(String email, String userId) {

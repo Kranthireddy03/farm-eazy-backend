@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Secure Authentication Code</title>
+</head>
+<body style="margin:0; padding:0; background-color:#f5f7fa; font-family:Arial, Helvetica, sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="padding:30px 0;">
+    <tr>
+      <td align="center">
+        <table width="600" cellpadding="0" cellspacing="0" style="background:#ffffff; border:1px solid #d9dee3; border-radius:6px; overflow:hidden;">
+          <tr>
+            <td style="background:#002a5c; padding:18px 24px; color:#ffffff; font-size:18px; font-weight:bold;">
+              {{APP_NAME}} | Secure Access
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:25px 30px; border-bottom:1px solid #e6e9ed;">
+              <h2 style="margin:0; font-size:20px; color:#1a202c;">
+                One-Time Password (OTP) Verification
+              </h2>
+              <p style="margin:8px 0 0 0; font-size:13px; color:#4a5568;">
+                This is an automated message regarding your secure login request.
+              </p>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:25px 30px; color:#2d3748; font-size:14px; line-height:1.6;">
+              <p>Dear {{USER_NAME}},</p>
+              <p>
+                We have received a request to access your {{APP_NAME}} account.
+                Please use the One-Time Password (OTP) below to proceed.
+              </p>
+              <table width="100%" cellpadding="0" cellspacing="0" style="margin:25px 0;">
+                <tr>
+                  <td align="center">
+                    <div style="display:inline-block; padding:16px 36px; font-size:26px; letter-spacing:8px; font-weight:bold; background:#f1f5f9; border:1px dashed #94a3b8; border-radius:6px;">
+                      {{OTP_CODE}}
+                    </div>
+                  </td>
+                </tr>
+              </table>
+              <p style="text-align:center; font-size:13px; color:#718096;">
+                Valid for <strong>{{OTP_EXPIRY_MINUTES}} minutes</strong>
+              </p>
+              <hr style="border:none; border-top:1px solid #e2e8f0; margin:25px 0;">
+              <h4 style="margin:0 0 10px 0;">Request Details:</h4>
+              <table width="100%" style="font-size:13px; color:#4a5568;">
+                {{REQUEST_DETAILS_ROWS}}
+              </table>
+              <div style="text-align:center; margin:30px 0;">
+                <a href="{{LOGIN_URL}}" style="background:#002a5c; color:#ffffff; padding:12px 28px; text-decoration:none; border-radius:4px; font-size:14px;">
+                  Continue Secure Login
+                </a>
+              </div>
+              <div style="background:#fff5f5; border-left:4px solid #e53e3e; padding:12px; font-size:13px; color:#742a2a;">
+                If you did NOT initiate this request, please reset your password immediately and contact support.
+              </div>
+            </td>
+          </tr>
+          <tr>
+            <td style="background:#f9fafb; padding:20px 30px; font-size:12px; color:#6b7280;">
+              <p style="margin:0 0 8px 0;">
+                <strong>Security Advisory:</strong><br>
+                Never share your OTP with anyone.<br>
+                {{APP_NAME}} will never ask for your OTP via phone or email.<br>
+                Always ensure you are accessing our official website.
+              </p>
+              <p style="margin:10px 0;">
+                Reset Password:
+                <a href="{{RESET_PASSWORD_URL}}" style="color:#002a5c;">{{RESET_PASSWORD_URL}}</a>
+              </p>
+              <p style="margin:10px 0;">
+                Support: {{SUPPORT_EMAIL}}<br>
+                Website: {{WEBSITE_URL}}
+              </p>
+              <p style="margin-top:15px;">
+                &copy; {{YEAR}} {{APP_NAME}}. All rights reserved.
+              </p>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>

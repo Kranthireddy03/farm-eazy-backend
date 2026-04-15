@@ -66,6 +66,7 @@ public class ProductCreateDto {
     private Integer deliveryDaysMin = 3;
     @Min(value = 1, message = "Maximum delivery days must be at least 1")
     private Integer deliveryDaysMax = 5;
+    private Long deliveryLocationId;
     // Removed imageUrls and videoUrls; only upload files
 
         // Vendor Transparency Fields
@@ -191,6 +192,14 @@ public class ProductCreateDto {
 
     public void setDeliveryDaysMax(Integer deliveryDaysMax) {
         this.deliveryDaysMax = deliveryDaysMax;
+    }
+
+    public Long getDeliveryLocationId() {
+        return deliveryLocationId;
+    }
+
+    public void setDeliveryLocationId(Long deliveryLocationId) {
+        this.deliveryLocationId = deliveryLocationId;
     }
 
     public String getContactEmail() {

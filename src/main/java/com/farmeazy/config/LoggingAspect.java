@@ -6,6 +6,7 @@ import org.aspectj.lang.annotation.Aspect;
 import org.aspectj.lang.annotation.Pointcut;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 /**
@@ -31,6 +32,9 @@ public class LoggingAspect {
     private static final java.util.Set<String> loggedSessions = java.util.Collections.synchronizedSet(new java.util.HashSet<>());
 
     private static final Logger log = LoggerFactory.getLogger(LoggingAspect.class);
+
+    @Value("${app.logging.trace-all:false}")
+    private boolean traceAll;
 
     /**
      * Pointcut for all controller methods
@@ -59,8 +63,10 @@ public class LoggingAspect {
                 user = auth.getName();
             }
         } catch (Exception ignore) {}
-        // Log user entry only once per session (register/login)
-        if (methodName.equals("register") || methodName.equals("login")) {
+        boolean highSignal = isHighSignalControllerMethod(className, methodName);
+
+        // Log user entry only once per session for high-signal auth entry points
+        if (highSignal && (methodName.equals("register") || methodName.equals("login") || methodName.equals("loginWithGoogle"))) {
             String sessionId = null;
             try {
                 org.springframework.web.context.request.RequestAttributes attrs = org.springframework.web.context.request.RequestContextHolder.getRequestAttributes();
@@ -75,12 +81,18 @@ public class LoggingAspect {
             } else if (sessionId == null) {
                 log.info("API_REQUEST: {}.{} user={} args={}", className, methodName, user, java.util.Arrays.toString(args));
             }
+        } else if (traceAll) {
+            log.info("API_REQUEST: {}.{} user={}", className, methodName, user);
         }
         long startTime = System.currentTimeMillis();
         try {
             Object result = joinPoint.proceed();
             long duration = System.currentTimeMillis() - startTime;
-            log.info("API_RESPONSE: {}.{} user={} duration={}ms", className, methodName, user, duration);
+            if (highSignal || traceAll) {
+                log.info("API_RESPONSE: {}.{} user={} duration={}ms", className, methodName, user, duration);
+            } else {
+                log.debug("API_RESPONSE: {}.{} user={} duration={}ms", className, methodName, user, duration);
+            }
             return result;
         } catch (Throwable ex) {
             long duration = System.currentTimeMillis() - startTime;
@@ -110,12 +122,18 @@ public class LoggingAspect {
                 user = auth.getName();
             }
         } catch (Exception ignore) {}
-        log.info("SERVICE_REQUEST: {}.{} user={} args={}", className, methodName, user, java.util.Arrays.toString(args));
+        if (traceAll || isHighSignalServiceMethod(className, methodName)) {
+            log.info("SERVICE_REQUEST: {}.{} user={} args={}", className, methodName, user, java.util.Arrays.toString(args));
+        }
         long startTime = System.currentTimeMillis();
         try {
             Object result = joinPoint.proceed();
             long duration = System.currentTimeMillis() - startTime;
-            log.info("SERVICE_RESPONSE: {}.{} user={} duration={}ms", className, methodName, user, duration);
+            if (traceAll || isHighSignalServiceMethod(className, methodName)) {
+                log.info("SERVICE_RESPONSE: {}.{} user={} duration={}ms", className, methodName, user, duration);
+            } else {
+                log.debug("SERVICE_RESPONSE: {}.{} user={} duration={}ms", className, methodName, user, duration);
+            }
             return result;
         } catch (Throwable ex) {
             long duration = System.currentTimeMillis() - startTime;
@@ -136,5 +154,32 @@ public class LoggingAspect {
                methodName.equals("equals") ||
                methodName.startsWith("lambda") ||
                methodName.contains("$");
+    }
+
+    private boolean isHighSignalControllerMethod(String className, String methodName) {
+        if (traceAll) {
+            return true;
+        }
+        if (className == null || methodName == null) {
+            return false;
+        }
+        String normalizedClass = className.toLowerCase(java.util.Locale.ROOT);
+        String normalizedMethod = methodName.toLowerCase(java.util.Locale.ROOT);
+        if (normalizedClass.contains("auth") || normalizedClass.contains("vendor") || normalizedClass.contains("payment") || normalizedClass.contains("support")) {
+            return true;
+        }
+        return normalizedMethod.contains("login") || normalizedMethod.contains("register") || normalizedMethod.contains("otp") || normalizedMethod.contains("google");
+    }
+
+    private boolean isHighSignalServiceMethod(String className, String methodName) {
+        if (traceAll) {
+            return true;
+        }
+        if (className == null || methodName == null) {
+            return false;
+        }
+        String normalizedClass = className.toLowerCase(java.util.Locale.ROOT);
+        String normalizedMethod = methodName.toLowerCase(java.util.Locale.ROOT);
+        return normalizedClass.contains("auth") || normalizedClass.contains("vendor") || normalizedClass.contains("payment") || normalizedMethod.contains("login") || normalizedMethod.contains("register") || normalizedMethod.contains("google");
     }
 }

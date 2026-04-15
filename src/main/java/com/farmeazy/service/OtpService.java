@@ -55,6 +55,11 @@ public class OtpService {
      */
     @Transactional
     public OtpResponseDto generateAndSendOtpWithDetails(OtpRequestDto dto) {
+        return generateAndSendOtpWithDetails(dto, null, null, null);
+    }
+
+    @Transactional
+    public OtpResponseDto generateAndSendOtpWithDetails(OtpRequestDto dto, String ipAddress, String location, String deviceInfo) {
         OtpResponseDto response = new OtpResponseDto();
         List<String> sentVia = new ArrayList<>();
         List<String> failedVia = new ArrayList<>();
@@ -82,7 +87,7 @@ public class OtpService {
         String userName = getUserName(dto);
 
         // 1. Send OTP via Email
-        boolean emailSent = sendOtpEmail(dto.getEmail(), userName, otpCode, dto.getPurpose());
+        boolean emailSent = sendOtpEmail(dto.getEmail(), userName, otpCode, dto.getPurpose(), ipAddress, location, deviceInfo);
         if (emailSent) {
             sentVia.add("Email");
         } else {
@@ -169,7 +174,12 @@ public class OtpService {
      */
     @Transactional
     public String generateAndSendOtp(OtpRequestDto dto) {
-        OtpResponseDto response = generateAndSendOtpWithDetails(dto);
+        return generateAndSendOtp(dto, null, null, null);
+    }
+
+    @Transactional
+    public String generateAndSendOtp(OtpRequestDto dto, String ipAddress, String location, String deviceInfo) {
+        OtpResponseDto response = generateAndSendOtpWithDetails(dto, ipAddress, location, deviceInfo);
         return response.getMessage();
     }
 
@@ -177,10 +187,15 @@ public class OtpService {
      * Send OTP email with retry
      */
     private boolean sendOtpEmail(String email, String userName, String otpCode, String purpose) {
+        return sendOtpEmail(email, userName, otpCode, purpose, null, null, null);
+    }
+
+    private boolean sendOtpEmail(String email, String userName, String otpCode, String purpose,
+                                 String ipAddress, String location, String deviceInfo) {
         int attempts = 0;
         while (attempts < 2) {
             try {
-                httpEmailService.sendOtpEmail(email, userName, otpCode, purpose);
+                httpEmailService.sendOtpEmail(email, userName, otpCode, purpose, ipAddress, location, deviceInfo);
                 return true;
             } catch (Exception e) {
                 attempts++;
@@ -310,12 +325,17 @@ public class OtpService {
      */
     @Transactional
     public OtpResponseDto generateLoginOtp(String phone) {
+        return generateLoginOtp(phone, null, null, null);
+    }
+
+    @Transactional
+    public OtpResponseDto generateLoginOtp(String phone, String ipAddress, String location, String deviceInfo) {
         OtpResponseDto response = new OtpResponseDto();
         List<String> sentVia = new ArrayList<>();
         List<String> failedVia = new ArrayList<>();
         
         // Validate phone exists in system
-        var userOpt = userRepository.findByPhone(phone);
+        var userOpt = resolveUserByPhone(phone);
         if (userOpt.isEmpty()) {
             response.setSuccess(false);
             response.setMessage("Phone number not registered");
@@ -344,7 +364,7 @@ public class OtpService {
         // Send OTP via Email to the account associated with this phone number.
         boolean emailSent = false;
         if (userEmail != null && !userEmail.isBlank()) {
-            emailSent = sendOtpEmail(userEmail, userName, otpCode, "LOGIN");
+            emailSent = sendOtpEmail(userEmail, userName, otpCode, "LOGIN", ipAddress, location, deviceInfo);
             if (emailSent) {
                 sentVia.add("Email");
             } else {
@@ -389,6 +409,18 @@ public class OtpService {
         }
         
         return response;
+    }
+
+    private Optional<com.farmeazy.entity.User> resolveUserByPhone(String phone) {
+        List<com.farmeazy.entity.User> users = userRepository.findAllByPhone(phone);
+        if (users == null || users.isEmpty()) {
+            return Optional.empty();
+        }
+
+        return users.stream()
+                .filter(user -> user.getActive() == null || user.getActive())
+                .findFirst()
+                .or(() -> users.stream().findFirst());
     }
     
     /**

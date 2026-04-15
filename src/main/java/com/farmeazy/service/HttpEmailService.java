@@ -14,6 +14,8 @@ import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.mail.SimpleMailMessage;
 import com.farmeazy.dto.CommunicationPreferenceResponseDto;
 import com.farmeazy.entity.CommunicationPreference;
+import io.github.resilience4j.circuitbreaker.CallNotPermittedException;
+import io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry;
 import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.HttpServerErrorException;
 import org.springframework.web.client.RestTemplate;
@@ -22,6 +24,10 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.util.Base64;
 
 /**
  * HTTP-based Email Service using Resend API
@@ -76,6 +82,9 @@ public class HttpEmailService {
     @Autowired
     @Qualifier("supportMailSender")
     private JavaMailSender supportSender;
+
+    @Autowired(required = false)
+    private CircuitBreakerRegistry circuitBreakerRegistry;
 
     /**
      * Select appropriate JavaMailSender based on sender type.
@@ -146,331 +155,70 @@ public class HttpEmailService {
     // ...existing code...
     // --- STUBS FOR MISSING NOTIFICATION METHODS ---
     public boolean sendProductUpdateConfirmation(String userEmail, String userName, String productName, String category, Double price, Integer quantity, String unit) {
-        String subject = "Product Updated Successfully - " + productName;
-        String html = String.format("""
-            <!DOCTYPE html>
-            <html>
-            <head>
-                <style>
-                    body { font-family: 'Segoe UI', Arial, sans-serif; line-height: 1.6; color: #333; margin: 0; padding: 0; }
-                    .container { max-width: 650px; margin: 0 auto; background: #ffffff; }
-                    .header { background: linear-gradient(135deg, #f59e0b 0%%, #d97706 100%%); color: white; padding: 40px 30px; text-align: center; }
-                    .header h1 { margin: 0; font-size: 28px; font-weight: 700; }
-                    .header p { margin: 10px 0 0 0; opacity: 0.9; font-size: 14px; }
-                    .content { padding: 40px 30px; background: #fafafa; }
-                    .greeting { font-size: 18px; color: #111827; margin-bottom: 20px; }
-                    .message { color: #4b5563; margin-bottom: 30px; line-height: 1.8; }
-                    .details-card { background: white; border-radius: 12px; padding: 25px; margin: 25px 0; box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
-                    .card-title { font-size: 20px; font-weight: 700; color: #f59e0b; margin: 0 0 20px 0; border-bottom: 2px solid #f59e0b; padding-bottom: 10px; }
-                    table { width: 100%%; border-collapse: collapse; }
-                    td { padding: 12px 0; border-bottom: 1px solid #e5e7eb; }
-                    td:first-child { color: #6b7280; font-weight: 500; width: 40%%; }
-                    td:last-child { color: #111827; font-weight: 600; text-align: right; }
-                    tr:last-child td { border-bottom: none; }
-                    .price-highlight { font-size: 24px; color: #f59e0b; font-weight: 700; }
-                    .button { display: inline-block; background: linear-gradient(135deg, #f59e0b, #d97706); color: white; padding: 14px 32px; text-decoration: none; border-radius: 8px; margin: 25px 0; font-weight: 600; font-size: 16px; box-shadow: 0 4px 6px rgba(245, 158, 11, 0.25); }
-                    .button:hover { background: linear-gradient(135deg, #d97706, #b45309); }
-                    .info-box { background: #dbeafe; border-left: 4px solid #3b82f6; padding: 16px; border-radius: 6px; margin: 25px 0; }
-                    .info-box p { margin: 0; color: #1e40af; font-size: 14px; }
-                    .footer { background: #111827; color: #9ca3af; padding: 30px; text-align: center; font-size: 14px; }
-                    .footer a { color: #f59e0b; text-decoration: none; }
-                </style>
-            </head>
-            <body>
-                <div class="container">
-                    <div class="header">
-                        <h1>✏️ Product Updated</h1>
-                        <p>Your listing has been successfully updated</p>
-                    </div>
-                    <div class="content">
-                        <div class="greeting">Hello %s! 👋</div>
-                        <div class="message">
-                            Your product listing has been successfully updated on FarmEazy marketplace. Buyers can now see your latest changes!
-                        </div>
+    String subject = "Product Updated Successfully - " + productName;
+    String details = "Product Name: " + safeValue(productName) + "\n"
+            + "Category: " + safeValue(category) + "\n"
+            + "Price: Rs " + (price != null ? String.format("%.2f", price) : "N/A") + "\n"
+            + "Quantity: " + (quantity != null ? quantity : 0) + " " + safeValue(unit);
 
-                        <div class="details-card">
-                            <h2 class="card-title">📦 Updated Product Details</h2>
-                            <table>
-                                <tr>
-                                    <td>Product Name</td>
-                                    <td>%s</td>
-                                </tr>
-                                <tr>
-                                    <td>Category</td>
-                                    <td>%s</td>
-                                </tr>
-                                <tr>
-                                    <td>Price per Unit</td>
-                                    <td class="price-highlight">₹%s</td>
-                                </tr>
-                                <tr>
-                                    <td>Available Quantity</td>
-                                    <td>%d %s</td>
-                                </tr>
-                            </table>
-                        </div>
-                        <div class="info-box">
-                            <p><strong>💡 Tip:</strong> Keep your product details updated to attract more buyers!</p>
-                        </div>
-                        <center>
-                            <a href="%s/selling" class="button">View My Listings</a>
-                        </center>
-                        <div class="message" style="margin-top: 30px; font-size: 14px; color: #6b7280;">
-                            Your product is now live on the marketplace. Buyers searching for "%s" will find your listing.
-                        </div>
-                    </div>
-                    <div class="footer">
-                        <p><strong>FarmEazy</strong> - Smart Farm Management</p>
-                        <p style="margin-top: 10px;">
-                            <a href="%s">Visit Website</a> |
-                            <a href="%s/support">Support</a>
-                        </p>
-                        <p style="margin-top: 15px; font-size: 12px;">© 2026 FarmEazy. All rights reserved.</p>
-                    </div>
-                </div>
-            </body>
-            </html>
-            """, userName, productName, category, price, quantity, unit, appBaseUrl, appBaseUrl, appBaseUrl);
-        return sendEmail(userEmail, subject, html);
-    }
+    String html = buildEventEmailHtml(
+            "Product Listing Updated",
+            "Hello " + safeValue(userName) + ", your product listing was updated successfully.",
+            details,
+            "View My Listings",
+            resolveEmailUrl("public", "/selling")
+    );
+    return sendEmail(userEmail, subject, html);
+}
 
     public boolean sendProductDeleteConfirmation(String userEmail, String userName, String productName, String category, Double price, Integer quantity, String unit) {
-        String subject = "Product Removed - " + productName;
-        String html = String.format("""
-            <!DOCTYPE html>
-            <html>
-            <head>
-                <style>
-                    body { font-family: 'Segoe UI', Arial, sans-serif; line-height: 1.6; color: #333; margin: 0; padding: 0; }
-                    .container { max-width: 650px; margin: 0 auto; background: #ffffff; }
-                    .header { background: linear-gradient(135deg, #ef4444 0%%, #dc2626 100%%); color: white; padding: 40px 30px; text-align: center; }
-                    .header h1 { margin: 0; font-size: 28px; font-weight: 700; }
-                    .header p { margin: 10px 0 0 0; opacity: 0.9; font-size: 14px; }
-                    .content { padding: 40px 30px; background: #fafafa; }
-                    .greeting { font-size: 18px; color: #111827; margin-bottom: 20px; }
-                    .message { color: #4b5563; margin-bottom: 30px; line-height: 1.8; }
-                    .details-card { background: white; border-radius: 12px; padding: 25px; margin: 25px 0; box-shadow: 0 2px 8px rgba(0,0,0,0.08); border-left: 4px solid #ef4444; }
-                    .card-title { font-size: 20px; font-weight: 700; color: #ef4444; margin: 0 0 20px 0; }
-                    table { width: 100%%; border-collapse: collapse; }
-                    td { padding: 12px 0; border-bottom: 1px solid #e5e7eb; }
-                    td:first-child { color: #6b7280; font-weight: 500; width: 40%%; }
-                    td:last-child { color: #111827; font-weight: 600; text-align: right; }
-                    tr:last-child td { border-bottom: none; }
-                    .button { display: inline-block; background: linear-gradient(135deg, #22c55e, #16a34a); color: white; padding: 14px 32px; text-decoration: none; border-radius: 8px; margin: 25px 0; font-weight: 600; font-size: 16px; }
-                    .footer { background: #111827; color: #9ca3af; padding: 30px; text-align: center; font-size: 14px; }
-                    .footer a { color: #f59e0b; text-decoration: none; }
-                </style>
-            </head>
-            <body>
-                <div class="container">
-                    <div class="header">
-                        <h1>🗑️ Product Removed</h1>
-                        <p>Your listing has been removed from marketplace</p>
-                    </div>
-                    <div class="content">
-                        <div class="greeting">Hello %s,</div>
-                        <div class="message">
-                            Your product has been successfully removed from FarmEazy marketplace. This product is no longer visible to buyers.
-                        </div>
+    String subject = "Product Removed - " + productName;
+    String details = "Product Name: " + safeValue(productName) + "\n"
+            + "Category: " + safeValue(category) + "\n"
+            + "Price: Rs " + (price != null ? String.format("%.2f", price) : "N/A") + "\n"
+            + "Quantity: " + (quantity != null ? quantity : 0) + " " + safeValue(unit);
 
-                        <div class="details-card">
-                            <h2 class="card-title">📦 Removed Product Details</h2>
-                            <table>
-                                <tr>
-                                    <td>Product Name</td>
-                                    <td>%s</td>
-                                </tr>
-                                <tr>
-                                    <td>Category</td>
-                                    <td>%s</td>
-                                </tr>
-                                <tr>
-                                    <td>Price per Unit</td>
-                                    <td>₹%s</td>
-                                </tr>
-                                <tr>
-                                    <td>Quantity</td>
-                                    <td>%d %s</td>
-                                </tr>
-                            </table>
-                        </div>
-
-                        <div class="message" style="font-size: 14px; color: #6b7280;">
-                            If you removed this product by mistake, you can list it again from your seller dashboard.
-                        </div>
-
-                        <center>
-                            <a href="%s/selling" class="button">Add New Product</a>
-                        </center>
-                    </div>
-                    <div class="footer">
-                        <p><strong>FarmEazy</strong> - Smart Farm Management</p>
-                        <p style="margin-top: 10px;">
-                            <a href="%s">Visit Website</a> |
-                            <a href="%s/support">Support</a>
-                        </p>
-                        <p style="margin-top: 15px; font-size: 12px;">© 2026 FarmEazy. All rights reserved.</p>
-                    </div>
-                </div>
-            </body>
-            </html>
-            """, userName, productName, category, price, quantity, unit, appBaseUrl, appBaseUrl, appBaseUrl);
-        return sendEmail(userEmail, subject, html);
-    }
+    String html = buildEventEmailHtml(
+            "Product Listing Removed",
+            "Hello " + safeValue(userName) + ", your product listing was removed from marketplace.",
+            details,
+            "Add New Product",
+            resolveEmailUrl("public", "/selling")
+    );
+    return sendEmail(userEmail, subject, html);
+}
 
     public boolean sendCoinEarnedNotification(String userEmail, String userName, Integer amount, Integer totalCoins, String reason) {
-        String subject = "🪙 Coins Earned - FarmEazy";
-        String html = String.format("""
-            <!DOCTYPE html>
-            <html>
-            <head>
-                <style>
-                    body { font-family: 'Segoe UI', Arial, sans-serif; line-height: 1.6; color: #333; margin: 0; padding: 0; }
-                    .container { max-width: 650px; margin: 0 auto; background: #ffffff; }
-                    .header { background: linear-gradient(135deg, #fbbf24 0%%, #f59e0b 100%%); color: white; padding: 40px 30px; text-align: center; }
-                    .header h1 { margin: 0; font-size: 28px; font-weight: 700; }
-                    .coin-display { font-size: 60px; margin: 20px 0; }
-                    .content { padding: 40px 30px; background: #fafafa; }
-                    .greeting { font-size: 18px; color: #111827; margin-bottom: 20px; }
-                    .details-card { background: white; border-radius: 12px; padding: 25px; margin: 25px 0; box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
-                    table { width: 100%%; border-collapse: collapse; }
-                    td { padding: 12px 0; border-bottom: 1px solid #e5e7eb; }
-                    td:first-child { color: #6b7280; font-weight: 500; width: 50%%; }
-                    td:last-child { color: #111827; font-weight: 700; text-align: right; font-size: 18px; }
-                    tr:last-child td { border-bottom: none; }
-                    .total-row td { color: #f59e0b; font-size: 24px; padding-top: 20px; border-top: 2px solid #f59e0b; }
-                    .button { display: inline-block; background: linear-gradient(135deg, #fbbf24, #f59e0b); color: white; padding: 14px 32px; text-decoration: none; border-radius: 8px; margin: 25px 0; font-weight: 600; font-size: 16px; }
-                    .footer { background: #111827; color: #9ca3af; padding: 30px; text-align: center; font-size: 14px; }
-                    .footer a { color: #fbbf24; text-decoration: none; }
-                </style>
-            </head>
-            <body>
-                <div class="container">
-                    <div class="header">
-                        <h1>🎉 Congratulations!</h1>
-                        <div class="coin-display">🪙</div>
-                        <p style="font-size: 18px; margin: 0;">You've earned %d coins!</p>
-                    </div>
-                    <div class="content">
-                        <div class="greeting">Hello %s! 👋</div>
+    String subject = "Coins Earned - FarmEazy";
+        String template = loadEmailTemplate("templates/emails/coin-earned.html");
+        Map<String, String> placeholders = new HashMap<>();
+        placeholders.put("APP_NAME", "FarmEazy");
+        placeholders.put("USER_NAME", safeValue(userName));
+        placeholders.put("COINS_EARNED", String.valueOf(amount != null ? amount : 0));
+        placeholders.put("REASON", safeValue(reason));
+        placeholders.put("TOTAL_COINS", String.valueOf(totalCoins != null ? totalCoins : 0));
+        placeholders.put("ACTIVITY_URL", resolveEmailUrl("public", "/activities"));
+        placeholders.put("YEAR", String.valueOf(java.time.Year.now().getValue()));
 
-                        <div class="details-card">
-                            <table>
-                                <tr>
-                                    <td>Coins Earned</td>
-                                    <td>+%d 🪙</td>
-                                </tr>
-                                <tr>
-                                    <td>Reason</td>
-                                    <td>%s</td>
-                                </tr>
-                                <tr class="total-row">
-                                    <td>Total Balance</td>
-                                    <td>%d 🪙</td>
-                                </tr>
-                            </table>
-                        </div>
-
-                        <div style="background: #dbeafe; border-left: 4px solid #3b82f6; padding: 16px; border-radius: 6px; margin: 25px 0;">
-                            <p style="margin: 0; color: #1e40af; font-size: 14px;">
-                                <strong>💡 Use your coins:</strong> Apply coins as discount on your next order. 1 coin = ₹1 discount!
-                            </p>
-                        </div>
-
-                        <center>
-                            <a href="%s/buying" class="button">Start Shopping</a>
-                        </center>
-                    </div>
-                    <div class="footer">
-                        <p><strong>FarmEazy</strong> - Smart Farm Management</p>
-                        <p style="margin-top: 10px;">
-                            <a href="%s">Visit Website</a> |
-                            <a href="%s/activities">View Activity</a>
-                        </p>
-                        <p style="margin-top: 15px; font-size: 12px;">© 2026 FarmEazy. All rights reserved.</p>
-                    </div>
-                </div>
-            </body>
-            </html>
-            """, amount, userName, amount, reason, totalCoins, appBaseUrl, appBaseUrl, appBaseUrl);
-        return sendEmail(userEmail, subject, html);
-    }
+        String html = replacePlaceholders(template, placeholders);
+    return sendEmail(userEmail, subject, html);
+}
 
     public boolean sendCoinSpentNotification(String userEmail, String userName, Integer amount, Integer totalCoins) {
-        String subject = "Coins Used - FarmEazy";
-        String html = String.format("""
-            <!DOCTYPE html>
-            <html>
-            <head>
-                <style>
-                    body { font-family: 'Segoe UI', Arial, sans-serif; line-height: 1.6; color: #333; margin: 0; padding: 0; }
-                    .container { max-width: 650px; margin: 0 auto; background: #ffffff; }
-                    .header { background: linear-gradient(135deg, #6366f1 0%%, #4f46e5 100%%); color: white; padding: 40px 30px; text-align: center; }
-                    .header h1 { margin: 0; font-size: 28px; font-weight: 700; }
-                    .content { padding: 40px 30px; background: #fafafa; }
-                    .greeting { font-size: 18px; color: #111827; margin-bottom: 20px; }
-                    .details-card { background: white; border-radius: 12px; padding: 25px; margin: 25px 0; box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
-                    table { width: 100%%; border-collapse: collapse; }
-                    td { padding: 12px 0; border-bottom: 1px solid #e5e7eb; }
-                    td:first-child { color: #6b7280; font-weight: 500; width: 50%%; }
-                    td:last-child { color: #111827; font-weight: 700; text-align: right; font-size: 18px; }
-                    tr:last-child td { border-bottom: none; }
-                    .total-row td { color: #6366f1; font-size: 24px; padding-top: 20px; border-top: 2px solid #6366f1; }
-                    .button { display: inline-block; background: linear-gradient(135deg, #fbbf24, #f59e0b); color: white; padding: 14px 32px; text-decoration: none; border-radius: 8px; margin: 25px 0; font-weight: 600; font-size: 16px; }
-                    .footer { background: #111827; color: #9ca3af; padding: 30px; text-align: center; font-size: 14px; }
-                    .footer a { color: #fbbf24; text-decoration: none; }
-                </style>
-            </head>
-            <body>
-                <div class="container">
-                    <div class="header">
-                        <h1>💳 Coins Redeemed</h1>
-                        <p style="margin: 10px 0 0 0; font-size: 14px;">You saved money with your coins!</p>
-                    </div>
-                    <div class="content">
-                        <div class="greeting">Hello %s! 👋</div>
+    String subject = "Coins Used - FarmEazy";
+        String template = loadEmailTemplate("templates/emails/coin-spent.html");
+        Map<String, String> placeholders = new HashMap<>();
+        placeholders.put("APP_NAME", "FarmEazy");
+        placeholders.put("USER_NAME", safeValue(userName));
+        placeholders.put("COINS_SPENT", String.valueOf(amount != null ? amount : 0));
+        placeholders.put("DISCOUNT_VALUE", String.valueOf(amount != null ? amount : 0));
+        placeholders.put("REMAINING_COINS", String.valueOf(totalCoins != null ? totalCoins : 0));
+        placeholders.put("ACTIVITY_URL", resolveEmailUrl("public", "/activities"));
+        placeholders.put("YEAR", String.valueOf(java.time.Year.now().getValue()));
 
-                        <div class="details-card">
-                            <table>
-                                <tr>
-                                    <td>Coins Used</td>
-                                    <td>-%d 🪙</td>
-                                </tr>
-                                <tr>
-                                    <td>Discount Applied</td>
-                                    <td>₹%d</td>
-                                </tr>
-                                <tr class="total-row">
-                                    <td>Remaining Balance</td>
-                                    <td>%d 🪙</td>
-                                </tr>
-                            </table>
-                        </div>
-
-                        <div style="background: #d1fae5; border-left: 4px solid #10b981; padding: 16px; border-radius: 6px; margin: 25px 0;">
-                            <p style="margin: 0; color: #065f46; font-size: 14px;">
-                                <strong>💚 Great choice!</strong> Keep completing activities to earn more coins and save on future purchases!
-                            </p>
-                        </div>
-
-                        <center>
-                            <a href="%s/activities" class="button">Earn More Coins</a>
-                        </center>
-                    </div>
-                    <div class="footer">
-                        <p><strong>FarmEazy</strong> - Smart Farm Management</p>
-                        <p style="margin-top: 10px;">
-                            <a href="%s">Visit Website</a> |
-                            <a href="%s/orders">My Orders</a>
-                        </p>
-                        <p style="margin-top: 15px; font-size: 12px;">© 2026 FarmEazy. All rights reserved.</p>
-                    </div>
-                </div>
-            </body>
-            </html>
-            """, userName, amount, amount, totalCoins, appBaseUrl, appBaseUrl, appBaseUrl);
-        return sendEmail(userEmail, subject, html);
-    }
+        String html = replacePlaceholders(template, placeholders);
+    return sendEmail(userEmail, subject, html);
+}
 
     // ===========================================
     // REFUND NOTIFICATION EMAILS
@@ -479,899 +227,197 @@ public class HttpEmailService {
     /**
      * Send professional refund success notification email
      */
-    public boolean sendRefundSuccessNotification(String userEmail, String userName, Long orderId, 
-            Long coinsRefunded, java.math.BigDecimal amountRefunded, String refundId, String refundType) {
-        String subject = "✅ Refund Processed Successfully - Order #FZ" + orderId;
-        auditLogger.info("EMAIL REQUEST: RefundSuccess | to={}, subject={}, orderId={}, coinsRefunded={}, amountRefunded={}, refundId={}, refundType={}", userEmail, subject, orderId, coinsRefunded, amountRefunded, refundId, refundType);
-        String coinsHtml = "";
-        if (coinsRefunded != null && coinsRefunded > 0) {
-            coinsHtml = String.format("""
-                <tr>
-                    <td>🪙 Coins Refunded</td>
-                    <td style="color: #f59e0b; font-weight: 700;">+%d coins</td>
-                </tr>
-            """, coinsRefunded);
-        }
-        
-        String amountHtml = "";
-        if (amountRefunded != null && amountRefunded.compareTo(java.math.BigDecimal.ZERO) > 0) {
-            amountHtml = String.format("""
-                <tr>
-                    <td>💰 Amount Refunded</td>
-                    <td style="color: #22c55e; font-weight: 700; font-size: 20px;">₹%.2f</td>
-                </tr>
-                <tr>
-                    <td>🏦 Refund ID</td>
-                    <td style="font-family: monospace; color: #6b7280;">%s</td>
-                </tr>
-            """, amountRefunded, refundId != null ? refundId : "N/A");
-        }
-        
-        String html = String.format("""
-            <!DOCTYPE html>
-            <html>
-            <head>
-                <style>
-                    body { font-family: 'Segoe UI', Arial, sans-serif; line-height: 1.6; color: #333; margin: 0; padding: 0; }
-                    .container { max-width: 650px; margin: 0 auto; background: #ffffff; }
-                    .header { background: linear-gradient(135deg, #22c55e 0%%, #16a34a 100%%); color: white; padding: 40px 30px; text-align: center; }
-                    .header h1 { margin: 0; font-size: 28px; font-weight: 700; }
-                    .header p { margin: 10px 0 0 0; opacity: 0.9; font-size: 14px; }
-                    .success-icon { font-size: 60px; margin: 20px 0; }
-                    .content { padding: 40px 30px; background: #fafafa; }
-                    .greeting { font-size: 18px; color: #111827; margin-bottom: 20px; }
-                    .message { color: #4b5563; margin-bottom: 30px; line-height: 1.8; }
-                    .details-card { background: white; border-radius: 12px; padding: 25px; margin: 25px 0; box-shadow: 0 2px 8px rgba(0,0,0,0.08); border-left: 4px solid #22c55e; }
-                    .card-title { font-size: 20px; font-weight: 700; color: #22c55e; margin: 0 0 20px 0; }
-                    table { width: 100%%; border-collapse: collapse; }
-                    td { padding: 12px 0; border-bottom: 1px solid #e5e7eb; }
-                    td:first-child { color: #6b7280; font-weight: 500; width: 45%%; }
-                    td:last-child { color: #111827; font-weight: 600; text-align: right; }
-                    tr:last-child td { border-bottom: none; }
-                    .timeline { background: #f0fdf4; border-radius: 8px; padding: 20px; margin: 25px 0; }
-                    .timeline-item { display: flex; align-items: center; margin: 10px 0; }
-                    .timeline-dot { width: 12px; height: 12px; background: #22c55e; border-radius: 50%%; margin-right: 15px; }
-                    .timeline-text { color: #16a34a; font-weight: 500; }
-                    .button { display: inline-block; background: linear-gradient(135deg, #22c55e, #16a34a); color: white; padding: 14px 32px; text-decoration: none; border-radius: 8px; margin: 25px 0; font-weight: 600; font-size: 16px; box-shadow: 0 4px 6px rgba(34, 197, 94, 0.25); }
-                    .info-box { background: #dbeafe; border-left: 4px solid #3b82f6; padding: 16px; border-radius: 6px; margin: 25px 0; }
-                    .info-box p { margin: 0; color: #1e40af; font-size: 14px; }
-                    .footer { background: #111827; color: #9ca3af; padding: 30px; text-align: center; font-size: 14px; }
-                    .footer a { color: #22c55e; text-decoration: none; }
-                </style>
-            </head>
-            <body>
-                <div class="container">
-                    <div class="header">
-                        <div class="success-icon">✅</div>
-                        <h1>Refund Successful!</h1>
-                        <p>Order #FZ%d | %s</p>
-                    </div>
-                    <div class="content">
-                        <div class="greeting">Hello %s! 👋</div>
-                        <div class="message">
-                            Great news! Your refund has been processed successfully. Please find the details below.
-                        </div>
+    public boolean sendRefundSuccessNotification(String userEmail, String userName, Long orderId,
+        Long coinsRefunded, java.math.BigDecimal amountRefunded, String refundId, String refundType) {
+    String subject = "Refund Processed Successfully - Order #FZ" + orderId;
+    auditLogger.info("EMAIL REQUEST: RefundSuccess | to={}, subject={}, orderId={}, coinsRefunded={}, amountRefunded={}, refundId={}, refundType={}", userEmail, subject, orderId, coinsRefunded, amountRefunded, refundId, refundType);
 
-                        <div class="details-card">
-                            <h2 class="card-title">💸 Refund Details</h2>
-                            <table>
-                                <tr>
-                                    <td>📦 Order Number</td>
-                                    <td>#FZ%d</td>
-                                </tr>
-                                <tr>
-                                    <td>📋 Refund Type</td>
-                                    <td>%s</td>
-                                </tr>
-                                %s
-                                %s
-                                <tr>
-                                    <td>📅 Processed On</td>
-                                    <td>%s</td>
-                                </tr>
-                            </table>
-                        </div>
+    String details = "Order: FZ" + (orderId != null ? orderId : 0) + "\n"
+            + "Refund Type: " + safeValue(refundType) + "\n"
+            + "Coins Refunded: " + (coinsRefunded != null ? coinsRefunded : 0) + "\n"
+            + "Amount Refunded: Rs " + (amountRefunded != null ? amountRefunded : java.math.BigDecimal.ZERO) + "\n"
+            + "Refund ID: " + safeValue(refundId);
 
-                        <div class="timeline">
-                            <div class="timeline-item">
-                                <div class="timeline-dot"></div>
-                                <div class="timeline-text">Refund request received</div>
-                            </div>
-                            <div class="timeline-item">
-                                <div class="timeline-dot"></div>
-                                <div class="timeline-text">Refund approved</div>
-                            </div>
-                            <div class="timeline-item">
-                                <div class="timeline-dot"></div>
-                                <div class="timeline-text">Refund processed ✓</div>
-                            </div>
-                        </div>
-
-                        <div class="info-box">
-                            <p><strong>⏱️ Processing Time:</strong> Bank transfers typically take 3-5 business days to reflect in your account. Coins are credited instantly.</p>
-                        </div>
-
-                        <center>
-                            <a href="%s/orders" class="button">View My Orders</a>
-                        </center>
-                    </div>
-                    <div class="footer">
-                        <p><strong>FarmEazy</strong> - Smart Farm Management</p>
-                        <p style="margin-top: 10px;">
-                            <a href="%s">Visit Website</a> |
-                            <a href="%s/support">Support</a> |
-                            <a href="%s/refund-details">Refund Settings</a>
-                        </p>
-                        <p style="margin-top: 15px; font-size: 12px;">© 2026 FarmEazy. All rights reserved.</p>
-                    </div>
-                </div>
-            </body>
-            </html>
-        """, orderId, refundType, userName, orderId, refundType, coinsHtml, amountHtml, 
-            java.time.LocalDate.now().toString(), appBaseUrl, appBaseUrl, appBaseUrl, appBaseUrl);
-        
-        return sendEmail(userEmail, subject, html);
-    }
+    String html = buildEventEmailHtml(
+            "Refund Successful",
+            "Hello " + safeValue(userName) + ", your refund has been processed successfully.",
+            details,
+            "View Orders",
+            resolveEmailUrl("public", "/orders")
+    );
+    return sendEmail(userEmail, subject, html);
+}
 
     /**
      * Send refund requested notification email
      */
-    public boolean sendRefundRequestedNotification(String userEmail, String userName, Long orderId, 
-            String refundType, String reason) {
-        String subject = "📝 Refund Request Received - Order #FZ" + orderId;
-        auditLogger.info("EMAIL REQUEST: RefundRequested | to={}, subject={}, orderId={}, refundType={}, reason={}", userEmail, subject, orderId, refundType, reason);
-        String html = String.format("""
-            <!DOCTYPE html>
-            <html>
-            <head>
-                <style>
-                    body { font-family: 'Segoe UI', Arial, sans-serif; line-height: 1.6; color: #333; margin: 0; padding: 0; }
-                    .container { max-width: 650px; margin: 0 auto; background: #ffffff; }
-                    .header { background: linear-gradient(135deg, #3b82f6 0%%, #2563eb 100%%); color: white; padding: 40px 30px; text-align: center; }
-                    .header h1 { margin: 0; font-size: 28px; font-weight: 700; }
-                    .header p { margin: 10px 0 0 0; opacity: 0.9; font-size: 14px; }
-                    .content { padding: 40px 30px; background: #fafafa; }
-                    .greeting { font-size: 18px; color: #111827; margin-bottom: 20px; }
-                    .message { color: #4b5563; margin-bottom: 30px; line-height: 1.8; }
-                    .details-card { background: white; border-radius: 12px; padding: 25px; margin: 25px 0; box-shadow: 0 2px 8px rgba(0,0,0,0.08); border-left: 4px solid #3b82f6; }
-                    .card-title { font-size: 20px; font-weight: 700; color: #3b82f6; margin: 0 0 20px 0; }
-                    table { width: 100%%; border-collapse: collapse; }
-                    td { padding: 12px 0; border-bottom: 1px solid #e5e7eb; }
-                    td:first-child { color: #6b7280; font-weight: 500; width: 35%%; }
-                    td:last-child { color: #111827; font-weight: 600; text-align: right; }
-                    tr:last-child td { border-bottom: none; }
-                    .status-badge { display: inline-block; background: #fef3c7; color: #92400e; padding: 6px 16px; border-radius: 20px; font-weight: 600; font-size: 14px; }
-                    .timeline { background: #eff6ff; border-radius: 8px; padding: 20px; margin: 25px 0; }
-                    .timeline-item { display: flex; align-items: center; margin: 10px 0; }
-                    .timeline-dot { width: 12px; height: 12px; background: #3b82f6; border-radius: 50%%; margin-right: 15px; }
-                    .timeline-dot.pending { background: #d1d5db; }
-                    .timeline-text { color: #2563eb; font-weight: 500; }
-                    .timeline-text.pending { color: #9ca3af; }
-                    .reason-box { background: #f9fafb; padding: 15px; border-radius: 8px; margin: 15px 0; border: 1px dashed #d1d5db; }
-                    .button { display: inline-block; background: linear-gradient(135deg, #3b82f6, #2563eb); color: white; padding: 14px 32px; text-decoration: none; border-radius: 8px; margin: 25px 0; font-weight: 600; font-size: 16px; }
-                    .footer { background: #111827; color: #9ca3af; padding: 30px; text-align: center; font-size: 14px; }
-                    .footer a { color: #3b82f6; text-decoration: none; }
-                </style>
-            </head>
-            <body>
-                <div class="container">
-                    <div class="header">
-                        <h1>📝 Refund Request Received</h1>
-                        <p>Order #FZ%d</p>
-                    </div>
-                    <div class="content">
-                        <div class="greeting">Hello %s! 👋</div>
-                        <div class="message">
-                            We've received your refund request and it's being processed. Here are the details:
-                        </div>
+    public boolean sendRefundRequestedNotification(String userEmail, String userName, Long orderId,
+        String refundType, String reason) {
+    String subject = "Refund Request Received - Order #FZ" + orderId;
+    auditLogger.info("EMAIL REQUEST: RefundRequested | to={}, subject={}, orderId={}, refundType={}, reason={}", userEmail, subject, orderId, refundType, reason);
 
-                        <div class="details-card">
-                            <h2 class="card-title">📋 Request Details</h2>
-                            <table>
-                                <tr>
-                                    <td>Order Number</td>
-                                    <td>#FZ%d</td>
-                                </tr>
-                                <tr>
-                                    <td>Request Type</td>
-                                    <td>%s</td>
-                                </tr>
-                                <tr>
-                                    <td>Status</td>
-                                    <td><span class="status-badge">⏳ Processing</span></td>
-                                </tr>
-                            </table>
-                            
-                            <div class="reason-box">
-                                <strong>Reason:</strong> %s
-                            </div>
-                        </div>
+    String details = "Order: FZ" + (orderId != null ? orderId : 0) + "\n"
+            + "Request Type: " + safeValue(refundType) + "\n"
+            + "Status: Processing\n"
+            + "Reason: " + safeValue(reason);
 
-                        <div class="timeline">
-                            <div class="timeline-item">
-                                <div class="timeline-dot"></div>
-                                <div class="timeline-text">Request received ✓</div>
-                            </div>
-                            <div class="timeline-item">
-                                <div class="timeline-dot pending"></div>
-                                <div class="timeline-text pending">Under review</div>
-                            </div>
-                            <div class="timeline-item">
-                                <div class="timeline-dot pending"></div>
-                                <div class="timeline-text pending">Processing refund</div>
-                            </div>
-                        </div>
-
-                        <center>
-                            <a href="%s/orders" class="button">Track Request</a>
-                        </center>
-                    </div>
-                    <div class="footer">
-                        <p><strong>FarmEazy</strong> - Smart Farm Management</p>
-                        <p style="margin-top: 10px;">
-                            <a href="%s">Visit Website</a> |
-                            <a href="%s/support">Support</a>
-                        </p>
-                        <p style="margin-top: 15px; font-size: 12px;">© 2026 FarmEazy. All rights reserved.</p>
-                    </div>
-                </div>
-            </body>
-            </html>
-        """, orderId, userName, orderId, refundType, reason, appBaseUrl, appBaseUrl, appBaseUrl);
-        
-        return sendEmail(userEmail, subject, html);
-    }
+    String html = buildEventEmailHtml(
+            "Refund Request Received",
+            "Hello " + safeValue(userName) + ", we have received your refund request and started processing.",
+            details,
+            "Track Request",
+            resolveEmailUrl("public", "/orders")
+    );
+    return sendEmail(userEmail, subject, html);
+}
 
     /**
      * Send refund failed notification email
      */
     public boolean sendRefundFailedNotification(String userEmail, String userName, Long orderId, String errorMessage) {
-        String subject = "⚠️ Refund Issue - Order #FZ" + orderId;
-        String html = String.format("""
-            <!DOCTYPE html>
-            <html>
-            <head>
-                <style>
-                    body { font-family: 'Segoe UI', Arial, sans-serif; line-height: 1.6; color: #333; margin: 0; padding: 0; }
-                    .container { max-width: 650px; margin: 0 auto; background: #ffffff; }
-                    .header { background: linear-gradient(135deg, #f59e0b 0%%, #d97706 100%%); color: white; padding: 40px 30px; text-align: center; }
-                    .header h1 { margin: 0; font-size: 28px; font-weight: 700; }
-                    .content { padding: 40px 30px; background: #fafafa; }
-                    .greeting { font-size: 18px; color: #111827; margin-bottom: 20px; }
-                    .message { color: #4b5563; margin-bottom: 30px; line-height: 1.8; }
-                    .alert-box { background: #fef3c7; border-left: 4px solid #f59e0b; padding: 20px; border-radius: 6px; margin: 25px 0; }
-                    .alert-box p { margin: 0; color: #92400e; }
-                    .details-card { background: white; border-radius: 12px; padding: 25px; margin: 25px 0; box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
-                    .card-title { font-size: 20px; font-weight: 700; color: #d97706; margin: 0 0 20px 0; }
-                    .button { display: inline-block; background: linear-gradient(135deg, #3b82f6, #2563eb); color: white; padding: 14px 32px; text-decoration: none; border-radius: 8px; margin: 10px 5px; font-weight: 600; font-size: 16px; }
-                    .button-secondary { background: linear-gradient(135deg, #6b7280, #4b5563); }
-                    .footer { background: #111827; color: #9ca3af; padding: 30px; text-align: center; font-size: 14px; }
-                    .footer a { color: #f59e0b; text-decoration: none; }
-                </style>
-            </head>
-            <body>
-                <div class="container">
-                    <div class="header">
-                        <h1>⚠️ Refund Processing Issue</h1>
-                    </div>
-                    <div class="content">
-                        <div class="greeting">Hello %s,</div>
-                        <div class="message">
-                            We encountered an issue while processing your refund for order #FZ%d. Don't worry - our team is on it!
-                        </div>
+    String subject = "Refund Issue - Order #FZ" + orderId;
+    String details = "Order: FZ" + (orderId != null ? orderId : 0) + "\n"
+            + "Issue: " + safeValue(errorMessage) + "\n"
+            + "Action: Please contact support if this persists.";
 
-                        <div class="alert-box">
-                            <p><strong>What happened?</strong></p>
-                            <p>%s</p>
-                        </div>
-
-                        <div class="details-card">
-                            <h2 class="card-title">🔧 What's Next?</h2>
-                            <ul style="color: #4b5563; line-height: 2;">
-                                <li>Our team has been automatically notified</li>
-                                <li>We'll retry the refund within 24 hours</li>
-                                <li>You can also contact support for faster resolution</li>
-                            </ul>
-                        </div>
-
-                        <center>
-                            <a href="%s/support" class="button">Contact Support</a>
-                            <a href="%s/orders" class="button button-secondary">View Order</a>
-                        </center>
-                    </div>
-                    <div class="footer">
-                        <p><strong>FarmEazy</strong> - Smart Farm Management</p>
-                        <p style="margin-top: 10px;">
-                            <a href="%s">Visit Website</a> |
-                            <a href="%s/support">Support</a>
-                        </p>
-                        <p style="margin-top: 15px; font-size: 12px;">© 2026 FarmEazy. All rights reserved.</p>
-                    </div>
-                </div>
-            </body>
-            </html>
-        """, userName, orderId, errorMessage, appBaseUrl, appBaseUrl, appBaseUrl, appBaseUrl);
-        
-        return sendEmail(userEmail, subject, html);
-    }
+    String html = buildEventEmailHtml(
+            "Refund Processing Issue",
+            "Hello " + safeValue(userName) + ", we encountered an issue while processing your refund.",
+            details,
+            "Contact Support",
+            resolveEmailUrl("support", "/support")
+    );
+    return sendEmail(userEmail, subject, html);
+}
 
     /**
      * Send order cancellation confirmation email
      */
-    public boolean sendOrderCancellationNotification(String userEmail, String userName, Long orderId, 
-            String reason, java.math.BigDecimal refundAmount, Long coinsToRefund, boolean refundDetailsRequired) {
-        String subject = "📦 Order Cancelled - #FZ" + orderId;
-        
-        String refundSection = "";
-        if (refundDetailsRequired) {
-            refundSection = """
-                <div style="background: #fef3c7; border-left: 4px solid #f59e0b; padding: 20px; border-radius: 6px; margin: 25px 0;">
-                    <p style="margin: 0; color: #92400e;"><strong>⚠️ Action Required:</strong> Please add your bank/UPI details to receive your refund.</p>
-                    <center style="margin-top: 15px;">
-                        <a href="%s/refund-details" style="display: inline-block; background: #f59e0b; color: white; padding: 10px 20px; text-decoration: none; border-radius: 6px; font-weight: 600;">Add Refund Details</a>
-                    </center>
-                </div>
-            """.formatted(appBaseUrl);
-        } else {
-            StringBuilder refundContent = new StringBuilder();
-            if (coinsToRefund != null && coinsToRefund > 0) {
-                refundContent.append(String.format("<tr><td>Coins to Refund</td><td>+%d 🪙</td></tr>", coinsToRefund));
-            }
-            if (refundAmount != null && refundAmount.compareTo(java.math.BigDecimal.ZERO) > 0) {
-                refundContent.append(String.format("<tr><td>Amount to Refund</td><td style=\"color: #22c55e; font-weight: 700;\">₹%.2f</td></tr>", refundAmount));
-            }
-            
-            if (refundContent.length() > 0) {
-                refundSection = String.format("""
-                    <div style="background: #f0fdf4; border-left: 4px solid #22c55e; padding: 20px; border-radius: 6px; margin: 25px 0;">
-                        <p style="margin: 0 0 15px 0; color: #166534;"><strong>💰 Refund Details:</strong></p>
-                        <table style="width: 100%%; border-collapse: collapse;">
-                            %s
-                        </table>
-                        <p style="margin: 15px 0 0 0; color: #6b7280; font-size: 13px;">Refund will be processed within 3-5 business days.</p>
-                    </div>
-                """, refundContent.toString());
-            }
-        }
-        
-        String html = String.format("""
-            <!DOCTYPE html>
-            <html>
-            <head>
-                <style>
-                    body { font-family: 'Segoe UI', Arial, sans-serif; line-height: 1.6; color: #333; margin: 0; padding: 0; }
-                    .container { max-width: 650px; margin: 0 auto; background: #ffffff; }
-                    .header { background: linear-gradient(135deg, #6b7280 0%%, #4b5563 100%%); color: white; padding: 40px 30px; text-align: center; }
-                    .header h1 { margin: 0; font-size: 28px; font-weight: 700; }
-                    .content { padding: 40px 30px; background: #fafafa; }
-                    .greeting { font-size: 18px; color: #111827; margin-bottom: 20px; }
-                    .message { color: #4b5563; margin-bottom: 30px; line-height: 1.8; }
-                    .details-card { background: white; border-radius: 12px; padding: 25px; margin: 25px 0; box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
-                    .card-title { font-size: 18px; font-weight: 700; color: #374151; margin: 0 0 15px 0; }
-                    table { width: 100%%; border-collapse: collapse; }
-                    td { padding: 10px 0; border-bottom: 1px solid #e5e7eb; }
-                    td:first-child { color: #6b7280; width: 40%%; }
-                    td:last-child { color: #111827; font-weight: 600; text-align: right; }
-                    tr:last-child td { border-bottom: none; }
-                    .reason-box { background: #f9fafb; padding: 15px; border-radius: 8px; margin-top: 15px; border: 1px dashed #d1d5db; }
-                    .button { display: inline-block; background: linear-gradient(135deg, #22c55e, #16a34a); color: white; padding: 14px 32px; text-decoration: none; border-radius: 8px; margin: 25px 0; font-weight: 600; font-size: 16px; }
-                    .footer { background: #111827; color: #9ca3af; padding: 30px; text-align: center; font-size: 14px; }
-                    .footer a { color: #22c55e; text-decoration: none; }
-                </style>
-            </head>
-            <body>
-                <div class="container">
-                    <div class="header">
-                        <h1>📦 Order Cancelled</h1>
-                    </div>
-                    <div class="content">
-                        <div class="greeting">Hello %s,</div>
-                        <div class="message">
-                            Your order #FZ%d has been successfully cancelled as requested.
-                        </div>
+    public boolean sendOrderCancellationNotification(String userEmail, String userName, Long orderId,
+        String reason, java.math.BigDecimal refundAmount, Long coinsToRefund, boolean refundDetailsRequired) {
+    String subject = "Order Cancelled - #FZ" + orderId;
 
-                        <div class="details-card">
-                            <h3 class="card-title">Order Details</h3>
-                            <table>
-                                <tr>
-                                    <td>Order Number</td>
-                                    <td>#FZ%d</td>
-                                </tr>
-                                <tr>
-                                    <td>Status</td>
-                                    <td style="color: #6b7280;">Cancelled</td>
-                                </tr>
-                            </table>
-                            <div class="reason-box">
-                                <strong>Cancellation Reason:</strong> %s
-                            </div>
-                        </div>
+    String details = "Order: FZ" + (orderId != null ? orderId : 0) + "\n"
+            + "Reason: " + safeValue(reason) + "\n"
+            + "Refund Amount: Rs " + (refundAmount != null ? refundAmount : java.math.BigDecimal.ZERO) + "\n"
+            + "Coins Refund: " + (coinsToRefund != null ? coinsToRefund : 0) + "\n"
+            + "Refund Details Required: " + (refundDetailsRequired ? "Yes" : "No");
 
-                        %s
-
-                        <center>
-                            <a href="%s/buying" class="button">Continue Shopping</a>
-                        </center>
-                    </div>
-                    <div class="footer">
-                        <p><strong>FarmEazy</strong> - Smart Farm Management</p>
-                        <p style="margin-top: 10px;">
-                            <a href="%s">Visit Website</a> |
-                            <a href="%s/support">Support</a>
-                        </p>
-                        <p style="margin-top: 15px; font-size: 12px;">© 2026 FarmEazy. All rights reserved.</p>
-                    </div>
-                </div>
-            </body>
-            </html>
-        """, userName, orderId, orderId, reason, refundSection, appBaseUrl, appBaseUrl, appBaseUrl);
-        
-        return sendEmail(userEmail, subject, html);
-    }
+    String html = buildEventEmailHtml(
+            "Order Cancelled",
+            "Hello " + safeValue(userName) + ", your order has been cancelled as requested.",
+            details,
+            refundDetailsRequired ? "Add Refund Details" : "Continue Shopping",
+            refundDetailsRequired ? resolveEmailUrl("public", "/refund-details") : resolveEmailUrl("public", "/buying")
+    );
+    return sendEmail(userEmail, subject, html);
+}
 
     /**
      * Send return request confirmation email
      */
-    public boolean sendReturnRequestNotification(String userEmail, String userName, Long orderId, 
-            String reason, java.math.BigDecimal refundAmount, Long coinsToRefund) {
-        String subject = "📦 Return Request Received - Order #FZ" + orderId;
-        
-        StringBuilder refundDetails = new StringBuilder();
-        if (coinsToRefund != null && coinsToRefund > 0) {
-            refundDetails.append(String.format("<tr><td>Coins</td><td>%d 🪙</td></tr>", coinsToRefund));
-        }
-        if (refundAmount != null && refundAmount.compareTo(java.math.BigDecimal.ZERO) > 0) {
-            refundDetails.append(String.format("<tr><td>Amount</td><td>₹%.2f</td></tr>", refundAmount));
-        }
-        
-        String html = String.format("""
-            <!DOCTYPE html>
-            <html>
-            <head>
-                <style>
-                    body { font-family: 'Segoe UI', Arial, sans-serif; line-height: 1.6; color: #333; margin: 0; padding: 0; }
-                    .container { max-width: 650px; margin: 0 auto; background: #ffffff; }
-                    .header { background: linear-gradient(135deg, #8b5cf6 0%%, #7c3aed 100%%); color: white; padding: 40px 30px; text-align: center; }
-                    .header h1 { margin: 0; font-size: 28px; font-weight: 700; }
-                    .content { padding: 40px 30px; background: #fafafa; }
-                    .greeting { font-size: 18px; color: #111827; margin-bottom: 20px; }
-                    .message { color: #4b5563; margin-bottom: 30px; line-height: 1.8; }
-                    .details-card { background: white; border-radius: 12px; padding: 25px; margin: 25px 0; box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
-                    .card-title { font-size: 18px; font-weight: 700; color: #8b5cf6; margin: 0 0 15px 0; }
-                    table { width: 100%%; border-collapse: collapse; }
-                    td { padding: 10px 0; border-bottom: 1px solid #e5e7eb; }
-                    td:first-child { color: #6b7280; width: 40%%; }
-                    td:last-child { color: #111827; font-weight: 600; text-align: right; }
-                    tr:last-child td { border-bottom: none; }
-                    .timeline { background: #f5f3ff; border-radius: 8px; padding: 20px; margin: 25px 0; }
-                    .timeline-item { display: flex; align-items: center; margin: 10px 0; }
-                    .timeline-dot { width: 12px; height: 12px; background: #8b5cf6; border-radius: 50%%; margin-right: 15px; }
-                    .timeline-dot.pending { background: #d1d5db; }
-                    .timeline-text { color: #7c3aed; font-weight: 500; }
-                    .timeline-text.pending { color: #9ca3af; }
-                    .button { display: inline-block; background: linear-gradient(135deg, #8b5cf6, #7c3aed); color: white; padding: 14px 32px; text-decoration: none; border-radius: 8px; margin: 25px 0; font-weight: 600; font-size: 16px; }
-                    .footer { background: #111827; color: #9ca3af; padding: 30px; text-align: center; font-size: 14px; }
-                    .footer a { color: #8b5cf6; text-decoration: none; }
-                </style>
-            </head>
-            <body>
-                <div class="container">
-                    <div class="header">
-                        <h1>📦 Return Request</h1>
-                    </div>
-                    <div class="content">
-                        <div class="greeting">Hello %s! 👋</div>
-                        <div class="message">
-                            We've received your return request for order #FZ%d. Our team will review it shortly.
-                        </div>
+    public boolean sendReturnRequestNotification(String userEmail, String userName, Long orderId,
+        String reason, java.math.BigDecimal refundAmount, Long coinsToRefund) {
+    String subject = "Return Request Received - Order #FZ" + orderId;
 
-                        <div class="details-card">
-                            <h3 class="card-title">Return Details</h3>
-                            <table>
-                                <tr>
-                                    <td>Order Number</td>
-                                    <td>#FZ%d</td>
-                                </tr>
-                                <tr>
-                                    <td>Return Reason</td>
-                                    <td>%s</td>
-                                </tr>
-                            </table>
-                        </div>
+    String details = "Order: FZ" + (orderId != null ? orderId : 0) + "\n"
+            + "Reason: " + safeValue(reason) + "\n"
+            + "Expected Refund Amount: Rs " + (refundAmount != null ? refundAmount : java.math.BigDecimal.ZERO) + "\n"
+            + "Expected Coins: " + (coinsToRefund != null ? coinsToRefund : 0);
 
-                        <div class="details-card">
-                            <h3 class="card-title">Expected Refund</h3>
-                            <table>
-                                %s
-                            </table>
-                        </div>
-
-                        <div class="timeline">
-                            <div class="timeline-item">
-                                <div class="timeline-dot"></div>
-                                <div class="timeline-text">Return request received ✓</div>
-                            </div>
-                            <div class="timeline-item">
-                                <div class="timeline-dot pending"></div>
-                                <div class="timeline-text pending">Return approved</div>
-                            </div>
-                            <div class="timeline-item">
-                                <div class="timeline-dot pending"></div>
-                                <div class="timeline-text pending">Item picked up</div>
-                            </div>
-                            <div class="timeline-item">
-                                <div class="timeline-dot pending"></div>
-                                <div class="timeline-text pending">Refund processed</div>
-                            </div>
-                        </div>
-
-                        <center>
-                            <a href="%s/orders" class="button">Track Return</a>
-                        </center>
-                    </div>
-                    <div class="footer">
-                        <p><strong>FarmEazy</strong> - Smart Farm Management</p>
-                        <p style="margin-top: 10px;">
-                            <a href="%s">Visit Website</a> |
-                            <a href="%s/support">Support</a>
-                        </p>
-                        <p style="margin-top: 15px; font-size: 12px;">© 2026 FarmEazy. All rights reserved.</p>
-                    </div>
-                </div>
-            </body>
-            </html>
-        """, userName, orderId, orderId, reason, refundDetails.toString(), appBaseUrl, appBaseUrl, appBaseUrl);
-        
-        return sendEmail(userEmail, subject, html);
-    }
+    String html = buildEventEmailHtml(
+            "Return Request Received",
+            "Hello " + safeValue(userName) + ", your return request has been received.",
+            details,
+            "Track Return",
+            resolveEmailUrl("public", "/orders")
+    );
+    return sendEmail(userEmail, subject, html);
+}
 
     public boolean sendServiceListingCreatedNotification(String userEmail, String userName, String title, Double rate, String description) {
-        String subject = "Service Listed Successfully - " + title;
-        String html = String.format("""
-            <!DOCTYPE html>
-            <html>
-            <head>
-                <style>
-                    body { font-family: 'Segoe UI', Arial, sans-serif; line-height: 1.6; color: #333; margin: 0; padding: 0; }
-                    .container { max-width: 650px; margin: 0 auto; background: #ffffff; }
-                    .header { background: linear-gradient(135deg, #8b5cf6 0%%, #7c3aed 100%%); color: white; padding: 40px 30px; text-align: center; }
-                    .header h1 { margin: 0; font-size: 28px; font-weight: 700; }
-                    .header p { margin: 10px 0 0 0; opacity: 0.9; font-size: 14px; }
-                    .content { padding: 40px 30px; background: #fafafa; }
-                    .greeting { font-size: 18px; color: #111827; margin-bottom: 20px; }
-                    .details-card { background: white; border-radius: 12px; padding: 25px; margin: 25px 0; box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
-                    .card-title { font-size: 20px; font-weight: 700; color: #8b5cf6; margin: 0 0 20px 0; border-bottom: 2px solid #8b5cf6; padding-bottom: 10px; }
-                    table { width: 100%%; border-collapse: collapse; }
-                    td { padding: 12px 0; border-bottom: 1px solid #e5e7eb; }
-                    td:first-child { color: #6b7280; font-weight: 500; width: 40%%; }
-                    td:last-child { color: #111827; font-weight: 600; text-align: right; }
-                    tr:last-child td { border-bottom: none; }
-                    .rate-highlight { font-size: 24px; color: #8b5cf6; font-weight: 700; }
-                    .description-box { background: #f3f4f6; padding: 15px; border-radius: 8px; margin: 15px 0; }
-                    .button { display: inline-block; background: linear-gradient(135deg, #8b5cf6, #7c3aed); color: white; padding: 14px 32px; text-decoration: none; border-radius: 8px; margin: 25px 0; font-weight: 600; font-size: 16px; }
-                    .info-box { background: #dbeafe; border-left: 4px solid #3b82f6; padding: 16px; border-radius: 6px; margin: 25px 0; }
-                    .footer { background: #111827; color: #9ca3af; padding: 30px; text-align: center; font-size: 14px; }
-                    .footer a { color: #8b5cf6; text-decoration: none; }
-                </style>
-            </head>
-            <body>
-                <div class="container">
-                    <div class="header">
-                        <h1>🚜 Service Listed!</h1>
-                        <p>Your service is now live and ready for bookings</p>
-                    </div>
-                    <div class="content">
-                        <div class="greeting">Hello %s! 👋</div>
-                        <div style="color: #4b5563; margin-bottom: 30px; line-height: 1.8;">
-                            Great news! Your irrigation service is now listed on FarmEazy. Farmers can now discover and book your service.
-                        </div>
+    String subject = "Service Listed Successfully - " + title;
+    String details = "Service Title: " + safeValue(title) + "\n"
+            + "Rate: Rs " + (rate != null ? String.format("%.2f", rate) : "N/A") + " per hour\n"
+            + "Description: " + safeValue(description);
 
-                        <div class="details-card">
-                            <h2 class="card-title">🔧 Service Details</h2>
-                            <table>
-                                <tr>
-                                    <td>Service Title</td>
-                                    <td>%s</td>
-                                </tr>
-                                <tr>
-                                    <td>Hourly Rate</td>
-                                    <td class="rate-highlight">₹%s/hr</td>
-                                </tr>
-                            </table>
-                            <div class="description-box">
-                                <strong style="color: #6b7280;">Description:</strong>
-                                <p style="margin: 8px 0 0 0; color: #111827;">%s</p>
-                            </div>
-                        </div>
-
-                        <div class="info-box">
-                            <p style="margin: 0; color: #1e40af; font-size: 14px;">
-                                <strong>💡 Tips for more bookings:</strong> Respond quickly to booking requests, maintain competitive pricing, and keep your availability updated.
-                            </p>
-                        </div>
-
-                        <center>
-                            <a href="%s/irrigation-services" class="button">Manage My Services</a>
-                        </center>
-                    </div>
-                    <div class="footer">
-                        <p><strong>FarmEazy</strong> - Smart Farm Management</p>
-                        <p style="margin-top: 10px;">
-                            <a href="%s">Visit Website</a> |
-                            <a href="%s/support">Support</a>
-                        </p>
-                        <p style="margin-top: 15px; font-size: 12px;">© 2026 FarmEazy. All rights reserved.</p>
-                    </div>
-                </div>
-            </body>
-            </html>
-            """, userName, title, rate, description, appBaseUrl, appBaseUrl, appBaseUrl);
-        return sendEmail(userEmail, subject, html);
-    }
+    String html = buildEventEmailHtml(
+            "Service Listing Created",
+            "Hello " + safeValue(userName) + ", your service is now live on FarmEazy.",
+            details,
+            "Manage Services",
+            resolveEmailUrl("public", "/irrigation-services")
+    );
+    return sendEmail(userEmail, subject, html);
+}
 
     public boolean sendServiceListingUpdatedNotification(String userEmail, String userName, String title, Double rate, String description) {
-        String subject = "Service Updated - " + title;
-        String html = String.format("""
-            <!DOCTYPE html>
-            <html>
-            <head>
-                <style>
-                    body { font-family: 'Segoe UI', Arial, sans-serif; line-height: 1.6; color: #333; margin: 0; padding: 0; }
-                    .container { max-width: 650px; margin: 0 auto; background: #ffffff; }
-                    .header { background: linear-gradient(135deg, #3b82f6 0%%, #2563eb 100%%); color: white; padding: 40px 30px; text-align: center; }
-                    .header h1 { margin: 0; font-size: 28px; font-weight: 700; }
-                    .content { padding: 40px 30px; background: #fafafa; }
-                    .details-card { background: white; border-radius: 12px; padding: 25px; margin: 25px 0; box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
-                    .card-title { font-size: 20px; font-weight: 700; color: #3b82f6; margin: 0 0 20px 0; border-bottom: 2px solid #3b82f6; padding-bottom: 10px; }
-                    table { width: 100%%; border-collapse: collapse; }
-                    td { padding: 12px 0; border-bottom: 1px solid #e5e7eb; }
-                    td:first-child { color: #6b7280; font-weight: 500; width: 40%%; }
-                    td:last-child { color: #111827; font-weight: 600; text-align: right; }
-                    tr:last-child td { border-bottom: none; }
-                    .button { display: inline-block; background: linear-gradient(135deg, #3b82f6, #2563eb); color: white; padding: 14px 32px; text-decoration: none; border-radius: 8px; margin: 25px 0; font-weight: 600; font-size: 16px; }
-                    .footer { background: #111827; color: #9ca3af; padding: 30px; text-align: center; font-size: 14px; }
-                    .footer a { color: #3b82f6; text-decoration: none; }
-                </style>
-            </head>
-            <body>
-                <div class="container">
-                    <div class="header">
-                        <h1>✏️ Service Updated</h1>
-                    </div>
-                    <div class="content">
-                        <div style="font-size: 18px; color: #111827; margin-bottom: 20px;">Hello %s! 👋</div>
+    String subject = "Service Updated - " + title;
+    String details = "Service Title: " + safeValue(title) + "\n"
+            + "Rate: Rs " + (rate != null ? String.format("%.2f", rate) : "N/A") + " per hour\n"
+            + "Description: " + safeValue(description);
 
-                        <div class="details-card">
-                            <h2 class="card-title">🔧 Updated Service Details</h2>
-                            <table>
-                                <tr>
-                                    <td>Service Title</td>
-                                    <td>%s</td>
-                                </tr>
-                                <tr>
-                                    <td>Hourly Rate</td>
-                                    <td style="font-size: 24px; color: #3b82f6; font-weight: 700;">₹%s/hr</td>
-                                </tr>
-                            </table>
-                        </div>
-
-                        <center>
-                            <a href="%s/irrigation-services" class="button">View Service</a>
-                        </center>
-                    </div>
-                    <div class="footer">
-                        <p><strong>FarmEazy</strong> - Smart Farm Management</p>
-                        <p style="margin-top: 15px; font-size: 12px;">© 2026 FarmEazy. All rights reserved.</p>
-                    </div>
-                </div>
-            </body>
-            </html>
-            """, userName, title, rate, appBaseUrl);
-        return sendEmail(userEmail, subject, html);
-    }
+    String html = buildEventEmailHtml(
+            "Service Listing Updated",
+            "Hello " + safeValue(userName) + ", your service listing details were updated.",
+            details,
+            "View Service",
+            resolveEmailUrl("public", "/irrigation-services")
+    );
+    return sendEmail(userEmail, subject, html);
+}
 
     public boolean sendServiceListingDeletedNotification(String userEmail, String userName, String title, Double rate, String description) {
-        String subject = "Service Removed - " + title;
-        String html = String.format("""
-            <!DOCTYPE html>
-            <html>
-            <head>
-                <style>
-                    body { font-family: 'Segoe UI', Arial, sans-serif; line-height: 1.6; color: #333; margin: 0; padding: 0; }
-                    .container { max-width: 650px; margin: 0 auto; background: #ffffff; }
-                    .header { background: linear-gradient(135deg, #ef4444 0%%, #dc2626 100%%); color: white; padding: 40px 30px; text-align: center; }
-                    .header h1 { margin: 0; font-size: 28px; font-weight: 700; }
-                    .content { padding: 40px 30px; background: #fafafa; }
-                    .details-card { background: white; border-radius: 12px; padding: 25px; margin: 25px 0; box-shadow: 0 2px 8px rgba(0,0,0,0.08); border-left: 4px solid #ef4444; }
-                    table { width: 100%%; border-collapse: collapse; }
-                    td { padding: 12px 0; border-bottom: 1px solid #e5e7eb; }
-                    td:first-child { color: #6b7280; font-weight: 500; width: 40%%; }
-                    td:last-child { color: #111827; font-weight: 600; text-align: right; }
-                    .button { display: inline-block; background: linear-gradient(135deg, #22c55e, #16a34a); color: white; padding: 14px 32px; text-decoration: none; border-radius: 8px; margin: 25px 0; font-weight: 600; font-size: 16px; }
-                    .footer { background: #111827; color: #9ca3af; padding: 30px; text-align: center; font-size: 14px; }
-                    .footer a { color: #22c55e; text-decoration: none; }
-                </style>
-            </head>
-            <body>
-                <div class="container">
-                    <div class="header">
-                        <h1>🗑️ Service Removed</h1>
-                    </div>
-                    <div class="content">
-                        <div style="font-size: 18px; color: #111827; margin-bottom: 20px;">Hello %s,</div>
+    String subject = "Service Removed - " + title;
+    String details = "Service Title: " + safeValue(title) + "\n"
+            + "Rate: Rs " + (rate != null ? String.format("%.2f", rate) : "N/A") + " per hour\n"
+            + "Description: " + safeValue(description);
 
-                        <div class="details-card">
-                            <table>
-                                <tr>
-                                    <td>Service Title</td>
-                                    <td>%s</td>
-                                </tr>
-                                <tr>
-                                    <td>Rate</td>
-                                    <td>₹%s/hr</td>
-                                </tr>
-                            </table>
-                        </div>
-
-                        <center>
-                            <a href="%s/irrigation-services" class="button">Add New Service</a>
-                        </center>
-                    </div>
-                    <div class="footer">
-                        <p><strong>FarmEazy</strong> - Smart Farm Management</p>
-                        <p style="margin-top: 15px; font-size: 12px;">© 2026 FarmEazy. All rights reserved.</p>
-                    </div>
-                </div>
-            </body>
-            </html>
-            """, userName, title, rate, appBaseUrl);
-        return sendEmail(userEmail, subject, html);
-    }
+    String html = buildEventEmailHtml(
+            "Service Listing Removed",
+            "Hello " + safeValue(userName) + ", your service listing has been removed.",
+            details,
+            "Add New Service",
+            resolveEmailUrl("public", "/irrigation-services")
+    );
+    return sendEmail(userEmail, subject, html);
+}
 
     public boolean sendServiceBookingApprovedNotification(String userEmail, String userName, String serviceType, String location, String providerName) {
-        String subject = "Service Booking Approved - FarmEazy";
-        String html = String.format("""
-            <!DOCTYPE html>
-            <html>
-            <head>
-                <style>
-                    body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
-                    .container { max-width: 600px; margin: 0 auto; padding: 20px; }
-                    .header { background: linear-gradient(135deg, #22c55e 0%%, #16a34a 100%%); color: white; padding: 30px; text-align: center; border-radius: 10px 10px 0 0; }
-                    .content { background: #f9fafb; padding: 30px; border-radius: 0 0 10px 10px; }
-                    .booking-card { background: white; padding: 20px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #22c55e; }
-                    .detail-row { display: flex; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid #e5e7eb; }
-                    .label { font-weight: bold; color: #6b7280; }
-                    .value { color: #111827; }
-                    .success-badge { display: inline-block; background: #dcfce7; color: #16a34a; padding: 8px 16px; border-radius: 20px; font-weight: bold; margin: 20px 0; }
-                    .action-button { display: inline-block; background: #22c55e; color: white; padding: 14px 28px; text-decoration: none; border-radius: 8px; margin: 20px 0; font-weight: bold; }
-                    .footer { text-align: center; color: #6b7280; font-size: 14px; margin-top: 30px; }
-                </style>
-            </head>
-            <body>
-                <div class="container">
-                    <div class="header">
-                        <h1>✅ Booking Approved!</h1>
-                    </div>
-                    <div class="content">
-                        <p>Dear %s,</p>
-                        <p>Great news! Your service booking request has been approved.</p>
+    String subject = "Service Booking Approved - FarmEazy";
+    String details = "Service Type: " + safeValue(serviceType) + "\n"
+            + "Location: " + safeValue(location) + "\n"
+            + "Provider: " + safeValue(providerName) + "\n"
+            + "Status: Approved";
 
-                        <div class="booking-card">
-                            <div class="success-badge">✓ APPROVED</div>
-                            <div class="detail-row">
-                                <span class="label">Service Type:</span>
-                                <span class="value">%s</span>
-                            </div>
-                            <div class="detail-row">
-                                <span class="label">Location:</span>
-                                <span class="value">%s</span>
-                            </div>
-                            <div class="detail-row">
-                                <span class="label">Provider:</span>
-                                <span class="value">%s</span>
-                            </div>
-                        </div>
+    String html = buildEventEmailHtml(
+            "Service Booking Approved",
+            "Hello " + safeValue(userName) + ", your service booking request has been approved.",
+            details,
+            "View Bookings",
+            resolveEmailUrl("public", "/irrigation-services")
+    );
 
-                        <p><strong>What's Next?</strong></p>
-                        <ul>
-                            <li>The provider will contact you shortly to coordinate the service</li>
-                            <li>Make sure your equipment/farm is ready at the scheduled time</li>
-                            <li>Keep your contact details updated in your profile</li>
-                        </ul>
-
-                        <a href="%s/irrigation-services" class="action-button">View My Bookings</a>
-
-                        <p style="margin-top: 30px; color: #6b7280; font-size: 14px;">
-                            If you have any questions or need to make changes, please log in to your account or contact the service provider directly.
-                        </p>
-
-                        <div class="footer">
-                            <p>Thank you for using FarmEazy!</p>
-                            <p><a href="%s" style="color: #22c55e;">www.farm-eazy.com</a></p>
-                        </div>
-                    </div>
-                </div>
-            </body>
-            </html>
-            """, userName, serviceType, location, providerName, appBaseUrl, appBaseUrl);
-
-        return sendEmail(userEmail, subject, html);
-    }
+    return sendEmail(userEmail, subject, html);
+}
 
     public boolean sendServiceBookingDeclinedNotification(String userEmail, String userName, String serviceType, String location, String providerName) {
-        String subject = "Service Booking Update - FarmEazy";
-        String html = String.format("""
-            <!DOCTYPE html>
-            <html>
-            <head>
-                <style>
-                    body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
-                    .container { max-width: 600px; margin: 0 auto; padding: 20px; }
-                    .header { background: linear-gradient(135deg, #f59e0b 0%%, #d97706 100%%); color: white; padding: 30px; text-align: center; border-radius: 10px 10px 0 0; }
-                    .content { background: #f9fafb; padding: 30px; border-radius: 0 0 10px 10px; }
-                    .booking-card { background: white; padding: 20px; border-radius: 8px; margin: 20px 0; border-left: 4px solid #f59e0b; }
-                    .detail-row { display: flex; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid #e5e7eb; }
-                    .label { font-weight: bold; color: #6b7280; }
-                    .value { color: #111827; }
-                    .warning-badge { display: inline-block; background: #fef3c7; color: #d97706; padding: 8px 16px; border-radius: 20px; font-weight: bold; margin: 20px 0; }
-                    .action-button { display: inline-block; background: #22c55e; color: white; padding: 14px 28px; text-decoration: none; border-radius: 8px; margin: 20px 0; font-weight: bold; }
-                    .footer { text-align: center; color: #6b7280; font-size: 14px; margin-top: 30px; }
-                </style>
-            </head>
-            <body>
-                <div class="container">
-                    <div class="header">
-                        <h1>Booking Update</h1>
-                    </div>
-                    <div class="content">
-                        <p>Dear %s,</p>
-                        <p>We regret to inform you that your service booking request could not be accommodated at this time.</p>
+    String subject = "Service Booking Update - FarmEazy";
+    String details = "Service Type: " + safeValue(serviceType) + "\n"
+            + "Location: " + safeValue(location) + "\n"
+            + "Provider: " + safeValue(providerName) + "\n"
+            + "Status: Declined";
 
-                        <div class="booking-card">
-                            <div class="warning-badge">⚠ DECLINED</div>
-                            <div class="detail-row">
-                                <span class="label">Service Type:</span>
-                                <span class="value">%s</span>
-                            </div>
-                            <div class="detail-row">
-                                <span class="label">Location:</span>
-                                <span class="value">%s</span>
-                            </div>
-                            <div class="detail-row">
-                                <span class="label">Provider:</span>
-                                <span class="value">%s</span>
-                            </div>
-                        </div>
+    String html = buildEventEmailHtml(
+            "Service Booking Declined",
+            "Hello " + safeValue(userName) + ", the requested booking could not be accommodated at this time.",
+            details,
+            "Browse Services",
+            resolveEmailUrl("public", "/irrigation-services")
+    );
 
-                        <p><strong>Don't worry!</strong> There are many other service providers available on FarmEazy.</p>
-
-                        <p><strong>Next Steps:</strong></p>
-                        <ul>
-                            <li>Browse other available service listings</li>
-                            <li>Try booking with different providers</li>
-                            <li>Adjust your requirements if needed</li>
-                            <li>Contact our support if you need assistance</li>
-                        </ul>
-
-                        <a href="%s/irrigation-services" class="action-button">Browse Services</a>
-
-                        <p style="margin-top: 30px; color: #6b7280; font-size: 14px;">
-                            The provider may have declined due to scheduling conflicts or service area limitations. Please try booking with another provider.
-                        </p>
-
-                        <div class="footer">
-                            <p>Thank you for using FarmEazy!</p>
-                            <p><a href="%s" style="color: #22c55e;">www.farm-eazy.com</a></p>
-                        </div>
-                    </div>
-                </div>
-            </body>
-            </html>
-            """, userName, serviceType, location, providerName, appBaseUrl, appBaseUrl);
-
-        return sendEmail(userEmail, subject, html);
-    }
+    return sendEmail(userEmail, subject, html);
+}
     // --- END STUBS ---
 
     private static final Logger logger = LoggerFactory.getLogger(HttpEmailService.class);
@@ -1403,6 +449,9 @@ public class HttpEmailService {
 
     @Value("${resend.from.orders:FarmEazy Orders <orders@farm-eazy.com>}")
     private String fromOrders;
+
+    @Value("${farmeazy.mail.provider:resend}")
+    private String mailProvider;
 
     @Value("${farmeazy.mail.enabled:true}")
     private boolean emailEnabled;
@@ -1479,10 +528,11 @@ public class HttpEmailService {
     public boolean sendEmail(String to, String subject, String htmlContent, SenderType senderType) {
         String sender = getSenderEmail(senderType);
         String traceId = getTraceId();
-        logger.info("[traceId={}] EMAIL SEND START | Primary=Zoho | SenderType={} | From={} | To={} | Subject={}", traceId, senderType, sender, to, subject);
+        logger.info("[traceId={}] EMAIL SEND START | Primary=Zoho | SenderType={} | From={} | To={} | Subject={}",
+            traceId, senderType, sender, maskEmail(to), subject);
 
         if (!emailEnabled) {
-            logger.info("Email sending is disabled. Would have sent to: {} from: {}", to, sender);
+            logger.info("Email sending is disabled. Would have sent to: {} from: {}", maskEmail(to), sender);
             throw new EmailDeliveryException(
                 "Email service is currently disabled. Please contact support.",
                 "EMAIL_SERVICE_DISABLED",
@@ -1490,40 +540,55 @@ public class HttpEmailService {
             );
         }
 
+        if ("resend".equalsIgnoreCase(mailProvider)) {
+            logger.info("[traceId={}] EMAIL SEND - Provider configured as RESEND. Skipping Zoho primary attempt.", traceId);
+            return sendViaResend(to, subject, htmlContent, sender, traceId);
+        }
+
         // ---- Primary Provider: Zoho SMTP (JavaMailSender) ----
         JavaMailSender mailSender = getJavaMailSender(senderType);
         logger.info("[traceId={}] EMAIL SEND (Zoho) - Using mail sender bean for {}", traceId, senderType);
 
         try {
-            logger.info("[traceId={}] EMAIL SEND (Zoho) - Attempting SMTP send to {}", traceId, to);
-            jakarta.mail.internet.MimeMessage mimeMessage = mailSender.createMimeMessage();
-            org.springframework.mail.javamail.MimeMessageHelper helper = new org.springframework.mail.javamail.MimeMessageHelper(mimeMessage, true, "UTF-8");
-            helper.setFrom(sender);
-            helper.setTo(to);
-            helper.setSubject(subject);
-            helper.setText(htmlContent, true);
+            executeWithBreaker("emailPrimarySend", () -> {
+                logger.info("[traceId={}] EMAIL SEND (Zoho) - Attempting SMTP send to {}", traceId, maskEmail(to));
+                try {
+                    jakarta.mail.internet.MimeMessage mimeMessage = mailSender.createMimeMessage();
+                    org.springframework.mail.javamail.MimeMessageHelper helper = new org.springframework.mail.javamail.MimeMessageHelper(mimeMessage, true, "UTF-8");
+                    helper.setFrom(sender);
+                    helper.setTo(to);
+                    helper.setSubject(subject);
+                    helper.setText(htmlContent, true);
 
-            mailSender.send(mimeMessage);
-            logger.info("[traceId={}] EMAIL SEND (Zoho) - Success | To={} | From={}", traceId, to, sender);
-            logger.info("[traceId={}] EMAIL PROVIDER: Zoho | Status=SUCCESS | Recipient={}", traceId, to);
+                    mailSender.send(mimeMessage);
+                } catch (Exception ex) {
+                    throw new RuntimeException(ex);
+                }
+                return true;
+            });
+            logger.info("[traceId={}] EMAIL SEND (Zoho) - Success | To={} | From={}", traceId, maskEmail(to), sender);
+            logger.info("[traceId={}] EMAIL PROVIDER: Zoho | Status=SUCCESS | Recipient={}", traceId, maskEmail(to));
             return true;
         } catch (Exception zohoEx) {
-            logger.warn("[traceId={}] EMAIL SEND (Zoho) - Failed for {} | Error={}", traceId, to, zohoEx.getMessage(), zohoEx);
+            logger.warn("[traceId={}] EMAIL SEND (Zoho) - Failed for {} | Error={}", traceId, maskEmail(to), zohoEx.getMessage(), zohoEx);
             logger.info("[traceId={}] EMAIL PROVIDER: Zoho | Status=FAIL | Reason={}", traceId, zohoEx.getMessage());
-            logger.info("[traceId={}] EMAIL SEND - Falling back to Resend for {}", traceId, to);
+            logger.info("[traceId={}] EMAIL SEND - Falling back to Resend for {}", traceId, maskEmail(to));
         }
 
-        // ---- Fallback Provider: Resend HTTP API ----
+        return sendViaResend(to, subject, htmlContent, sender, traceId);
+    }
+
+    private boolean sendViaResend(String to, String subject, String htmlContent, String sender, String traceId) {
         String apiKey = System.getenv("RESEND_API_KEY");
         if (apiKey == null || apiKey.isEmpty()) {
             apiKey = resendApiKey;
         }
         if (apiKey == null || apiKey.isEmpty()) {
-            logger.warn("RESEND_API_KEY not configured. Email not sent to: {}", to);
+            logger.warn("RESEND_API_KEY not configured. Email not sent to: {}", maskEmail(to));
             throw new EmailDeliveryException(
-                "Email service is not properly configured. Please contact support.",
-                "EMAIL_SERVICE_NOT_CONFIGURED",
-                to
+                    "Email service is not properly configured. Please contact support.",
+                    "EMAIL_SERVICE_NOT_CONFIGURED",
+                    to
             );
         }
 
@@ -1538,38 +603,55 @@ public class HttpEmailService {
             emailData.put("html", htmlContent);
             HttpEntity<Map<String, Object>> request = new HttpEntity<>(emailData, headers);
 
-            logger.info("[traceId={}] EMAIL SEND (Resend) - Sending request to {} | To={} | Subject={}", traceId, RESEND_API_URL, to, subject);
-            logger.debug("[traceId={}] EMAIL SEND (Resend) - Request payload: {}", traceId, emailData);
+            logger.info("[traceId={}] EMAIL SEND (Resend) - Sending request to {} | To={} | Subject={}", traceId, RESEND_API_URL, maskEmail(to), subject);
+            logger.debug("[traceId={}] EMAIL SEND (Resend) - Request payload: {}", traceId, buildSafeResendPayloadLog(sender, to, subject, htmlContent));
 
-            ResponseEntity<String> response = restTemplate.exchange(
-                RESEND_API_URL,
-                HttpMethod.POST,
-                request,
-                String.class
+            ResponseEntity<String> response = executeWithBreaker("emailFallbackSend", () ->
+                    restTemplate.exchange(
+                            RESEND_API_URL,
+                            HttpMethod.POST,
+                            request,
+                            String.class
+                    )
             );
 
-            logger.info("[traceId={}] EMAIL SEND (Resend) - Response Status: {} | To={}", traceId, response.getStatusCode(), to);
+            logger.info("[traceId={}] EMAIL SEND (Resend) - Response Status: {} | To={}", traceId, response.getStatusCode(), maskEmail(to));
             logger.debug("[traceId={}] EMAIL SEND (Resend) - Response Body: {}", traceId, response.getBody());
 
             if (response.getStatusCode().is2xxSuccessful()) {
-                logger.info("[traceId={}] Email sent successfully to: {} from: {}", traceId, to, sender);
+                logger.info("[traceId={}] Email sent successfully to: {} from: {}", traceId, maskEmail(to), sender);
                 logger.info("[traceId={}] EMAIL PROVIDER: Resend | Status=SUCCESS | Response={}", traceId, response.getBody());
                 return true;
-            } else {
-                logger.error("[traceId={}] Failed to send email. Status: {}, Body: {}", traceId, response.getStatusCode(), response.getBody());
-                logger.error("[traceId={}] EMAIL PROVIDER: Resend | Status=FAIL | Response={}", traceId, response.getBody());
-                throw new EmailDeliveryException(
+            }
+
+            logger.error("[traceId={}] Failed to send email. Status: {}, Body: {}", traceId, response.getStatusCode(), response.getBody());
+            logger.error("[traceId={}] EMAIL PROVIDER: Resend | Status=FAIL | Response={}", traceId, response.getBody());
+            throw new EmailDeliveryException(
                     "Failed to send email. Please try again later.",
                     "EMAIL_DELIVERY_FAILED",
                     to
-                );
-            }
+            );
         } catch (Exception resendEx) {
-            logger.error("[traceId={}] EMAIL SEND (Resend) - Failed for {} | Error={}", traceId, to, resendEx.getMessage(), resendEx);
+            logger.error("[traceId={}] EMAIL SEND (Resend) - Failed for {} | Error={}", traceId, maskEmail(to), resendEx.getMessage(), resendEx);
             throw new EmailDeliveryException(
-                "Unable to send email at this time. Please try again later.",
-                to,
-                resendEx
+                    "Unable to send email at this time. Please try again later.",
+                    to,
+                    resendEx
+            );
+        }
+    }
+
+    private <T> T executeWithBreaker(String breakerName, java.util.function.Supplier<T> action) {
+        if (circuitBreakerRegistry == null) {
+            return action.get();
+        }
+        try {
+            return circuitBreakerRegistry.circuitBreaker(breakerName).executeSupplier(action::get);
+        } catch (CallNotPermittedException ex) {
+            throw new EmailDeliveryException(
+                    "Email service is temporarily busy. Please retry shortly.",
+                    "EMAIL_PROVIDER_THROTTLED",
+                    (String) null
             );
         }
     }
@@ -1609,8 +691,14 @@ public class HttpEmailService {
      */
     @Async
     public CompletableFuture<Boolean> sendWelcomeEmailAsync(String userEmail, String userName) {
+        return sendWelcomeEmailAsync(userEmail, userName, userEmail, null, null, null);
+    }
+
+    @Async
+    public CompletableFuture<Boolean> sendWelcomeEmailAsync(String userEmail, String userName,
+                                                             String registeredEmail, String userId, String userMobile, String createdDate) {
         try {
-            boolean result = sendWelcomeEmail(userEmail, userName);
+            boolean result = sendWelcomeEmail(userEmail, userName, registeredEmail, userId, userMobile, createdDate);
             return CompletableFuture.completedFuture(result);
         } catch (Exception e) {
             logger.error("Async welcome email failed for {}: {}", userEmail, e.getMessage());
@@ -1623,8 +711,12 @@ public class HttpEmailService {
      * Uses INFO sender - informational email for new users
      */
     public boolean sendWelcomeEmail(String userEmail, String userName) {
-        String subject = "Welcome to FarmEazy! 🌾";
-        String html = buildWelcomeEmailHtml(userName);
+        return sendWelcomeEmail(userEmail, userName, userEmail, null, null, null);
+    }
+
+    public boolean sendWelcomeEmail(String userEmail, String userName, String registeredEmail, String userId, String userMobile, String createdDate) {
+        String subject = "Welcome to FarmEazy! ðŸŒ¾";
+        String html = buildWelcomeEmailHtml(userName, registeredEmail, userId, userMobile, createdDate);
         return sendEmail(userEmail, subject, html, SenderType.INFO);
     }
 
@@ -1633,10 +725,15 @@ public class HttpEmailService {
      * Uses SUPPORT sender - user-initiated support request
      */
     public boolean sendPasswordResetEmail(String userEmail, String shortCode) {
+        return sendPasswordResetEmail(userEmail, shortCode, null, null, null);
+    }
+
+    public boolean sendPasswordResetEmail(String userEmail, String shortCode,
+                                          String ipAddress, String location, String deviceInfo) {
         String subject = "Reset Your FarmEazy Password";
-        // Use the support portal URL for reset link so password reset opens admin/support flow.
-        String resetLink = resolveEmailUrl("support", "/r/" + shortCode);
-        String html = buildPasswordResetEmailHtml(resetLink);
+        // Password reset for end users should always resolve against the public app domain.
+        String resetLink = resolveEmailUrl("public", "/r/" + shortCode);
+        String html = buildPasswordResetEmailHtml(resetLink, ipAddress, location, deviceInfo);
         return sendEmail(userEmail, subject, html, SenderType.SUPPORT);
     }
 
@@ -1654,134 +751,93 @@ public class HttpEmailService {
      * Build password changed confirmation email HTML
      */
     private String buildPasswordChangedEmailHtml(String userName) {
-        return """
-            <!DOCTYPE html>
-            <html>
-            <head>
-                <style>
-                    body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
-                    .container { max-width: 600px; margin: 0 auto; padding: 20px; }
-                    .header { background: linear-gradient(135deg, #22c55e, #16a34a); padding: 30px; text-align: center; border-radius: 10px 10px 0 0; }
-                    .header h1 { color: white; margin: 0; font-size: 24px; }
-                    .content { background: #f9fafb; padding: 30px; border-radius: 0 0 10px 10px; }
-                    .button { display: inline-block; background: #22c55e; color: white; padding: 12px 30px; text-decoration: none; border-radius: 5px; margin: 20px 0; }
-                    .footer { text-align: center; margin-top: 20px; color: #6b7280; font-size: 14px; }
-                </style>
-            </head>
-            <body>
-                <div class="container">
-                    <div class="header">
-                        <h1>🔐 Password Changed Successfully</h1>
-                    </div>
-                    <div class="content">
-                        <p>Hello, %s! 👋</p>
-                        <div class="success-box">
-                            <strong>✅ Your password has been successfully changed.</strong>
-                        </div>
-                        <p>You can now use your new password to log in to FarmEazy.</p>
-                        <div class="warning-box">
-                            <strong>⚠️ If you didn't make this change:</strong>
-                            <p style="margin: 5px 0 0 0;">Please contact our support team immediately at support@farm-eazy.com</p>
-                        </div>
-                    </div>
-                    <div class="footer">
-                        <p>© 2026 FarmEazy. Smart Farm Management.</p>
-                    </div>
-                </div>
-            </body>
-            </html>
-            """.formatted(userName);
-    }
+    String details = "Account: " + safeValue(userName) + "\n"
+            + "Event: Password changed successfully";
+
+    return buildEventEmailHtml(
+            "Password Changed Successfully",
+            "Your FarmEazy password has been updated. If this was not you, contact support immediately.",
+            details,
+            "Contact Support",
+            resolveEmailUrl("support", "/support")
+    );
+}
 
     /**
      * Build welcome email HTML
      */
-    private String buildWelcomeEmailHtml(String userName) {
-        return """
-            <!DOCTYPE html>
-            <html>
-            <head>
-                <style>
-                    body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
-                    .container { max-width: 600px; margin: 0 auto; padding: 20px; }
-                    .header { background: linear-gradient(135deg, #22c55e, #16a34a); padding: 30px; text-align: center; border-radius: 10px 10px 0 0; }
-                    .header h1 { color: white; margin: 0; font-size: 28px; }
-                    .content { background: #f9fafb; padding: 30px; border-radius: 0 0 10px 10px; }
-                    .button { display: inline-block; background: #22c55e; color: white; padding: 12px 30px; text-decoration: none; border-radius: 5px; margin: 20px 0; }
-                    .footer { text-align: center; margin-top: 20px; color: #6b7280; font-size: 14px; }
-                </style>
-            </head>
-            <body>
-                <div class="container">
-                    <div class="header">
-                        <h1>🌾 Welcome to FarmEazy!</h1>
-                    </div>
-                    <div class="content">
-                        <h2>Hello, %s! 👋</h2>
-                        <p>Thank you for joining FarmEazy - your smart farm management solution!</p>
-                        <p>With FarmEazy, you can:</p>
-                        <ul>
-                            <li>🌱 Track your crops and their growth stages</li>
-                            <li>💧 Manage irrigation schedules</li>
-                            <li>🏡 Organize multiple farms</li>
-                            <li>📊 Monitor farm activities</li>
-                        </ul>
-                        <p>Get started by logging into your dashboard:</p>
-                        <a href="%s/login" class="button">Go to Dashboard</a>
-                        <p>If you have any questions, feel free to reach out!</p>
-                        <p>Happy Farming! 🚜</p>
-                    </div>
-                    <div class="footer">
-                        <p>© 2026 FarmEazy. Smart Farm Management.</p>
-                    </div>
-                </div>
-            </body>
-            </html>
-            """.formatted(userName, appBaseUrl);
+    private String buildWelcomeEmailHtml(String userName, String registeredEmail, String userId, String userMobile, String createdDate) {
+        String template = loadEmailTemplate("templates/emails/welcome.html");
+
+        String requestTime = java.time.LocalDateTime.now()
+                .format(java.time.format.DateTimeFormatter.ofPattern("dd MMM yyyy, hh:mm a"));
+        String normalizedUserName = (userName == null || userName.isBlank()) ? "User" : userName.trim();
+        String normalizedRegisteredEmail = normalizeMetadata(registeredEmail);
+        String normalizedUserId = normalizeMetadata(userId);
+        String normalizedUserMobile = normalizeMetadata(userMobile);
+        String normalizedCreatedDate = normalizeMetadata(createdDate);
+
+        Map<String, String> placeholders = new HashMap<>();
+        placeholders.put("APP_NAME", "FarmEazy");
+        placeholders.put("USER_NAME", normalizedUserName);
+        placeholders.put("USER_ID", normalizedUserId);
+        placeholders.put("USER_EMAIL", normalizedRegisteredEmail);
+        placeholders.put("USER_MOBILE", normalizedUserMobile);
+        placeholders.put("CREATED_DATE", normalizedCreatedDate);
+        placeholders.put("LOGIN_URL", resolveEmailUrl("public", "/login"));
+        placeholders.put("SUPPORT_EMAIL", "support@farm-eazy.com");
+        placeholders.put("WEBSITE_URL", resolveEmailUrl("public", ""));
+        placeholders.put("YEAR", String.valueOf(java.time.Year.now().getValue()));
+        placeholders.put("WELCOME_DETAILS_ROWS", buildWelcomeDetailsRows(normalizedUserId, normalizedRegisteredEmail, normalizedUserMobile, normalizedCreatedDate));
+        placeholders.put("REQUEST_TIME", requestTime);
+
+        return replacePlaceholders(template, placeholders);
+    }
+
+    private String buildWelcomeDetailsRows(String userId, String userEmail, String userMobile, String createdDate) {
+        StringBuilder rows = new StringBuilder();
+        if (!userId.isBlank()) {
+            rows.append(buildRequestDetailRow("User ID", userId));
+        }
+        if (!userEmail.isBlank()) {
+            rows.append(buildRequestDetailRow("Registered Email", userEmail));
+        }
+        if (!userMobile.isBlank()) {
+            rows.append(buildRequestDetailRow("Mobile Number", userMobile));
+        }
+        if (!createdDate.isBlank()) {
+            rows.append(buildRequestDetailRow("Account Created On", createdDate));
+        }
+        return rows.toString();
     }
 
     /**
      * Build password reset email HTML
      */
-    private String buildPasswordResetEmailHtml(String resetLink) {
-        return """
-            <!DOCTYPE html>
-            <html>
-            <head>
-                <style>
-                    body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
-                    .container { max-width: 600px; margin: 0 auto; padding: 20px; }
-                    .header { background: linear-gradient(135deg, #3b82f6, #1d4ed8); padding: 30px; text-align: center; border-radius: 10px 10px 0 0; }
-                    .header h1 { color: white; margin: 0; font-size: 24px; }
-                    .content { background: #f9fafb; padding: 30px; border-radius: 0 0 10px 10px; text-align: center; }
-                    .otp-box { background: white; padding: 20px; border-radius: 8px; margin: 20px 0; }
-                    .otp-code { font-size: 36px; font-weight: bold; color: #8b5cf6; letter-spacing: 8px; }
-                    .warning { background: #fef3c7; border-left: 4px solid #f59e0b; padding: 10px 15px; margin: 15px 0; text-align: left; }
-                    .footer { text-align: center; margin-top: 20px; color: #6b7280; font-size: 14px; }
-                </style>
-            </head>
-            <body>
-                <div class="container">
-                    <div class="header">
-                        <h1>🔐 Password Reset Request</h1>
-                    </div>
-                    <div class="content">
-                        <p>Hello,</p>
-                        <p>We received a request to reset your FarmEazy password.</p>
-                        <p>Click the button below to set a new password:</p>
-                        <a href="%s" class="button">Reset Password</a>
-                        <div class="warning">
-                            <strong>⚠️ Important:</strong> This link expires in 1 hour.
-                        </div>
-                        <p>If you didn't request this, you can safely ignore this email.</p>
-                    </div>
-                    <div class="footer">
-                        <p>© 2026 FarmEazy. Smart Farm Management.</p>
-                    </div>
-                </div>
-            </body>
-            </html>
-            """.formatted(resetLink);
+    private String buildPasswordResetEmailHtml(String resetLink, String ipAddress, String location, String deviceInfo) {
+        String template = loadEmailTemplate("templates/emails/password-reset.html");
+
+        String requestTime = java.time.LocalDateTime.now()
+                .format(java.time.format.DateTimeFormatter.ofPattern("dd MMM yyyy, hh:mm a"));
+        String normalizedIp = normalizeMetadata(ipAddress);
+        String normalizedLocation = normalizeMetadata(location);
+        String normalizedDevice = normalizeMetadata(deviceInfo);
+
+        Map<String, String> placeholders = new HashMap<>();
+        placeholders.put("APP_NAME", "FarmEazy");
+        placeholders.put("USER_NAME", "User");
+        placeholders.put("RESET_LINK", resetLink);
+        placeholders.put("RESET_LINK_EXPIRY_MINUTES", "60");
+        placeholders.put("REQUEST_TIME", requestTime);
+        placeholders.put("IP_ADDRESS", normalizedIp);
+        placeholders.put("LOCATION", normalizedLocation);
+        placeholders.put("DEVICE_INFO", normalizedDevice);
+        placeholders.put("REQUEST_DETAILS_ROWS", buildRequestDetailsRows(requestTime, normalizedIp, normalizedLocation, normalizedDevice));
+        placeholders.put("SUPPORT_EMAIL", "support@farm-eazy.com");
+        placeholders.put("WEBSITE_URL", resolveEmailUrl("public", ""));
+        placeholders.put("YEAR", String.valueOf(java.time.Year.now().getValue()));
+
+        return replacePlaceholders(template, placeholders);
     }
 
     /**
@@ -1812,8 +868,13 @@ public class HttpEmailService {
      * Uses NOREPLY sender - automated verification code
      */
     public boolean sendOtpEmail(String userEmail, String userName, String otpCode, String purpose) {
+        return sendOtpEmail(userEmail, userName, otpCode, purpose, null, null, null);
+    }
+
+    public boolean sendOtpEmail(String userEmail, String userName, String otpCode, String purpose,
+                                String ipAddress, String location, String deviceInfo) {
         String subject = "Your FarmEazy OTP Code - " + purpose;
-        String html = buildOtpEmailHtml(userName, otpCode, purpose);
+        String html = buildOtpEmailHtml(userName, otpCode, purpose, ipAddress, location, deviceInfo);
         return sendEmail(userEmail, subject, html, SenderType.NOREPLY);
     }
 
@@ -1849,8 +910,13 @@ public class HttpEmailService {
      */
     @Async
     public CompletableFuture<Boolean> sendOrderConfirmationEmailAsync(String userEmail, String userName, Long orderId, String subtotal, String coinsDiscount, String taxAmount, String finalAmount, String paymentMethod, String paymentStatus, String orderStatus) {
+        return sendOrderConfirmationEmailAsync(userEmail, userName, orderId, subtotal, coinsDiscount, taxAmount, finalAmount, paymentMethod, paymentStatus, orderStatus, null, null, null, null);
+    }
+
+    @Async
+    public CompletableFuture<Boolean> sendOrderConfirmationEmailAsync(String userEmail, String userName, Long orderId, String subtotal, String coinsDiscount, String taxAmount, String finalAmount, String paymentMethod, String paymentStatus, String orderStatus, String orderDate, String orderItemsHtml, String deliveryAddress, String trackOrderUrl) {
         try {
-            boolean result = sendOrderConfirmationEmail(userEmail, userName, orderId, subtotal, coinsDiscount, taxAmount, finalAmount, paymentMethod, paymentStatus, orderStatus);
+            boolean result = sendOrderConfirmationEmail(userEmail, userName, orderId, subtotal, coinsDiscount, taxAmount, finalAmount, paymentMethod, paymentStatus, orderStatus, orderDate, orderItemsHtml, deliveryAddress, trackOrderUrl);
             return CompletableFuture.completedFuture(result);
         } catch (Exception e) {
             logger.error("Async order confirmation email failed for {}: {}", userEmail, e.getMessage());
@@ -1863,11 +929,15 @@ public class HttpEmailService {
      * Uses ORDERS sender - order-related communications
      */
     public boolean sendOrderConfirmationEmail(String userEmail, String userName, Long orderId, String subtotal, String coinsDiscount, String taxAmount, String finalAmount, String paymentMethod, String paymentStatus, String orderStatus) {
+        return sendOrderConfirmationEmail(userEmail, userName, orderId, subtotal, coinsDiscount, taxAmount, finalAmount, paymentMethod, paymentStatus, orderStatus, null, null, null, null);
+    }
+
+    public boolean sendOrderConfirmationEmail(String userEmail, String userName, Long orderId, String subtotal, String coinsDiscount, String taxAmount, String finalAmount, String paymentMethod, String paymentStatus, String orderStatus, String orderDate, String orderItemsHtml, String deliveryAddress, String trackOrderUrl) {
         String normalizedPaymentMethod = paymentMethod == null ? "UNKNOWN" : paymentMethod;
         String normalizedPaymentStatus = paymentStatus == null ? "UNKNOWN" : paymentStatus;
         String normalizedOrderStatus = orderStatus == null ? "UNKNOWN" : orderStatus;
         String subject = "Order Update #FZ" + orderId + " - " + normalizedOrderStatus + " / " + normalizedPaymentStatus;
-        String html = buildOrderConfirmationEmailHtml(userName, orderId, subtotal, coinsDiscount, taxAmount, finalAmount, normalizedPaymentMethod, normalizedPaymentStatus, normalizedOrderStatus);
+        String html = buildOrderConfirmationEmailHtml(userName, orderId, subtotal, coinsDiscount, taxAmount, finalAmount, normalizedPaymentMethod, normalizedPaymentStatus, normalizedOrderStatus, orderDate, orderItemsHtml, deliveryAddress, trackOrderUrl);
         return sendEmail(userEmail, subject, html, SenderType.ORDERS);
     }
 
@@ -1875,276 +945,433 @@ public class HttpEmailService {
      * Build notification email HTML
      */
     private String buildNotificationEmailHtml(String userName, String subject, String message) {
-        return """
-            <!DOCTYPE html>
-            <html>
-            <head>
-                <style>
-                    body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
-                    .container { max-width: 600px; margin: 0 auto; padding: 20px; }
-                    .header { background: linear-gradient(135deg, #22c55e, #16a34a); padding: 30px; text-align: center; border-radius: 10px 10px 0 0; }
-                    .header h1 { color: white; margin: 0; font-size: 24px; }
-                    .content { background: #f9fafb; padding: 30px; border-radius: 0 0 10px 10px; }
-                    .message-box { background: white; padding: 20px; border-radius: 8px; border-left: 4px solid #22c55e; }
-                    .footer { text-align: center; margin-top: 20px; color: #6b7280; font-size: 14px; }
-                </style>
-            </head>
-            <body>
-                <div class="container">
-                    <div class="header">
-                        <h1>🌾 %s</h1>
-                    </div>
-                    <div class="content">
-                        <p>Hello, %s! 👋</p>
-                        <div class="message-box">
-                            <p>%s</p>
-                        </div>
-                        <p style="margin-top: 20px;">Visit your dashboard to view more details.</p>
-                    </div>
-                    <div class="footer">
-                        <p>© 2026 FarmEazy. Smart Farm Management.</p>
-                    </div>
-                </div>
-            </body>
-            </html>
-            """.formatted(subject, userName, message);
+        String template = loadEmailTemplate("templates/emails/notification.html");
+
+        String safeUserName = (userName == null || userName.isBlank()) ? "User" : userName.trim();
+        String safeSubject = normalizeMetadata(subject);
+        if (safeSubject.isBlank()) {
+            safeSubject = "Important Account Update";
+        }
+
+        String normalizedMessage = normalizeMetadata(message);
+        String displayMessage = normalizedMessage.isBlank()
+                ? "Please check your FarmEazy dashboard for the latest updates."
+                : normalizedMessage;
+        String formattedMessage = displayMessage.replace("\n", "<br>");
+
+        Map<String, String> placeholders = new HashMap<>();
+        placeholders.put("APP_NAME", "FarmEazy");
+        placeholders.put("USER_NAME", safeUserName);
+        placeholders.put("NOTIFICATION_TITLE", safeSubject);
+        placeholders.put("NOTIFICATION_SUBTITLE", "Here is an important update related to your FarmEazy account.");
+        placeholders.put("NOTIFICATION_MESSAGE", formattedMessage);
+        placeholders.put("HIGHLIGHT_LABEL", "Notification Summary");
+        placeholders.put("HIGHLIGHT_TITLE", safeSubject);
+        placeholders.put("HIGHLIGHT_MESSAGE", formattedMessage);
+        placeholders.put("DETAIL_ROWS", buildNotificationDetailRows(safeSubject));
+        placeholders.put("ACTION_TEXT", "Open Dashboard");
+        placeholders.put("ACTION_URL", resolveEmailUrl("public", "/dashboard"));
+        placeholders.put("SUPPORT_EMAIL", "support@farm-eazy.com");
+        placeholders.put("YEAR", String.valueOf(java.time.Year.now().getValue()));
+
+        return replacePlaceholders(template, placeholders);
+    }
+
+    private String buildNotificationDetailRows(String subject) {
+        String sentAt = java.time.LocalDateTime.now()
+                .format(java.time.format.DateTimeFormatter.ofPattern("dd MMM yyyy, hh:mm a"));
+
+        StringBuilder rows = new StringBuilder();
+        rows.append(buildNotificationDetailRow("Notification Type", normalizeMetadata(subject)));
+        rows.append(buildNotificationDetailRow("Sent At", sentAt));
+
+        return rows.toString();
+    }
+
+    private String buildNotificationDetailRow(String label, String value) {
+        String normalizedValue = normalizeMetadata(value);
+        if (normalizedValue.isBlank()) {
+            return "";
+        }
+
+        return "<tr>"
+                + "<td style=\"padding:10px 14px;border-bottom:1px solid #e5e7eb;color:#6b7280;font-size:13px;width:40%;\">" + label + "</td>"
+                + "<td style=\"padding:10px 14px;border-bottom:1px solid #e5e7eb;color:#111827;font-size:13px;font-weight:600;\">" + normalizedValue + "</td>"
+                + "</tr>";
     }
 
     /**
      * Build OTP email HTML
      */
     private String buildOtpEmailHtml(String userName, String otpCode, String purpose) {
-        return """
-            <!DOCTYPE html>
-            <html>
-            <head>
-                <style>
-                    body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
-                    .container { max-width: 600px; margin: 0 auto; padding: 20px; }
-                    .header { background: linear-gradient(135deg, #8b5cf6, #6d28d9); padding: 30px; text-align: center; border-radius: 10px 10px 0 0; }
-                    .header h1 { color: white; margin: 0; font-size: 24px; }
-                    .content { background: #f9fafb; padding: 30px; border-radius: 0 0 10px 10px; text-align: center; }
-                    .otp-box { background: white; padding: 20px; border-radius: 8px; margin: 20px 0; }
-                    .otp-code { font-size: 36px; font-weight: bold; color: #8b5cf6; letter-spacing: 8px; }
-                    .warning { background: #fef3c7; border-left: 4px solid #f59e0b; padding: 10px 15px; margin: 15px 0; text-align: left; }
-                    .footer { text-align: center; margin-top: 20px; color: #6b7280; font-size: 14px; }
-                </style>
-            </head>
-            <body>
-                <div class="container">
-                    <div class="header">
-                        <h1>🔐 Your OTP Code</h1>
-                    </div>
-                    <div class="content">
-                        <p>Hello, %s! 👋</p>
-                        <p>Your one-time password for <strong>%s</strong>:</p>
-                        <div class="otp-box">
-                            <div class="otp-code">%s</div>
-                        </div>
-                        <div class="warning">
-                            <strong>⚠️ Important:</strong> This code expires in 10 minutes. Do not share it with anyone.
-                        </div>
-                    </div>
-                    <div class="footer">
-                        <p>© 2026 FarmEazy. Smart Farm Management.</p>
-                    </div>
-                </div>
-            </body>
-            </html>
-            """.formatted(userName, purpose, otpCode);
+        return buildOtpEmailHtml(userName, otpCode, purpose, null, null, null);
+    }
+
+    private String buildOtpEmailHtml(String userName, String otpCode, String purpose,
+                                     String ipAddress, String location, String deviceInfo) {
+        String template = loadEmailTemplate("templates/emails/login-otp.html");
+
+        String safeUserName = (userName == null || userName.isBlank()) ? "User" : userName;
+        String requestTime = java.time.LocalDateTime.now()
+                .format(java.time.format.DateTimeFormatter.ofPattern("dd MMM yyyy, hh:mm a"));
+
+        String normalizedIp = normalizeMetadata(ipAddress);
+        String normalizedLocation = normalizeMetadata(location);
+        String normalizedDevice = normalizeMetadata(deviceInfo);
+
+        Map<String, String> placeholders = new HashMap<>();
+        placeholders.put("APP_NAME", "FarmEazy");
+        placeholders.put("USER_NAME", safeUserName);
+        placeholders.put("OTP_CODE", otpCode);
+        placeholders.put("OTP_EXPIRY_MINUTES", "10");
+        placeholders.put("REQUEST_TIME", requestTime);
+        placeholders.put("IP_ADDRESS", normalizedIp);
+        placeholders.put("LOCATION", normalizedLocation);
+        placeholders.put("DEVICE_INFO", normalizedDevice);
+        placeholders.put("REQUEST_DETAILS_ROWS", buildRequestDetailsRows(requestTime, normalizedIp, normalizedLocation, normalizedDevice));
+        placeholders.put("LOGIN_URL", resolveEmailUrl("public", "/login"));
+        placeholders.put("RESET_PASSWORD_URL", resolveEmailUrl("public", "/forgot-password"));
+        placeholders.put("SUPPORT_EMAIL", "support@farm-eazy.com");
+        placeholders.put("WEBSITE_URL", resolveEmailUrl("public", ""));
+        placeholders.put("YEAR", String.valueOf(java.time.Year.now().getValue()));
+        placeholders.put("OTP_PURPOSE", purpose == null ? "LOGIN" : purpose);
+
+        logger.debug("OTP_EMAIL_TEMPLATE_PARAMS: {}", sanitizeTemplateParamsForLog(placeholders));
+
+        return replacePlaceholders(template, placeholders);
+    }
+
+    
+private String buildEventEmailHtml(String title, String intro, String details, String actionText, String actionUrl) {
+    String template = loadEmailTemplate("templates/emails/event-notification.html");
+    Map<String, String> placeholders = new HashMap<>();
+    placeholders.put("APP_NAME", "FarmEazy");
+    placeholders.put("TITLE", safeValue(title));
+    placeholders.put("INTRO", safeValue(intro));
+    placeholders.put("DETAILS", safeValue(details).replace("\n", "<br>"));
+    placeholders.put("ACTION_TEXT", safeValue(actionText));
+    placeholders.put("ACTION_URL", safeValue(actionUrl));
+    placeholders.put("YEAR", String.valueOf(java.time.Year.now().getValue()));
+    return replacePlaceholders(template, placeholders);
+}
+
+private String safeValue(String value) {
+    if (value == null || value.isBlank()) {
+        return "N/A";
+    }
+    return value
+            .replace("&", "&amp;")
+            .replace("<", "&lt;")
+            .replace(">", "&gt;")
+            .replace("\"", "&quot;")
+            .replace("'", "&#39;");
+}
+private String loadEmailTemplate(String classpathLocation) {
+        try {
+            org.springframework.core.io.ClassPathResource resource = new org.springframework.core.io.ClassPathResource(classpathLocation);
+            byte[] bytes = org.springframework.util.StreamUtils.copyToByteArray(resource.getInputStream());
+            return new String(bytes, java.nio.charset.StandardCharsets.UTF_8);
+        } catch (Exception ex) {
+            logger.error("Failed to load email template {}: {}", classpathLocation, ex.getMessage());
+            throw new EmailDeliveryException(
+                    "Email template could not be loaded.",
+                    "EMAIL_TEMPLATE_LOAD_FAILED",
+                    (String) null
+            );
+        }
+    }
+
+    private String replacePlaceholders(String template, Map<String, String> placeholders) {
+        String rendered = template;
+        for (Map.Entry<String, String> entry : placeholders.entrySet()) {
+            String value = entry.getValue() == null ? "" : entry.getValue();
+            rendered = rendered.replace("{{" + entry.getKey() + "}}", value);
+        }
+        return rendered;
+    }
+
+    private String normalizeMetadata(String value) {
+        return (value == null || value.isBlank()) ? "" : value.trim();
+    }
+
+    private String buildRequestDetailsRows(String requestTime, String ipAddress, String location, String deviceInfo) {
+        StringBuilder rows = new StringBuilder();
+        rows.append(buildRequestDetailRow("Date & Time", requestTime));
+
+        if (!ipAddress.isBlank()) {
+            rows.append(buildRequestDetailRow("IP Address", ipAddress));
+        }
+        if (!location.isBlank()) {
+            rows.append(buildRequestDetailRow("Location", location));
+        }
+        if (!deviceInfo.isBlank()) {
+            rows.append(buildRequestDetailRow("Device", deviceInfo));
+        }
+
+        return rows.toString();
+    }
+
+    private String buildRequestDetailRow(String label, String value) {
+        return "<tr>"
+                + "<td style=\"padding:4px 0;\">" + label + ":</td>"
+                + "<td style=\"padding:4px 0;\"><strong>" + value + "</strong></td>"
+                + "</tr>";
+    }
+
+    private Map<String, Object> buildSafeResendPayloadLog(String sender, String to, String subject, String htmlContent) {
+        Map<String, Object> safePayload = new HashMap<>();
+        safePayload.put("from", sender);
+        safePayload.put("to", List.of(maskEmail(to)));
+        safePayload.put("subject", subject);
+        safePayload.put("htmlLength", htmlContent == null ? 0 : htmlContent.length());
+        safePayload.put("htmlHash", hashForLog(htmlContent));
+        return safePayload;
+    }
+
+    private Map<String, String> sanitizeTemplateParamsForLog(Map<String, String> placeholders) {
+        Map<String, String> safeParams = new HashMap<>();
+        for (Map.Entry<String, String> entry : placeholders.entrySet()) {
+            String key = entry.getKey();
+            String value = entry.getValue() == null ? "" : entry.getValue();
+            String upperKey = key.toUpperCase();
+
+            if (upperKey.contains("URL")) {
+                safeParams.put(key, sanitizeUrlForLog(value));
+            } else if (upperKey.contains("OTP") || upperKey.contains("TOKEN") || upperKey.contains("PASSWORD")) {
+                safeParams.put(key, "[HASH:" + hashForLog(value) + "]");
+            } else if (upperKey.contains("EMAIL")) {
+                safeParams.put(key, maskEmail(value));
+            } else if (upperKey.contains("PHONE")) {
+                safeParams.put(key, maskPhone(value));
+            } else if (upperKey.contains("IP")) {
+                safeParams.put(key, maskIp(value));
+            } else {
+                safeParams.put(key, truncateForLog(value));
+            }
+        }
+        return safeParams;
+    }
+
+    private String maskEmail(String email) {
+        if (email == null || email.isBlank() || !email.contains("@")) {
+            return "***";
+        }
+        String[] parts = email.split("@", 2);
+        String local = parts[0];
+        String domain = parts[1];
+        if (local.length() <= 2) {
+            return "**@" + domain;
+        }
+        return local.charAt(0) + "***" + local.charAt(local.length() - 1) + "@" + domain;
+    }
+
+    private String maskPhone(String phone) {
+        if (phone == null || phone.length() < 4) {
+            return "****";
+        }
+        return phone.substring(0, 2) + "****" + phone.substring(phone.length() - 2);
+    }
+
+    private String maskIp(String ip) {
+        if (ip == null || ip.isBlank()) {
+            return "***";
+        }
+        if (ip.contains(".")) {
+            String[] parts = ip.split("\\.");
+            if (parts.length == 4) {
+                return parts[0] + ".***.***." + parts[3];
+            }
+        }
+        return "[HASH:" + hashForLog(ip) + "]";
+    }
+
+    private String truncateForLog(String value) {
+        if (value == null) {
+            return "";
+        }
+        int max = 120;
+        return value.length() <= max ? value : value.substring(0, max) + "...";
+    }
+
+    private String sanitizeUrlForLog(String url) {
+        if (url == null || url.isBlank()) {
+            return "";
+        }
+        String sanitized = url.replaceAll("(?i)(token=)[^&]+", "$1***");
+        sanitized = sanitized.replaceAll("(?i)(otp=)[^&]+", "$1***");
+        return truncateForLog(sanitized);
+    }
+
+    private String hashForLog(String value) {
+        if (value == null || value.isBlank()) {
+            return "EMPTY";
+        }
+        try {
+            MessageDigest digest = MessageDigest.getInstance("SHA-256");
+            byte[] hash = digest.digest(value.getBytes(StandardCharsets.UTF_8));
+            return Base64.getEncoder().encodeToString(hash);
+        } catch (NoSuchAlgorithmException e) {
+            return "HASH_UNAVAILABLE";
+        }
     }
 
     /**
      * Build product listing confirmation email HTML
      */
     private String buildProductListingEmailHtml(String userName, String productName, String category,
-                                                 Double price, Integer quantity, String unit) {
-        return """
-            <!DOCTYPE html>
-            <html>
-            <head>
-                <style>
-                    body { font-family: 'Segoe UI', Arial, sans-serif; line-height: 1.6; color: #333; margin: 0; padding: 0; }
-                    .container { max-width: 650px; margin: 0 auto; background: #ffffff; }
-                    .header { background: linear-gradient(135deg, #f59e0b 0%%, #d97706 100%%); color: white; padding: 40px 30px; text-align: center; }
-                    .header h1 { margin: 0; font-size: 28px; font-weight: 700; }
-                    .header p { margin: 10px 0 0 0; opacity: 0.9; font-size: 14px; }
-                    .content { padding: 40px 30px; background: #fafafa; }
-                    .greeting { font-size: 18px; color: #111827; margin-bottom: 20px; }
-                    .message { color: #4b5563; margin-bottom: 30px; line-height: 1.8; }
-                    .details-card { background: white; border-radius: 12px; padding: 25px; margin: 25px 0; box-shadow: 0 2px 8px rgba(0,0,0,0.08); }
-                    .card-title { font-size: 20px; font-weight: 700; color: #f59e0b; margin: 0 0 20px 0; border-bottom: 2px solid #f59e0b; padding-bottom: 10px; }
-                    table { width: 100%%; border-collapse: collapse; }
-                    td { padding: 12px 0; border-bottom: 1px solid #e5e7eb; }
-                    td:first-child { color: #6b7280; font-weight: 500; width: 40%%; }
-                    td:last-child { color: #111827; font-weight: 600; text-align: right; }
-                    tr:last-child td { border-bottom: none; }
-                    .price-highlight { font-size: 24px; color: #f59e0b; font-weight: 700; }
-                    .button { display: inline-block; background: linear-gradient(135deg, #f59e0b, #d97706); color: white; padding: 14px 32px; text-decoration: none; border-radius: 8px; margin: 25px 0; font-weight: 600; font-size: 16px; box-shadow: 0 4px 6px rgba(245, 158, 11, 0.25); }
-                    .info-box { background: #dbeafe; border-left: 4px solid #3b82f6; padding: 16px; border-radius: 6px; margin: 25px 0; }
-                    .info-box p { margin: 0; color: #1e40af; font-size: 14px; }
-                    .success-badge { display: inline-block; background: #dcfce7; color: #16a34a; padding: 8px 16px; border-radius: 20px; font-weight: bold; margin: 20px 0; }
-                    .footer { background: #111827; color: #9ca3af; padding: 30px; text-align: center; font-size: 14px; }
-                    .footer a { color: #f59e0b; text-decoration: none; }
-                </style>
-            </head>
-            <body>
-                <div class="container">
-                    <div class="header">
-                        <h1>📦 Product Listed Successfully!</h1>
-                        <p>Your product is now live on the marketplace</p>
-                    </div>
-                    <div class="content">
-                        <div class="greeting">Hello %s! 👋</div>
-                        <div class="message">
-                            Great news! Your product has been successfully listed on FarmEazy Marketplace. Buyers can now discover and purchase your product.
-                        </div>
+                                             Double price, Integer quantity, String unit) {
+    String totalValue = (price != null && quantity != null) ? String.format("%.2f", price * quantity) : "0.00";
+    String details = "Product Name: " + safeValue(productName) + "\n"
+            + "Category: " + safeValue(category) + "\n"
+            + "Price: Rs " + (price != null ? String.format("%.2f", price) : "0.00") + "\n"
+            + "Quantity: " + (quantity != null ? quantity : 0) + " " + safeValue(unit) + "\n"
+            + "Total Value: Rs " + totalValue;
 
-                        <center>
-                            <div class="success-badge">✓ LIVE ON MARKETPLACE</div>
-                        </center>
-
-                        <div class="details-card">
-                            <h2 class="card-title">📦 Product Details</h2>
-                            <table>
-                                <tr>
-                                    <td>Product Name</td>
-                                    <td>%s</td>
-                                </tr>
-                                <tr>
-                                    <td>Category</td>
-                                    <td>%s</td>
-                                </tr>
-                                <tr>
-                                    <td>Price per Unit</td>
-                                    <td class="price-highlight">₹%s</td>
-                                </tr>
-                                <tr>
-                                    <td>Available Quantity</td>
-                                    <td>%d %s</td>
-                                </tr>
-                                <tr>
-                                    <td>Total Value</td>
-                                    <td class="price-highlight">₹%.2f</td>
-                                </tr>
-                            </table>
-                        </div>
-
-                        <div class="info-box">
-                            <p><strong>💡 Next Steps:</strong></p>
-                            <p style="margin-top: 8px;">• Monitor buyer inquiries in your dashboard</p>
-                            <p>• Keep your stock quantities updated</p>
-                            <p>• Respond promptly to orders to build trust</p>
-                        </div>
-
-                        <center>
-                            <a href="%s/selling" class="button">View My Products</a>
-                        </center>
-
-                        <div class="message" style="margin-top: 30px; font-size: 14px; color: #6b7280;">
-                            Your product is now searchable by buyers looking for "%s" products. Good luck with your sales!
-                        </div>
-                    </div>
-                    <div class="footer">
-                        <p><strong>FarmEazy</strong> - Smart Farm Management</p>
-                        <p style="margin-top: 10px;">
-                            <a href="%s">Visit Website</a> |
-                            <a href="%s/buying">Browse Products</a> |
-                            <a href="%s/support">Support</a>
-                        </p>
-                        <p style="margin-top: 15px; font-size: 12px;">© 2026 FarmEazy. All rights reserved.</p>
-                    </div>
-                </div>
-            </body>
-            </html>
-            """.formatted(userName, productName, category, price, quantity, unit, (price * quantity), appBaseUrl, category, appBaseUrl, appBaseUrl, appBaseUrl);
-    }
+    return buildEventEmailHtml(
+            "Product Listed Successfully",
+            "Hello " + safeValue(userName) + ", your product is now live on FarmEazy marketplace.",
+            details,
+            "Manage Listings",
+            resolveEmailUrl("public", "/selling")
+    );
+}
 
     /**
      * Build order confirmation email HTML with detailed pricing breakdown
      */
-    private String buildOrderConfirmationEmailHtml(String userName, Long orderId, String subtotal, String coinsDiscount, String taxAmount, String finalAmount, String paymentMethod, String paymentStatus, String orderStatus) {
-        // Calculate coin discount display
-        String discountDisplay = (coinsDiscount != null && !coinsDiscount.equals("0"))
-            ? String.format("<div class=\"price-row discount\"><span>Coin Discount:</span><span>- ₹%s</span></div>", coinsDiscount)
-            : "";
+    private String buildOrderConfirmationEmailHtml(String userName, Long orderId, String subtotal, String coinsDiscount, String taxAmount, String finalAmount, String paymentMethod, String paymentStatus, String orderStatus, String orderDate, String orderItemsHtml, String deliveryAddress, String trackOrderUrl) {
+        String template = loadEmailTemplate("templates/emails/order-confirmation.html");
 
-        String statusTitle = "Order Confirmed!";
-        String statusMessage = "Thank you for your order! Your purchase has been confirmed.";
-
-        if ("CASH_ON_DELIVERY".equalsIgnoreCase(paymentMethod)) {
-            statusTitle = "Order Placed!";
-            statusMessage = "Your order is placed successfully. Payment will be collected at delivery.";
-        } else if ("COMPLETED".equalsIgnoreCase(paymentStatus)) {
-            statusTitle = "Payment Successful!";
-            statusMessage = "Your payment is successful and your order is confirmed.";
+        String normalizedUserName = (userName == null || userName.isBlank()) ? "Customer" : userName.trim();
+        String normalizedOrderId = orderId == null ? "" : String.valueOf(orderId);
+        String normalizedOrderDate = normalizeMetadata(orderDate);
+        if (normalizedOrderDate.isBlank()) {
+            normalizedOrderDate = java.time.LocalDateTime.now().format(java.time.format.DateTimeFormatter.ofPattern("dd MMM yyyy, hh:mm a"));
         }
 
-        return String.format("""
-            <!DOCTYPE html>
-            <html>
-            <head>
-                <style>
-                    body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
-                    .container { max-width: 600px; margin: 0 auto; padding: 20px; }
-                    .header { background: linear-gradient(135deg, #22c55e, #16a34a); padding: 30px; text-align: center; border-radius: 10px 10px 0 0; }
-                    .header h1 { color: white; margin: 0; font-size: 24px; }
-                    .content { background: #f9fafb; padding: 30px; border-radius: 0 0 10px 10px; }
-                    .order-box { background: white; padding: 20px; border-radius: 8px; margin: 20px 0; }
-                    .check-icon { font-size: 48px; text-align: center; color: #22c55e; }
-                    .order-id { font-size: 14px; color: #6b7280; text-align: center; }
-                    .order-number { font-size: 24px; font-weight: bold; color: #22c55e; text-align: center; }
-                    .price-breakdown { background: #f3f4f6; padding: 20px; border-radius: 8px; margin: 20px 0; }
-                    .price-row { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #e5e7eb; }
-                    .price-row.discount { color: #059669; font-weight: 600; }
-                    .price-row.tax { color: #6b7280; }
-                    .price-row.total { border-top: 2px solid #22c55e; border-bottom: none; font-size: 20px; font-weight: bold; color: #22c55e; padding-top: 15px; margin-top: 10px; }
-                    .info-box { background: #dbeafe; border-left: 4px solid #3b82f6; padding: 15px; margin: 20px 0; border-radius: 4px; }
-                    .footer { text-align: center; margin-top: 20px; color: #6b7280; font-size: 14px; }
-                </style>
-            </head>
-            <body>
-                <div class="container">
-                    <div class="header">
-                        <h1>✅ %s</h1>
-                    </div>
-                    <div class="content">
-                        <p>Hello, %s! 👋</p>
-                        <p>%s</p>
+        String normalizedPaymentMethod = normalizeOrderLabel(paymentMethod);
+        String normalizedOrderStatus = normalizeOrderLabel(orderStatus);
+        String normalizedPaymentStatus = normalizeOrderLabel(paymentStatus);
+        String normalizedDeliveryAddress = normalizeMetadata(deliveryAddress);
+        String resolvedTrackUrl = normalizeMetadata(trackOrderUrl);
+        if (resolvedTrackUrl.isBlank()) {
+            resolvedTrackUrl = resolveEmailUrl("public", "/orders");
+        }
 
-                        <div class="order-box">
-                            <div class="check-icon">✓</div>
-                            <div class="order-id">Order ID</div>
-                            <div class="order-number">#FZ%d</div>
-                        </div>
+        String detailsRows = buildOrderDetailsRows(normalizedOrderId, normalizedOrderDate, normalizedPaymentMethod, normalizedOrderStatus, normalizedPaymentStatus);
+        String itemsRows = normalizeMetadata(orderItemsHtml);
+        if (itemsRows.isBlank()) {
+            itemsRows = "<tr><td colspan=\"4\" style=\"padding:10px; border:1px solid #e2e8f0; text-align:center; color:#6b7280;\">Order items are available in your dashboard.</td></tr>";
+        }
+        String totalsRows = buildOrderTotalRows(subtotal, coinsDiscount, taxAmount, finalAmount);
 
-                        <div class="price-breakdown">
-                            <h3 style="margin-top: 0; color: #374151;">Price Breakdown</h3>
-                            <div class="price-row"><span>Subtotal:</span><span>₹%s</span></div>
-                            %s
-                            <div class="price-row tax"><span>Tax & Charges:</span><span>₹%s</span></div>
-                            <div class="price-row total"><span>Final Amount:</span><span>₹%s</span></div>
-                        </div>
+        Map<String, String> placeholders = new HashMap<>();
+        placeholders.put("APP_NAME", "FarmEazy");
+        placeholders.put("USER_NAME", normalizedUserName);
+        placeholders.put("ORDER_ID", normalizedOrderId);
+        placeholders.put("ORDER_DATE", normalizedOrderDate);
+        placeholders.put("PAYMENT_METHOD", normalizedPaymentMethod);
+        placeholders.put("ORDER_STATUS", normalizedOrderStatus);
+        placeholders.put("ORDER_INFO_ROWS", detailsRows);
+        placeholders.put("ORDER_ITEMS", itemsRows);
+        placeholders.put("ORDER_TOTAL_ROWS", totalsRows);
+        placeholders.put("DELIVERY_ADDRESS", normalizedDeliveryAddress.isBlank() ? "Not available" : normalizedDeliveryAddress);
+        placeholders.put("TRACK_ORDER_URL", resolvedTrackUrl);
+        placeholders.put("SUPPORT_EMAIL", "support@farm-eazy.com");
+        placeholders.put("WEBSITE_URL", resolveEmailUrl("public", ""));
+        placeholders.put("YEAR", String.valueOf(java.time.Year.now().getValue()));
 
-                        <div class="info-box">
-                            <strong>📦 Delivery Information</strong>
-                            <p style="margin: 5px 0 0 0;">Expected delivery: 3-5 business days</p>
-                            <p style="margin: 5px 0 0 0;">Order Status: %s</p>
-                            <p style="margin: 5px 0 0 0;">Payment Status: %s</p>
-                            <p style="margin: 5px 0 0 0;">Payment Method: %s</p>
-                        </div>
+        return replacePlaceholders(template, placeholders);
+    }
 
-                        <p>You can track your order status in your dashboard.</p>
-                        <p style="margin-top: 20px;">Thank you for shopping with FarmEazy! 🌾</p>
-                    </div>
-                    <div class="footer">
-                        <p>© 2026 FarmEazy. Smart Farm Management.</p>
-                        <p style="margin-top: 5px;">Questions? Reply to <a href="mailto:support@farm-eazy.com" style="color: #22c55e;">support@farm-eazy.com</a></p>
-                    </div>
-                </div>
-            </body>
-            </html>
-            """, statusTitle, userName, statusMessage, orderId, subtotal, discountDisplay, taxAmount, finalAmount, orderStatus, paymentStatus, paymentMethod);
+    private String buildOrderDetailsRows(String orderId, String orderDate, String paymentMethod, String orderStatus, String paymentStatus) {
+        StringBuilder rows = new StringBuilder();
+        if (!orderId.isBlank()) {
+            rows.append(buildRequestDetailRow("Order ID", orderId));
+        }
+        if (!orderDate.isBlank()) {
+            rows.append(buildRequestDetailRow("Order Date", orderDate));
+        }
+        if (!paymentMethod.isBlank()) {
+            rows.append(buildRequestDetailRow("Payment Method", paymentMethod));
+        }
+        if (!orderStatus.isBlank()) {
+            rows.append(buildRequestDetailRow("Order Status", orderStatus));
+        }
+        if (!paymentStatus.isBlank()) {
+            rows.append(buildRequestDetailRow("Payment Status", paymentStatus));
+        }
+        return rows.toString();
+    }
+
+    private String buildOrderTotalRows(String subtotal, String coinsDiscount, String taxAmount, String finalAmount) {
+        StringBuilder rows = new StringBuilder();
+        rows.append("<tr><td align=\"right\" style=\"padding:6px 0;\">Subtotal:</td><td align=\"right\" style=\"padding:6px 0;\"><strong>â‚¹")
+                .append(formatCurrencyAmount(subtotal))
+                .append("</strong></td></tr>");
+
+        String normalizedDiscount = normalizeMetadata(coinsDiscount);
+        if (!normalizedDiscount.isBlank()) {
+            java.math.BigDecimal discountValue = java.math.BigDecimal.ZERO;
+            try {
+                discountValue = new java.math.BigDecimal(normalizedDiscount);
+            } catch (Exception ignored) {
+            }
+            if (discountValue.compareTo(java.math.BigDecimal.ZERO) > 0) {
+                rows.append("<tr><td align=\"right\" style=\"padding:6px 0; color:#065f46;\">Coin Discount:</td><td align=\"right\" style=\"padding:6px 0; color:#065f46;\"><strong>- â‚¹")
+                        .append(formatCurrencyAmount(normalizedDiscount))
+                        .append("</strong></td></tr>");
+            }
+        }
+
+        String normalizedCharges = normalizeMetadata(taxAmount);
+        if (!normalizedCharges.isBlank()) {
+            rows.append("<tr><td align=\"right\" style=\"padding:6px 0;\">Delivery Charges:</td><td align=\"right\" style=\"padding:6px 0;\"><strong>â‚¹")
+                    .append(formatCurrencyAmount(normalizedCharges))
+                    .append("</strong></td></tr>");
+        }
+
+        rows.append("<tr style=\"background:#f9fafb;\"><td align=\"right\" style=\"padding:8px 0;\"><strong>Total Amount:</strong></td><td align=\"right\" style=\"padding:8px 0;\"><strong>â‚¹")
+                .append(formatCurrencyAmount(finalAmount))
+                .append("</strong></td></tr>");
+        return rows.toString();
+    }
+
+    private String formatCurrencyAmount(String amount) {
+        String normalized = normalizeMetadata(amount).replace(",", "");
+        if (normalized.isBlank()) {
+            return "0.00";
+        }
+        try {
+            return new java.math.BigDecimal(normalized).setScale(2, java.math.RoundingMode.HALF_UP).toPlainString();
+        } catch (Exception ex) {
+            return normalized;
+        }
+    }
+
+    private String normalizeOrderLabel(String value) {
+        String normalized = normalizeMetadata(value).replace('_', ' ').toLowerCase();
+        if (normalized.isBlank()) {
+            return "";
+        }
+        String[] parts = normalized.split("\\s+");
+        StringBuilder builder = new StringBuilder();
+        for (String part : parts) {
+            if (part.isBlank()) {
+                continue;
+            }
+            if (!builder.isEmpty()) {
+                builder.append(' ');
+            }
+            builder.append(Character.toUpperCase(part.charAt(0)));
+            if (part.length() > 1) {
+                builder.append(part.substring(1));
+            }
+        }
+        return builder.toString();
     }
 }
+
+
+
 

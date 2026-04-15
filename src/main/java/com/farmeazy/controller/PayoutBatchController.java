@@ -50,7 +50,7 @@ public class PayoutBatchController {
      * Get all pending approval batches (admin only)
      */
     @GetMapping("/batches/pending")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasAnyRole('ADMIN','SUPERADMIN')")
     public ResponseEntity<List<PayoutBatch>> getPendingApprovalBatches() {
         logger.info("ENDPOINT_CALLED: GET /api/payouts/batches/pending");
         List<PayoutBatch> batches = payoutBatchService.getPendingApprovalBatches();
@@ -61,7 +61,7 @@ public class PayoutBatchController {
      * Get all batches (admin only)
      */
     @GetMapping("/batches")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasAnyRole('ADMIN','SUPERADMIN')")
     public ResponseEntity<List<PayoutBatch>> getAllBatches() {
         logger.info("ENDPOINT_CALLED: GET /api/payouts/batches");
         // In production, add pagination
@@ -72,7 +72,7 @@ public class PayoutBatchController {
      * Get batch details by ID
      */
     @GetMapping("/batch/{batchId}")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasAnyRole('ADMIN','SUPERADMIN')")
     public ResponseEntity<PayoutBatch> getBatchById(@PathVariable Long batchId) {
         logger.info("ENDPOINT_CALLED: GET /api/payouts/batch/{}", batchId);
         PayoutBatch batch = payoutBatchService.getBatchById(batchId);
@@ -90,7 +90,7 @@ public class PayoutBatchController {
      * ✅ Creator cannot approve their own batch
      */
     @PostMapping("/batch/{batchId}/request-otp")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasAnyRole('ADMIN','SUPERADMIN')")
     public ResponseEntity<Map<String, String>> requestApprovalOtp(@PathVariable Long batchId) {
         logger.info("ENDPOINT_CALLED: POST /api/payouts/batch/{}/request-otp", batchId);
         
@@ -130,7 +130,7 @@ public class PayoutBatchController {
      * ✅ Immutable audit log
      */
     @PostMapping("/batch/{batchId}/approve")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasAnyRole('ADMIN','SUPERADMIN')")
     public ResponseEntity<Map<String, Object>> approveBatch(
             @PathVariable Long batchId,
             @RequestBody Map<String, String> request) {
@@ -173,7 +173,7 @@ public class PayoutBatchController {
      * ✅ IP address recorded
      */
     @GetMapping("/batch/{batchId}/export")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasAnyRole('ADMIN','SUPERADMIN')")
     public ResponseEntity<byte[]> exportBatchCsv(@PathVariable Long batchId) {
         logger.info("ENDPOINT_CALLED: GET /api/payouts/batch/{}/export", batchId);
 
@@ -203,7 +203,7 @@ public class PayoutBatchController {
      * Shows all actions (created, approved, exported, etc.)
      */
     @GetMapping("/batch/{batchId}/audit")
-    @PreAuthorize("hasRole('ADMIN')")
+    @PreAuthorize("hasAnyRole('ADMIN','SUPERADMIN')")
     public ResponseEntity<List<PayoutAudit>> getBatchAuditLog(@PathVariable Long batchId) {
         logger.info("ENDPOINT_CALLED: GET /api/payots/batch/{}/audit", batchId);
         List<PayoutAudit> auditLog = payoutBatchService.getBatchAuditLog(batchId);

@@ -10,6 +10,9 @@ import com.farmeazy.repository.FarmRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
+import org.springframework.cache.annotation.Caching;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
@@ -38,6 +41,11 @@ public class CropService {
     private NotificationService notificationService;
 
     @Transactional
+        @Caching(evict = {
+            @CacheEvict(cacheNames = "cropById", allEntries = true),
+            @CacheEvict(cacheNames = "cropListByUser", key = "#userId"),
+            @CacheEvict(cacheNames = "cropListByFarm", key = "#cropDto.farmId + ':' + #userId")
+        })
     public CropDto createCrop(CropDto cropDto, Long userId) {
         logger.info("CROP_SERVICE_CREATE_START userId={} farmId={} cropName={}", userId, cropDto != null ? cropDto.getFarmId() : null, cropDto != null ? cropDto.getCropName() : null);
         Farm farm = farmRepository.findById(cropDto.getFarmId())
@@ -93,6 +101,7 @@ public class CropService {
         return mapCropToDto(crop, farm.getUser().getId());
     }
 
+    @Cacheable(cacheNames = "cropById", key = "#cropId + ':' + #userId", unless = "#result == null")
     public CropDto getCropById(Long cropId, Long userId) {
         logger.info("CROP_SERVICE_GET_BY_ID cropId={} userId={}", cropId, userId);
         Crop crop = cropRepository.findById(cropId)
@@ -105,15 +114,16 @@ public class CropService {
         return mapCropToDto(crop, userId);
     }
 
+    @Cacheable(cacheNames = "cropListByUser", key = "#userId")
     public List<CropDto> getAllCropsByUser(Long userId) {
         logger.info("CROP_SERVICE_GET_ALL_BY_USER userId={}", userId);
-        return cropRepository.findAll()
+        return cropRepository.findByFarmUserId(userId)
                 .stream()
-                .filter(crop -> crop.getFarm().getUser().getId().equals(userId))
                 .map(crop -> mapCropToDto(crop, userId))
                 .toList();
     }
 
+    @Cacheable(cacheNames = "cropListByFarm", key = "#farmId + ':' + #userId")
     public List<CropDto> getCropsByFarm(Long farmId, Long userId) {
         logger.info("CROP_SERVICE_GET_BY_FARM farmId={} userId={}", farmId, userId);
         Farm farm = farmRepository.findById(farmId)
@@ -156,6 +166,11 @@ public class CropService {
     }
 
     @Transactional
+        @Caching(evict = {
+            @CacheEvict(cacheNames = "cropById", allEntries = true),
+            @CacheEvict(cacheNames = "cropListByUser", key = "#userId"),
+            @CacheEvict(cacheNames = "cropListByFarm", allEntries = true)
+        })
     public CropDto updateCrop(Long cropId, CropDto cropDto, Long userId) {
         logger.info("CROP_SERVICE_UPDATE_START cropId={} userId={} cropName={}", cropId, userId, cropDto != null ? cropDto.getCropName() : null);
         Crop crop = cropRepository.findById(cropId)
@@ -196,6 +211,11 @@ public class CropService {
     }
 
     @Transactional
+        @Caching(evict = {
+            @CacheEvict(cacheNames = "cropById", allEntries = true),
+            @CacheEvict(cacheNames = "cropListByUser", key = "#userId"),
+            @CacheEvict(cacheNames = "cropListByFarm", allEntries = true)
+        })
     public void deleteCrop(Long cropId, Long userId) {
         logger.info("CROP_SERVICE_DELETE_START cropId={} userId={}", cropId, userId);
         Crop crop = cropRepository.findById(cropId)

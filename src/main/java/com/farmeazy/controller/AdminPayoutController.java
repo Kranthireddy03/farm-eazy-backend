@@ -35,7 +35,7 @@ import java.util.stream.Collectors;
 @RestController
 @RequestMapping("/api/admin/payouts")
 @CrossOrigin(origins = {"http://localhost:4200", "http://localhost:3000", "https://farm-eazy-backend.onrender.com"})
-@PreAuthorize("hasRole('ADMIN')")
+@PreAuthorize("hasAnyRole('ADMIN','SUPERADMIN')")
 public class AdminPayoutController {
 
     private static final Logger logger = LoggerFactory.getLogger(AdminPayoutController.class);

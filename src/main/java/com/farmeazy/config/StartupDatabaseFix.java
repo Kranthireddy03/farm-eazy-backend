@@ -41,7 +41,7 @@ public class StartupDatabaseFix {
             Integer count = jdbc.queryForObject("SELECT COUNT(*) FROM users WHERE email = ?", new Object[]{SUPERADMIN_EMAIL}, Integer.class);
             if (count == null || count == 0) {
                 String hashed = new BCryptPasswordEncoder().encode(superadminPassword);
-                jdbc.update("INSERT INTO users (email, username, password, phone, active, created_at, updated_at) VALUES (?, ?, ?, ?, TRUE, NOW(), NOW())", SUPERADMIN_EMAIL, SUPERADMIN_USERNAME, hashed, SUPERADMIN_PHONE);
+                jdbc.update("INSERT INTO users (email, username, password, phone, auth_provider, profile_completed, active, created_at, updated_at) VALUES (?, ?, ?, ?, 'PASSWORD', TRUE, TRUE, NOW(), NOW())", SUPERADMIN_EMAIL, SUPERADMIN_USERNAME, hashed, SUPERADMIN_PHONE);
                 Long userId = jdbc.queryForObject("SELECT id FROM users WHERE email = ?", new Object[]{SUPERADMIN_EMAIL}, Long.class);
                 jdbc.update("INSERT INTO user_roles (user_id, role) VALUES (?, ?)", userId, "SUPERADMIN");
                 logger.info("[StartupDatabaseFix] Created default superadmin user: {}", SUPERADMIN_EMAIL);

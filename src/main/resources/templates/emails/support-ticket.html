@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Support Ticket Update</title>
+</head>
+
+<body style="margin:0; padding:0; background-color:#f4f6f8; font-family:Arial, Helvetica, sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="padding:30px 0;">
+    <tr>
+      <td align="center">
+        <table width="650" cellpadding="0" cellspacing="0" style="background:#ffffff; border:1px solid #d9dee3; border-radius:6px; overflow:hidden;">
+          <tr>
+            <td style="background:#1a365d; padding:18px 24px; color:#ffffff; font-size:18px; font-weight:bold;">
+              {{APP_NAME}} | Customer Support
+            </td>
+          </tr>
+
+          <tr>
+            <td style="padding:25px 30px; border-bottom:1px solid #e6e9ed;">
+              <h2 style="margin:0; font-size:20px;">Support Ticket Update</h2>
+              <p style="margin:8px 0 0 0; font-size:13px; color:#4a5568;">
+                Your request has been successfully received and is being processed.
+              </p>
+            </td>
+          </tr>
+
+          <tr>
+            <td style="padding:25px 30px; font-size:14px; color:#2d3748; line-height:1.7;">
+              <p>Dear {{USER_NAME}},</p>
+
+              <p>
+                Thank you for reaching out to {{APP_NAME}} Support.
+                Your request has been registered successfully. Our team is currently reviewing your issue.
+              </p>
+
+              <h4 style="margin:20px 0 10px 0;">Ticket Information</h4>
+              <table width="100%" style="font-size:13px; color:#4a5568;">
+                <tr>
+                  <td style="padding:4px 0;">Ticket ID:</td>
+                  <td><strong>{{TICKET_ID}}</strong></td>
+                </tr>
+                <tr>
+                  <td style="padding:4px 0;">Subject:</td>
+                  <td><strong>{{TICKET_TITLE}}</strong></td>
+                </tr>
+                <tr>
+                  <td style="padding:4px 0;">Category:</td>
+                  <td><strong>{{TICKET_CATEGORY}}</strong></td>
+                </tr>
+                <tr>
+                  <td style="padding:4px 0;">Priority:</td>
+                  <td><strong>{{TICKET_PRIORITY}}</strong></td>
+                </tr>
+                <tr>
+                  <td style="padding:4px 0;">Status:</td>
+                  <td><strong>{{TICKET_STATUS}}</strong></td>
+                </tr>
+                <tr>
+                  <td style="padding:4px 0;">Created On:</td>
+                  <td><strong>{{CREATED_DATE}}</strong></td>
+                </tr>
+              </table>
+
+              <h4 style="margin:20px 0 10px 0;">Issue Summary</h4>
+              <div style="background:#f1f5f9; padding:12px; border-left:4px solid #1a365d; font-size:13px;">
+                {{ISSUE_DESCRIPTION}}
+              </div>
+
+              <h4 style="margin:20px 0 10px 0;">Expected Response Time</h4>
+              <p style="font-size:13px; color:#4a5568;">
+                Our support team typically responds within <strong>{{RESPONSE_TIME}}</strong>.
+                You will be notified once there is an update on your request.
+              </p>
+
+              <div style="text-align:center; margin:30px 0;">
+                <a href="{{TICKET_URL}}" style="background:#1a365d; color:#ffffff; padding:12px 28px; text-decoration:none; border-radius:4px;">
+                  View / Manage Ticket
+                </a>
+              </div>
+
+              <h4 style="margin:20px 0 10px 0;">Important Instructions</h4>
+              <ul style="margin:0 0 16px 18px; font-size:13px; color:#4a5568;">
+                <li>Use the ticket link above to track progress</li>
+                <li>Reply with additional details if required</li>
+                <li>Do not create duplicate tickets for the same issue</li>
+              </ul>
+
+              <div style="background:#fff5f5; border-left:4px solid #e53e3e; padding:12px; font-size:13px; color:#742a2a;">
+                Please reference your Ticket ID in all communications for faster resolution.
+              </div>
+            </td>
+          </tr>
+
+          <tr>
+            <td style="background:#f9fafb; padding:20px 30px; font-size:12px; color:#6b7280;">
+              <p>
+                <strong>Support Team Contact:</strong><br>
+                &#128231; {{SUPPORT_EMAIL}}<br>
+                &#127760; {{WEBSITE_URL}}
+              </p>
+
+              <p style="margin-top:10px;">
+                This is an automated acknowledgment. Our team will contact you shortly.
+              </p>
+
+              <p style="margin-top:10px;">
+                &copy; {{YEAR}} {{APP_NAME}}. All rights reserved.
+              </p>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>

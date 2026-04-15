@@ -52,11 +52,15 @@ public class AdminNotificationController {
      */
     private User verifyAdminAndGetUser() {
         Authentication auth = SecurityContextHolder.getContext().getAuthentication();
+        if (auth == null || !auth.isAuthenticated()) {
+            throw new UnauthorizedException("Authentication required");
+        }
         String email = auth.getName();
         User user = userRepository.findByEmail(email)
                 .orElseThrow(() -> new RuntimeException("User not found"));
         
-        if (!user.getRoles().contains("ADMIN")) {
+        boolean hasAdminRole = user.getRoles().contains("ADMIN") || user.getRoles().contains("SUPERADMIN");
+        if (!hasAdminRole) {
             throw new UnauthorizedException("Admin access required");
         }
         return user;

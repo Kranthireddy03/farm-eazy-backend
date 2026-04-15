@@ -3,6 +3,7 @@ package com.farmeazy.service;
 import com.farmeazy.dto.AuthLoginDto;
 import com.farmeazy.dto.AuthRegisterDto;
 import com.farmeazy.dto.AuthResponseDto;
+import com.farmeazy.dto.GoogleCompleteProfileDto;
 import com.farmeazy.dto.OtpRequestDto;
 import com.farmeazy.dto.SmsResponseDto;
 import com.farmeazy.entity.PasswordResetToken;
@@ -32,17 +33,27 @@ import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import jakarta.servlet.http.HttpServletRequest;
+import org.springframework.web.client.RestTemplate;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+
+import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Base64;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
+import java.util.Locale;
 import java.util.Set;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 /**
  * AUTH SERVICE - USER AUTHENTICATION & AUTHORIZATION
@@ -135,7 +146,7 @@ public class AuthService implements UserDetailsService {
             otpService.verifyLoginOtp(phone, otpCode);
         }
 
-        var user = userRepository.findByPhone(phone)
+        var user = resolveUserByPhone(phone)
                 .orElseThrow(() -> new com.farmeazy.exception.ResourceNotFoundException("User not found with this phone number"));
 
         if (user.getActive() == null || !user.getActive()) {
@@ -191,6 +202,9 @@ public class AuthService implements UserDetailsService {
 
     @Value("${jwt.refresh-expiration:2592000000}")
     private Long refreshTokenExpirationMs;
+
+    @Value("${google.oauth.client-id:1034508002249-srcflft5dikg07p55qkmhd8has9oo9h4.apps.googleusercontent.com}")
+    private String googleOAuthClientId;
     
     private static final String SHORT_CODE_CHARS = "abcdefghijklmnopqrstuvwxyz0123456789";
     private static final int SHORT_CODE_LENGTH = 8;
@@ -305,6 +319,8 @@ public class AuthService implements UserDetailsService {
         user.setCity(registerDto.getCity());
         user.setState(registerDto.getState());
         user.setPinCode(registerDto.getPinCode());
+        user.setAuthProvider("PASSWORD");
+        user.setProfileCompleted(true);
 
         // Assign default role for new users
         Set<String> roles = new HashSet<>();
@@ -314,14 +330,6 @@ public class AuthService implements UserDetailsService {
         // Save user to database (use saveAndFlush to ensure ID is generated immediately)
         user = userRepository.saveAndFlush(user);
 
-
-        // Send in-app welcome notification (optional, not SMS/email)
-        try {
-            notificationService.sendWelcomeNotification(user);
-        } catch (Exception e) {
-            // Only log if external API call fails
-            logger.warn("Failed to send welcome notification for user {}: {}", user.getEmail(), e.getMessage(), e);
-        }
 
         // Log registration activity (only if user has valid ID)
         if (user.getId() != null) {
@@ -337,25 +345,7 @@ public class AuthService implements UserDetailsService {
             }
         }
 
-        // ---------- Trigger welcome communications ----------
-        try {
-            logger.info("Triggering welcome email for new user: {} <{}>", user.getUsername(), user.getEmail());
-            httpEmailService.sendWelcomeEmailAsync(user.getEmail(), user.getUsername());
-        } catch (Exception e) {
-            logger.warn("Failed to trigger welcome email for {}: {}", user.getEmail(), e.getMessage(), e);
-        }
-
-        try {
-            if (user.getPhone() != null && !user.getPhone().isEmpty()) {
-                logger.info("Triggering welcome SMS for new user: {} (phone={})", user.getUsername(), user.getPhone());
-                SmsResponseDto smsResponse = smsService.sendWelcome(user.getPhone(), user.getUsername());
-                if (!smsResponse.isSuccess()) {
-                    logger.warn("Welcome SMS failed for {}: {} (display: {})", user.getPhone(), smsResponse.getMessage(), smsResponse.getDisplayMessage());
-                }
-            }
-        } catch (Exception e) {
-            logger.warn("Failed to send welcome SMS to {}: {}", user.getPhone(), e.getMessage(), e);
-        }
+        triggerWelcomeCommunicationsAfterCommit(user);
 
         // Return response with user info and JWT token
         UserDetails userDetails = loadUserByUsername(user.getEmail());
@@ -432,6 +422,161 @@ public class AuthService implements UserDetailsService {
 
         // Return response with user info and token
         return mapUserToAuthResponseDto(user, token, refreshToken);
+    }
+
+    @Transactional(readOnly = true)
+    public AuthResponseDto loginWithGoogle(String credential, HttpServletRequest request) {
+        String normalizedCredential = credential == null ? "" : credential.trim();
+        if (normalizedCredential.isBlank()) {
+            throw new UnauthorizedException("Google credential is required");
+        }
+
+        GoogleProfile profile = verifyGoogleCredential(normalizedCredential);
+        User user = userRepository.findByEmail(profile.email())
+                .orElseThrow(() -> new UnauthorizedException("No FarmEazy account is registered with this Google email. Please sign up first."));
+
+        if (user.getActive() == null || !user.getActive()) {
+            throw new UnauthorizedException("User account is inactive");
+        }
+
+        UserDetails userDetails = loadUserByUsername(user.getEmail());
+        String token = jwtUtil.generateToken(userDetails);
+        String refreshToken = issueRefreshToken(user, request);
+
+        try {
+            userActivityService.logActivity(
+                    user,
+                    ActivityType.LOGGED_IN,
+                    "Logged in with Google"
+            );
+        } catch (Exception e) {
+            logger.warn("Failed to log Google login activity for {}: {}", user.getEmail(), e.getMessage(), e);
+        }
+
+        AuthResponseDto response = mapUserToAuthResponseDto(user, token, refreshToken);
+        response.setRequiresProfileCompletion(Boolean.FALSE.equals(user.getProfileCompleted()));
+        return response;
+    }
+
+    @Transactional
+    public AuthResponseDto registerWithGoogle(String credential, HttpServletRequest request) {
+        String normalizedCredential = credential == null ? "" : credential.trim();
+        if (normalizedCredential.isBlank()) {
+            throw new UnauthorizedException("Google credential is required");
+        }
+
+        GoogleProfile profile = verifyGoogleCredential(normalizedCredential);
+        User user = userRepository.findByEmail(profile.email()).orElse(null);
+
+        if (user == null) {
+            user = createGoogleUser(profile);
+        } else if (Boolean.TRUE.equals(user.getProfileCompleted())) {
+            throw new DuplicateResourceException("A FarmEazy account already exists for this Google email. Please sign in instead.");
+        }
+
+        if (user.getActive() == null || !user.getActive()) {
+            throw new UnauthorizedException("User account is inactive");
+        }
+
+        UserDetails userDetails = loadUserByUsername(user.getEmail());
+        String token = jwtUtil.generateToken(userDetails);
+        String refreshToken = issueRefreshToken(user, request);
+
+        AuthResponseDto response = mapUserToAuthResponseDto(user, token, refreshToken);
+        response.setRequiresProfileCompletion(true);
+        return response;
+    }
+
+    @Transactional
+    public AuthResponseDto completeGoogleProfile(String userEmail, GoogleCompleteProfileDto dto, HttpServletRequest request) {
+        if (userEmail == null || userEmail.isBlank()) {
+            throw new UnauthorizedException("Authentication is required");
+        }
+
+        User user = userRepository.findByEmail(userEmail)
+                .orElseThrow(() -> new ResourceNotFoundException("User not found"));
+
+        if (!"GOOGLE".equalsIgnoreCase(user.getAuthProvider())) {
+            throw new UnauthorizedException("Profile completion is only available for Google sign-up accounts");
+        }
+
+        String desiredUsername = dto.getUsername() == null ? "" : dto.getUsername().trim();
+        if (!desiredUsername.isBlank()) {
+            if (!desiredUsername.matches("^[a-zA-Z0-9_ ]*$")) {
+                throw new UnauthorizedException("Username can only contain letters, numbers, underscores, and spaces");
+            }
+            if (desiredUsername.length() < 3) {
+                throw new UnauthorizedException("Username must be at least 3 characters");
+            }
+            if (!desiredUsername.equals(user.getUsername()) && userRepository.existsByUsername(desiredUsername)) {
+                throw new DuplicateResourceException("Username '" + desiredUsername + "' is already taken. Please choose another username.");
+            }
+            user.setUsername(desiredUsername);
+        }
+
+        String password = dto.getPassword() == null ? "" : dto.getPassword().trim();
+        if (!password.isBlank()) {
+            if (password.length() < 6) {
+                throw new UnauthorizedException("Password must be at least 6 characters");
+            }
+            user.setPassword(passwordEncoder.encode(password));
+        }
+
+        user.setPhone(dto.getPhone() == null ? null : dto.getPhone().trim());
+        user.setAddress(dto.getAddress());
+        user.setCity(dto.getCity());
+        user.setState(dto.getState());
+        user.setPinCode(dto.getPinCode());
+        user.setProfileCompleted(true);
+        user = userRepository.saveAndFlush(user);
+
+        UserDetails userDetails = loadUserByUsername(user.getEmail());
+        String token = jwtUtil.generateToken(userDetails);
+        String refreshToken = issueRefreshToken(user, request);
+
+        try {
+            userActivityService.logActivity(
+                    user,
+                    ActivityType.REGISTERED,
+                    "Registered a new account (Google signup completed)"
+            );
+        } catch (Exception e) {
+            logger.warn("Failed to log Google registration activity for {}: {}", user.getEmail(), e.getMessage(), e);
+        }
+
+        triggerWelcomeCommunicationsAfterCommit(user);
+
+        AuthResponseDto response = mapUserToAuthResponseDto(user, token, refreshToken);
+        response.setRequiresProfileCompletion(false);
+        return response;
+    }
+
+    @Transactional
+    public void deferGoogleProfileCompletion(String userEmail) {
+        if (userEmail == null || userEmail.isBlank()) {
+            throw new UnauthorizedException("Authentication is required");
+        }
+
+        User user = userRepository.findByEmail(userEmail)
+                .orElseThrow(() -> new ResourceNotFoundException("User not found"));
+
+        if (!"GOOGLE".equalsIgnoreCase(user.getAuthProvider())) {
+            throw new UnauthorizedException("Profile completion defer is only available for Google sign-up accounts");
+        }
+
+        if (Boolean.TRUE.equals(user.getProfileCompleted())) {
+            return;
+        }
+
+        try {
+            userActivityService.logActivity(
+                    user,
+                    ActivityType.PROFILE_COMPLETION_DEFERRED,
+                    "Deferred Google account setup"
+            );
+        } catch (Exception e) {
+            logger.warn("Failed to log Google profile defer activity for {}: {}", user.getEmail(), e.getMessage(), e);
+        }
     }
 
     @Transactional
@@ -520,6 +665,146 @@ public class AuthService implements UserDetailsService {
         return user;
     }
 
+    private GoogleProfile verifyGoogleCredential(String credential) {
+        if (googleOAuthClientId == null || googleOAuthClientId.isBlank()) {
+            throw new UnauthorizedException("Google sign-in is not configured");
+        }
+
+        try {
+            String url = "https://oauth2.googleapis.com/tokeninfo?id_token=" + URLEncoder.encode(credential, StandardCharsets.UTF_8);
+            String payload = new RestTemplate().getForObject(url, String.class);
+            if (payload == null || payload.isBlank()) {
+                throw new UnauthorizedException("Unable to validate Google sign-in");
+            }
+
+            ObjectMapper objectMapper = new ObjectMapper();
+            JsonNode root = objectMapper.readTree(payload);
+
+            String audience = root.path("aud").asText("");
+            if (!googleOAuthClientId.equals(audience)) {
+                throw new UnauthorizedException("Google sign-in client mismatch");
+            }
+
+            boolean emailVerified = root.path("email_verified").asBoolean(false)
+                    || "true".equalsIgnoreCase(root.path("email_verified").asText());
+            if (!emailVerified) {
+                throw new UnauthorizedException("Google email is not verified");
+            }
+
+            String email = root.path("email").asText("").trim();
+            if (email.isBlank()) {
+                throw new UnauthorizedException("Google account email is missing");
+            }
+
+            String displayName = firstNonBlank(
+                    root.path("name").asText("").trim(),
+                    root.path("given_name").asText("").trim(),
+                    email.split("@")[0]
+            );
+
+            return new GoogleProfile(email, displayName);
+        } catch (UnauthorizedException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new UnauthorizedException("Google sign-in failed: " + e.getMessage());
+        }
+    }
+
+    private String firstNonBlank(String... values) {
+        for (String value : values) {
+            if (value != null && !value.isBlank()) {
+                return value;
+            }
+        }
+        return "google_user";
+    }
+
+    @Transactional
+    private User createGoogleUser(GoogleProfile profile) {
+        User user = new User();
+        user.setEmail(profile.email());
+        user.setUsername(generateUniqueGoogleUsername(profile.email(), profile.displayName()));
+        user.setPassword(passwordEncoder.encode(generateGoogleSeedPassword()));
+        user.setActive(true);
+        user.setAuthProvider("GOOGLE");
+        user.setProfileCompleted(false);
+
+        Set<String> roles = new HashSet<>();
+        roles.add("USER");
+        user.setRoles(roles);
+
+        return userRepository.saveAndFlush(user);
+    }
+
+    private String generateUniqueGoogleUsername(String email, String displayName) {
+        String source = displayName != null && !displayName.isBlank() ? displayName : email.split("@")[0];
+        String normalized = source.toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9]+", "_");
+        normalized = normalized.replaceAll("_+", "_").replaceAll("^_+|_+$", "");
+        if (normalized.isBlank()) {
+            normalized = "google_user";
+        }
+
+        String candidate = normalized;
+        int suffix = 1;
+        while (userRepository.existsByUsername(candidate)) {
+            candidate = normalized + "_" + suffix++;
+        }
+        return candidate;
+    }
+
+    private String generateGoogleSeedPassword() {
+        byte[] bytes = new byte[24];
+        RANDOM.nextBytes(bytes);
+        return Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
+    }
+
+    private void triggerWelcomeCommunications(User user) {
+        try {
+            notificationService.sendWelcomeNotification(user);
+        } catch (Exception e) {
+            logger.warn("Failed to send welcome notification for user {}: {}", user.getEmail(), e.getMessage(), e);
+        }
+
+        try {
+            logger.info("Triggering welcome email for new user: {} <{}>", user.getUsername(), user.getEmail());
+            httpEmailService.sendWelcomeEmailAsync(
+                    user.getEmail(),
+                    user.getUsername(),
+                    user.getEmail(),
+                    user.getId() == null ? null : user.getId().toString(),
+                    user.getPhone(),
+                    user.getCreatedAt() == null ? null : user.getCreatedAt().format(java.time.format.DateTimeFormatter.ofPattern("dd MMM yyyy, hh:mm a"))
+            );
+        } catch (Exception e) {
+            logger.warn("Failed to trigger welcome email for {}: {}", user.getEmail(), e.getMessage(), e);
+        }
+
+        try {
+            if (user.getPhone() != null && !user.getPhone().isEmpty()) {
+                logger.info("Triggering welcome SMS for new user: {} (phone={})", user.getUsername(), user.getPhone());
+                SmsResponseDto smsResponse = smsService.sendWelcome(user.getPhone(), user.getUsername());
+                if (!smsResponse.isSuccess()) {
+                    logger.warn("Welcome SMS failed for {}: {} (display: {})", user.getPhone(), smsResponse.getMessage(), smsResponse.getDisplayMessage());
+                }
+            }
+        } catch (Exception e) {
+            logger.warn("Failed to send welcome SMS to {}: {}", user.getPhone(), e.getMessage(), e);
+        }
+    }
+
+    private void triggerWelcomeCommunicationsAfterCommit(User user) {
+        if (TransactionSynchronizationManager.isActualTransactionActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    triggerWelcomeCommunications(user);
+                }
+            });
+            return;
+        }
+        triggerWelcomeCommunications(user);
+    }
+
     /**
      * MAP USER TO AUTH RESPONSE DTO
      * 
@@ -548,6 +833,7 @@ public class AuthService implements UserDetailsService {
         response.setRoles(user.getRoles());
         response.setToken(token);
         response.setRefreshToken(refreshToken);
+        response.setRequiresProfileCompletion(false);
         return response;
     }
 
@@ -565,6 +851,8 @@ public class AuthService implements UserDetailsService {
         refreshTokenRepository.save(refreshToken);
         return rawToken;
     }
+
+    private record GoogleProfile(String email, String displayName) {}
 
     @Transactional(readOnly = true)
     public Map<String, Object> checkRegistrationAvailability(String username, String email, String phone) {
@@ -600,7 +888,7 @@ public class AuthService implements UserDetailsService {
         String normalizedPhone = phone == null ? "" : phone.trim();
         Map<String, Object> response = new HashMap<>();
 
-        var userOpt = userRepository.findByPhone(normalizedPhone);
+        var userOpt = resolveUserByPhone(normalizedPhone);
         if (userOpt.isEmpty()) {
             response.put("exists", false);
             response.put("message", "This phone number is not registered. Please sign up first.");
@@ -645,6 +933,20 @@ public class AuthService implements UserDetailsService {
         return phone.substring(0, 2) + "****" + phone.substring(phone.length() - 2);
     }
 
+    private java.util.Optional<User> resolveUserByPhone(String phone) {
+        List<User> users = userRepository.findAllByPhone(phone);
+        if (users == null || users.isEmpty()) {
+            return java.util.Optional.empty();
+        }
+        if (users.size() > 1) {
+            logger.warn("Duplicate users found for phone {}. Selecting first active user.", maskPhone(phone));
+        }
+        return users.stream()
+                .filter(user -> user.getActive() == null || user.getActive())
+                .findFirst()
+                .or(() -> users.stream().findFirst());
+    }
+
     /**
      * FORGOT PASSWORD - REQUEST PASSWORD RESET
      * 
@@ -663,6 +965,11 @@ public class AuthService implements UserDetailsService {
      */
     @Transactional
     public void forgotPassword(String email) {
+        forgotPassword(email, null, null, null);
+    }
+
+    @Transactional
+    public void forgotPassword(String email, String ipAddress, String location, String deviceInfo) {
         User user = userRepository.findByEmail(email)
                 .orElseThrow(() -> new ResourceNotFoundException("Email not found in system"));
 
@@ -691,7 +998,7 @@ public class AuthService implements UserDetailsService {
         // Send email with short URL using HTTP-based email service (works on Render)
         // Exception will propagate if email sending fails - this is intentional
         // so the frontend can show appropriate error message
-        httpEmailService.sendPasswordResetEmail(user.getEmail(), shortCode);
+        httpEmailService.sendPasswordResetEmail(user.getEmail(), shortCode, ipAddress, location, deviceInfo);
     }
 
     /**
@@ -823,7 +1130,14 @@ public class AuthService implements UserDetailsService {
                 true,
                 org.springframework.security.core.authority.AuthorityUtils.createAuthorityList(
                         user.getRoles().stream()
-                                .map(r -> "ROLE_" + r)
+                                .map(r -> {
+                                    String normalized = r == null ? "" : r.trim();
+                                    if (normalized.isEmpty()) {
+                                        return normalized;
+                                    }
+                                    return normalized.startsWith("ROLE_") ? normalized : "ROLE_" + normalized;
+                                })
+                                .filter(role -> !role.isEmpty())
                                 .toArray(String[]::new)
                 )
         );
@@ -937,7 +1251,7 @@ public class AuthService implements UserDetailsService {
         }
 
         // Find user by phone
-        User user = userRepository.findByPhone(phone)
+        User user = resolveUserByPhone(phone)
             .orElseThrow(() -> new UnauthorizedException("User not found with this phone number"));
         
         // Check if user is active
@@ -964,7 +1278,14 @@ public class AuthService implements UserDetailsService {
         try {
             if (user.getCreatedAt() != null && user.getCreatedAt().isAfter(java.time.LocalDateTime.now().minusMinutes(10))) {
                 logger.info("[traceId={}] New user detected via OTP login (created recently). Sending welcome email/sms: {}", traceId, user.getEmail());
-                httpEmailService.sendWelcomeEmailAsync(user.getEmail(), user.getUsername());
+                httpEmailService.sendWelcomeEmailAsync(
+                        user.getEmail(),
+                        user.getUsername(),
+                        user.getEmail(),
+                        user.getId() == null ? null : user.getId().toString(),
+                        user.getPhone(),
+                        user.getCreatedAt() == null ? null : user.getCreatedAt().format(java.time.format.DateTimeFormatter.ofPattern("dd MMM yyyy, hh:mm a"))
+                );
                 if (user.getPhone() != null && !user.getPhone().isEmpty()) {
                     smsService.sendWelcome(user.getPhone(), user.getUsername());
                 }

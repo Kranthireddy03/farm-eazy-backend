@@ -70,6 +70,12 @@ public class User {
      */
     @Column(nullable = false)
     private String password;
+
+    @Column(nullable = false)
+    private String authProvider = "PASSWORD";
+
+    @Column(nullable = false)
+    private Boolean profileCompleted = true;
     
     /**
      * PHONE NUMBER - USER'S CONTACT INFORMATION
@@ -187,6 +193,10 @@ public class User {
     public void setUsername(String username) { this.username = username; }
     public String getPassword() { return password; }
     public void setPassword(String password) { this.password = password; }
+    public String getAuthProvider() { return authProvider; }
+    public void setAuthProvider(String authProvider) { this.authProvider = authProvider; }
+    public Boolean getProfileCompleted() { return profileCompleted; }
+    public void setProfileCompleted(Boolean profileCompleted) { this.profileCompleted = profileCompleted; }
     public String getPhone() { return phone; }
     public void setPhone(String phone) { this.phone = phone; }
     public String getAddress() { return address; }
@@ -210,6 +220,12 @@ public class User {
     
     @PrePersist
     protected void onCreate() {
+        if (authProvider == null || authProvider.isBlank()) {
+            authProvider = "PASSWORD";
+        }
+        if (profileCompleted == null) {
+            profileCompleted = true;
+        }
         createdAt = LocalDateTime.now();
         updatedAt = LocalDateTime.now();
     }

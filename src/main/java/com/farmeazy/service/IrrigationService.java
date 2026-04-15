@@ -53,9 +53,17 @@ public class IrrigationService {
         
         Farm farm = farmRepository.findById(scheduleDto.getFarmId())
                 .orElseThrow(() -> new ResourceNotFoundException("Farm not found"));
+
+        if (crop.getFarm() == null || !crop.getFarm().getId().equals(farm.getId())) {
+            throw new UnauthorizedException("Selected crop does not belong to the provided farm");
+        }
         
         if (!farm.getUser().getId().equals(userId)) {
             throw new UnauthorizedException("You do not have permission to create schedules for this farm");
+        }
+
+        if (!crop.getFarm().getUser().getId().equals(userId)) {
+            throw new UnauthorizedException("You do not have permission to create schedules for this crop");
         }
 
         IrrigationSchedule schedule = new IrrigationSchedule();

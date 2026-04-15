@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Coins Redeemed</title>
+</head>
+<body style="margin:0;padding:0;background:#f4f7fb;font-family:Arial,sans-serif;color:#1f2937;">
+  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="background:#f4f7fb;padding:24px 0;">
+    <tr>
+      <td align="center">
+        <table role="presentation" width="600" cellspacing="0" cellpadding="0" style="max-width:600px;background:#ffffff;border-radius:12px;overflow:hidden;border:1px solid #e5e7eb;">
+          <tr>
+            <td style="background:#7c2d12;padding:24px;color:#ffffff;">
+              <h1 style="margin:0;font-size:22px;">{{APP_NAME}}</h1>
+              <p style="margin:8px 0 0 0;font-size:14px;opacity:0.95;">Coins Redemption Summary</p>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:24px;">
+              <h2 style="margin:0 0 12px 0;font-size:20px;color:#0f172a;">Coins Redeemed Successfully</h2>
+              <p style="margin:0 0 16px 0;font-size:15px;">Hello {{USER_NAME}}, your coins were successfully used.</p>
+              <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border:1px solid #e5e7eb;border-radius:8px;background:#f8fafc;">
+                <tr><td style="padding:10px 14px;font-size:14px;"><strong>Coins Used:</strong> -{{COINS_SPENT}}</td></tr>
+                <tr><td style="padding:10px 14px;border-top:1px solid #e5e7eb;font-size:14px;"><strong>Discount Applied:</strong> Rs {{DISCOUNT_VALUE}}</td></tr>
+                <tr><td style="padding:10px 14px;border-top:1px solid #e5e7eb;font-size:14px;"><strong>Remaining Coins:</strong> {{REMAINING_COINS}}</td></tr>
+              </table>
+              <p style="margin:20px 0 0 0;">
+                <a href="{{ACTIVITY_URL}}" style="display:inline-block;background:#7c2d12;color:#ffffff;text-decoration:none;padding:10px 16px;border-radius:8px;font-size:14px;">Open Coin Activity</a>
+              </p>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:16px 24px;background:#f8fafc;border-top:1px solid #e5e7eb;font-size:12px;color:#6b7280;">&copy; {{YEAR}} {{APP_NAME}}. All rights reserved.</td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>

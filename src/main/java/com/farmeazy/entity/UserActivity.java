@@ -134,6 +134,8 @@ public class UserActivity {
         PRODUCT_DELETED,
         PRODUCT_STATUS_CHANGED,
         PASSWORD_CHANGED,
+        PROFILE_UPDATED,
+        PROFILE_COMPLETION_DEFERRED,
         
         ORDER_PLACED,
         ORDER_CANCELLED,

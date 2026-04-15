@@ -15,6 +15,8 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.List;
+
 /**
  * COMMUNICATION PREFERENCE SERVICE
  * 
@@ -42,17 +44,38 @@ public class CommunicationPreferenceService {
      * Get user's communication preferences
      * Creates default preferences if none exist
      */
-    @Transactional
+        @Transactional(readOnly = true)
     public CommunicationPreferenceResponseDto getPreferences(String userIdentifier) {
-        // Support lookup by email (primary) or phone (for SMS-triggered flows)
-        User user = userRepository.findByEmail(userIdentifier)
-                .or(() -> userRepository.findByPhone(userIdentifier))
-                .orElseThrow(() -> new ResourceNotFoundException("User not found"));
+        User user = resolveUserForPreferences(userIdentifier);
 
-        CommunicationPreference prefs = preferenceRepository.findByUser(user)
-                .orElseGet(() -> createDefaultPreferences(user));
+        return preferenceRepository.findByUser(user)
+            .map(CommunicationPreferenceResponseDto::fromEntity)
+            .orElseGet(this::createDefaultResponse);
+    }
 
-        return CommunicationPreferenceResponseDto.fromEntity(prefs);
+    private User resolveUserForPreferences(String userIdentifier) {
+        if (userIdentifier == null || userIdentifier.isBlank()) {
+            throw new ResourceNotFoundException("User not found");
+        }
+
+        if (userIdentifier.contains("@")) {
+            return userRepository.findByEmail(userIdentifier)
+                    .orElseThrow(() -> new ResourceNotFoundException("User not found"));
+        }
+
+        List<User> users = userRepository.findAllByPhone(userIdentifier);
+        if (users.isEmpty()) {
+            throw new ResourceNotFoundException("User not found");
+        }
+
+        if (users.size() > 1) {
+            logger.warn("Multiple users found with phone {}. Using latest active record for preference lookup.", userIdentifier);
+        }
+
+        return users.stream()
+                .filter(u -> Boolean.TRUE.equals(u.getActive()))
+                .max((a, b) -> Long.compare(a.getId() == null ? 0L : a.getId(), b.getId() == null ? 0L : b.getId()))
+                .orElse(users.get(users.size() - 1));
     }
 
     /**
@@ -142,6 +165,17 @@ public class CommunicationPreferenceService {
         prefs.setMarketingChannel(CommunicationChannel.BOTH);
         prefs.setSmsConsent(true);
         return preferenceRepository.save(prefs);
+    }
+
+    private CommunicationPreferenceResponseDto createDefaultResponse() {
+        CommunicationPreferenceResponseDto dto = new CommunicationPreferenceResponseDto();
+        dto.setOtpChannel(CommunicationChannel.BOTH);
+        dto.setOrderChannel(CommunicationChannel.BOTH);
+        dto.setServiceChannel(CommunicationChannel.BOTH);
+        dto.setIrrigationChannel(CommunicationChannel.BOTH);
+        dto.setMarketingChannel(CommunicationChannel.BOTH);
+        dto.setSmsConsent(true);
+        return dto;
     }
 
     /**

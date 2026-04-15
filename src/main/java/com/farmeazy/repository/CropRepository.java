@@ -10,6 +10,7 @@ import java.util.List;
 @Repository
 public interface CropRepository extends JpaRepository<Crop, Long> {
     List<Crop> findByFarmId(Long farmId);
+    List<Crop> findByFarmUserId(Long userId);
     Page<Crop> findByFarmId(Long farmId, Pageable pageable);
     Page<Crop> findByFarmIdAndCropNameContainingIgnoreCase(Long farmId, String cropName, Pageable pageable);
 }

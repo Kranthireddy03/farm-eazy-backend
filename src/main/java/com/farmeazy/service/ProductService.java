@@ -2,8 +2,10 @@ package com.farmeazy.service;
 
 import com.farmeazy.dto.ProductCreateDto;
 import com.farmeazy.dto.ProductDto;
+import com.farmeazy.entity.Address;
 import com.farmeazy.entity.Notification.NotificationPriority;
 import com.farmeazy.entity.Notification.NotificationType;
+import com.farmeazy.entity.DeliveryLocation;
 import com.farmeazy.entity.Product;
 import com.farmeazy.entity.ProductMedia;
 import com.farmeazy.entity.User;
@@ -19,6 +21,7 @@ import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 
 import java.util.List;
+import java.util.Locale;
 import java.util.stream.Collectors;
 
 @Service
@@ -141,9 +144,10 @@ public class ProductService {
     private final UserActivityService userActivityService;
     private final CoinService coinService;
     private final NotificationService notificationService;
+    private final DeliveryLocationService deliveryLocationService;
 
     @Autowired
-    public ProductService(ProductRepository productRepository, UserRepository userRepository, HttpEmailService httpEmailService, FileStorageService fileStorageService, ProductMediaRepository productMediaRepository, UserActivityService userActivityService, CoinService coinService, NotificationService notificationService) {
+    public ProductService(ProductRepository productRepository, UserRepository userRepository, HttpEmailService httpEmailService, FileStorageService fileStorageService, ProductMediaRepository productMediaRepository, UserActivityService userActivityService, CoinService coinService, NotificationService notificationService, DeliveryLocationService deliveryLocationService) {
         this.productRepository = productRepository;
         this.userRepository = userRepository;
         this.httpEmailService = httpEmailService;
@@ -152,6 +156,7 @@ public class ProductService {
         this.userActivityService = userActivityService;
         this.coinService = coinService;
         this.notificationService = notificationService;
+        this.deliveryLocationService = deliveryLocationService;
     }
     
     @Transactional
@@ -179,6 +184,10 @@ public class ProductService {
         }
         product.setDeliveryDaysMin(deliveryMin);
         product.setDeliveryDaysMax(deliveryMax);
+        DeliveryLocation resolvedLocation = dto.getDeliveryLocationId() != null
+            ? deliveryLocationService.getActiveLocationEntity(dto.getDeliveryLocationId())
+            : deliveryLocationService.resolveDeliveryLocationForSeller(seller);
+        product.setDeliveryLocationId(resolvedLocation != null ? resolvedLocation.getId() : null);
         product.setStatus("ACTIVE");
         product.setContactEmail(dto.getContactEmail());
         product.setContactPhone(dto.getContactPhone());
@@ -264,18 +273,18 @@ public class ProductService {
             System.err.println("Failed to send product listing email: " + e.getMessage());
         }
         
-        return convertToDto(savedProduct);
+        return convertToDto(savedProduct, null, null);
     }
     
-    public List<ProductDto> getAllActiveProducts() {
+    public List<ProductDto> getAllActiveProducts(String userLocationHeader) {
         return productRepository.findByStatusOrderByCreatedAtDesc("ACTIVE").stream()
-            .map(this::convertToDto)
+            .map(product -> convertToDto(product, userLocationHeader, null))
             .collect(Collectors.toList());
     }
     
-    public List<ProductDto> getProductsByCategory(String category) {
+    public List<ProductDto> getProductsByCategory(String category, String userLocationHeader) {
         return productRepository.findByCategoryAndStatusOrderByCreatedAtDesc(category, "ACTIVE").stream()
-            .map(this::convertToDto)
+            .map(product -> convertToDto(product, userLocationHeader, null))
             .collect(Collectors.toList());
     }
     
@@ -296,7 +305,13 @@ public class ProductService {
     public ProductDto getProductById(Long id) {
         Product product = productRepository.findWithDetailsById(id)
             .orElseThrow(() -> new ResourceNotFoundException("Product not found with id: " + id));
-        return convertToDto(product);
+        return convertToDto(product, null, null);
+    }
+
+    public ProductDto getProductById(Long id, String userLocationHeader) {
+        Product product = productRepository.findWithDetailsById(id)
+            .orElseThrow(() -> new ResourceNotFoundException("Product not found with id: " + id));
+        return convertToDto(product, userLocationHeader, null);
     }
     
     @Transactional
@@ -327,6 +342,10 @@ public class ProductService {
         }
         product.setDeliveryDaysMin(deliveryMin);
         product.setDeliveryDaysMax(deliveryMax);
+        if (dto.getDeliveryLocationId() != null) {
+            DeliveryLocation resolvedLocation = deliveryLocationService.getActiveLocationEntity(dto.getDeliveryLocationId());
+            product.setDeliveryLocationId(resolvedLocation != null ? resolvedLocation.getId() : null);
+        }
         product.setContactEmail(dto.getContactEmail());
         product.setContactPhone(dto.getContactPhone());
         // Vendor Transparency
@@ -370,7 +389,7 @@ public class ProductService {
             System.err.println("Failed to send product update email: " + e.getMessage());
         }
         
-        return convertToDto(updatedProduct);
+        return convertToDto(updatedProduct, null, null);
     }
     
     @Transactional
@@ -431,10 +450,14 @@ public class ProductService {
         String activityMessage = String.format("Updated product status to %s for: %s", status, updatedProduct.getProductName());
         userActivityService.logActivity(updatedProduct.getSeller(), com.farmeazy.entity.UserActivity.ActivityType.PRODUCT_STATUS_CHANGED, activityMessage);
 
-        return convertToDto(updatedProduct);
+        return convertToDto(updatedProduct, null, null);
     }
     
     private ProductDto convertToDto(Product product) {
+        return convertToDto(product, null, null);
+    }
+
+    public ProductDto convertToDto(Product product, String userLocationHeader, Address shippingAddress) {
         ProductDto dto = new ProductDto();
         dto.setId(product.getId());
         dto.setSellerId(product.getSeller().getId());
@@ -456,9 +479,21 @@ public class ProductService {
         dto.setWarrantyInfo(product.getWarrantyInfo());
         dto.setDeliveryDaysMin(product.getDeliveryDaysMin());
         dto.setDeliveryDaysMax(product.getDeliveryDaysMax());
+        dto.setDeliveryLocationId(product.getDeliveryLocationId());
         dto.setStatus(product.getStatus());
         dto.setContactEmail(product.getContactEmail());
         dto.setContactPhone(product.getContactPhone());
+        DeliveryLocation deliveryLocation = deliveryLocationService.resolveDeliveryLocationForProduct(product);
+        if (deliveryLocation != null) {
+            dto.setDeliveryLocationName(deliveryLocation.getLocationName());
+            dto.setDeliveryLocationCity(deliveryLocation.getCity());
+            dto.setDeliveryLocationState(deliveryLocation.getState());
+            dto.setDeliveryLocationPostalCode(deliveryLocation.getPostalCode());
+            dto.setDeliveryLocationRadiusKm(deliveryLocation.getRadiusKm());
+        }
+        boolean deliverable = deliveryLocationService.isProductDeliverable(product, userLocationHeader, shippingAddress);
+        dto.setDeliverable(deliverable);
+        dto.setDeliveryMessage(deliveryLocationService.getDeliveryFailureMessage(product, userLocationHeader, shippingAddress));
         // Vendor Transparency
         dto.setVendorId(product.getVendorId());
         dto.setVendorName(product.getVendorName());

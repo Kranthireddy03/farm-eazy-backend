@@ -23,13 +23,17 @@ import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.jpa.domain.Specification;
+import org.springframework.core.io.ClassPathResource;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -287,6 +291,83 @@ public class SupportTicketService {
         return "<p style='margin:0 0 14px; color:#374151;'>" + escapeHtml(intro) + "</p>" + detailsSection + updateSection;
     }
 
+    private String loadTemplate(String classpathLocation) {
+        try {
+            ClassPathResource resource = new ClassPathResource(classpathLocation);
+            try (java.io.InputStream inputStream = resource.getInputStream()) {
+                return new String(inputStream.readAllBytes(), StandardCharsets.UTF_8);
+            }
+        } catch (IOException ex) {
+            throw new IllegalStateException("Failed to load email template: " + classpathLocation, ex);
+        }
+    }
+
+    private String replacePlaceholders(String template, Map<String, String> placeholders) {
+        String rendered = template;
+        for (Map.Entry<String, String> entry : placeholders.entrySet()) {
+            rendered = rendered.replace("{{" + entry.getKey() + "}}", entry.getValue() != null ? entry.getValue() : "");
+        }
+        return rendered;
+    }
+
+    private String supportResponseTimeFor(SupportTicket ticket) {
+        if (ticket == null || ticket.getPriority() == null) {
+            return "48 hours";
+        }
+        return switch (ticket.getPriority()) {
+            case URGENT -> "24 hours";
+            case HIGH -> "24 hours";
+            case MEDIUM -> "48 hours";
+            case LOW -> "72 hours";
+            default -> "48 hours";
+        };
+    }
+
+    private String supportCreatedDateFor(SupportTicket ticket) {
+        LocalDateTime createdAt = ticket != null && ticket.getCreatedAt() != null ? ticket.getCreatedAt() : LocalDateTime.now();
+        return createdAt.format(java.time.format.DateTimeFormatter.ofPattern("dd MMM yyyy, hh:mm a"));
+    }
+
+    private String buildSupportIssueSummary(String issueLabel, String issueText, String updateLabel, String updateText) {
+        StringBuilder html = new StringBuilder();
+        if (issueText != null && !issueText.isBlank()) {
+            html.append("<strong>")
+                    .append(escapeHtml(issueLabel))
+                    .append("</strong><br>")
+                    .append(toHtmlLines(issueText));
+        }
+        if (updateText != null && !updateText.isBlank()) {
+            if (!html.isEmpty()) {
+                html.append("<br><br>");
+            }
+            html.append("<strong>")
+                    .append(escapeHtml(updateLabel))
+                    .append("</strong><br>")
+                    .append(toHtmlLines(updateText));
+        }
+        return html.toString();
+    }
+
+    private String buildSupportTicketEmailHtml(SupportTicket ticket, String userName, String issueSummaryHtml, String ticketUrl) {
+        String template = loadTemplate("templates/emails/support-ticket.html");
+        Map<String, String> placeholders = new HashMap<>();
+        placeholders.put("APP_NAME", "FarmEazy");
+        placeholders.put("USER_NAME", userName != null && !userName.isBlank() ? userName : "User");
+        placeholders.put("TICKET_ID", ticket != null && ticket.getDisplayId() != null ? ticket.getDisplayId() : "");
+        placeholders.put("TICKET_TITLE", ticket != null && ticket.getSubject() != null ? ticket.getSubject() : "");
+        placeholders.put("TICKET_CATEGORY", ticket != null && ticket.getCategory() != null ? String.valueOf(ticket.getCategory()) : "");
+        placeholders.put("TICKET_PRIORITY", ticket != null && ticket.getPriority() != null ? String.valueOf(ticket.getPriority()) : "");
+        placeholders.put("TICKET_STATUS", ticket != null && ticket.getStatus() != null ? String.valueOf(ticket.getStatus()) : "");
+        placeholders.put("CREATED_DATE", supportCreatedDateFor(ticket));
+        placeholders.put("ISSUE_DESCRIPTION", issueSummaryHtml != null ? issueSummaryHtml : "");
+        placeholders.put("RESPONSE_TIME", supportResponseTimeFor(ticket));
+        placeholders.put("TICKET_URL", ticketUrl != null ? ticketUrl : "");
+        placeholders.put("SUPPORT_EMAIL", "support@farm-eazy.com");
+        placeholders.put("WEBSITE_URL", "https://farm-eazy.com");
+        placeholders.put("YEAR", String.valueOf(java.time.Year.now().getValue()));
+        return replacePlaceholders(template, placeholders);
+    }
+
     /**
      * Create support ticket for guest (no user)
      */
@@ -347,20 +428,11 @@ public class SupportTicketService {
                 createSupportTicketMessage(saved, "USER", saved.getContactEmail(), initialBody, primaryAttachmentUrl(storedAttachments));
 
                 logger.info("Created guest support ticket {}", saved.getDisplayId());
-                String subject = "New Guest Support Ticket: " + saved.getDisplayId() + " (" + saved.getSubject() + ")";
-                String html = buildEmailTemplate(
-                    "New guest support ticket raised",
-                    buildTicketEmailContent(
-                        "A new guest user has submitted a support request.",
-                        detailRow("Ticket ID", saved.getDisplayId()) +
-                            detailRow("Contact", saved.getContactEmail()) +
-                            detailRow("Subject", saved.getSubject()) +
-                            detailRow("Category", String.valueOf(saved.getCategory())) +
-                            detailRow("Priority", String.valueOf(saved.getPriority())),
-                        "Issue description",
-                        saved.getDescription()
-                    ),
-                    "Open support dashboard",
+                String subject = "[Ticket #" + saved.getDisplayId() + "] " + saved.getSubject() + " – FarmEazy Support";
+                String html = buildSupportTicketEmailHtml(
+                    saved,
+                    saved.getContactEmail(),
+                    buildSupportIssueSummary("Issue description", saved.getDescription(), null, null),
                     buildTicketUrl(saved.getDisplayId(), true)
                 );
                 try {
@@ -671,20 +743,13 @@ public class SupportTicketService {
         String resolvedDisplayId = resolveDisplayId(ticket);
         boolean isPublicTicket = ticket.getUser() == null;
         String ticketUrl = buildTicketUrl(resolvedDisplayId, isPublicTicket);
-        String subject = "Support Ticket Update: " + resolvedDisplayId;
-        String html = buildEmailTemplate(
-            "New reply on your support ticket",
-            buildTicketEmailContent(
-                "A support agent has posted an update to your ticket.",
-                detailRow("Ticket ID", resolvedDisplayId) +
-                    detailRow("Subject", ticket.getSubject()) +
-                    detailRow("Status", String.valueOf(ticket.getStatus())),
-                "Support reply",
-                reply
-            ),
-            "View and respond",
-            ticketUrl
-        );
+            String subject = "[Ticket #" + resolvedDisplayId + "] " + ticket.getSubject() + " – FarmEazy Support";
+            String html = buildSupportTicketEmailHtml(
+                ticket,
+                userEmail,
+                buildSupportIssueSummary("Issue summary", ticket.getDescription(), "Latest update", reply),
+                ticketUrl
+            );
         emailService.sendEmail(userEmail, subject, html, UnifiedEmailService.SenderType.SUPPORT);
 
         notifyTicketOwner(
@@ -719,18 +784,11 @@ public class SupportTicketService {
             String resolvedDisplayId = resolveDisplayId(ticket);
             boolean isPublicTicket = ticket.getUser() == null;
             String ticketUrl = buildTicketUrl(resolvedDisplayId, isPublicTicket);
-            String subject = "Support Ticket Resolved: " + resolvedDisplayId;
-            String html = buildEmailTemplate(
-                "Your support ticket has been resolved",
-                buildTicketEmailContent(
-                    "Your request has been marked as resolved by our support team.",
-                    detailRow("Ticket ID", resolvedDisplayId) +
-                            detailRow("Subject", ticket.getSubject()) +
-                            detailRow("Status", String.valueOf(ticket.getStatus())),
-                    "Resolution summary",
-                    resolution
-                ),
-                "Review ticket history",
+            String subject = "[Ticket #" + resolvedDisplayId + "] " + ticket.getSubject() + " – FarmEazy Support";
+            String html = buildSupportTicketEmailHtml(
+                ticket,
+                userEmail,
+                buildSupportIssueSummary("Issue summary", ticket.getDescription(), "Resolution summary", resolution),
                 ticketUrl
             );
             emailService.sendEmail(userEmail, subject, html, UnifiedEmailService.SenderType.SUPPORT);
@@ -797,18 +855,16 @@ public class SupportTicketService {
             logger.info("Admin {} uploaded attachment to ticket {}", adminEmail, displayId);
             // Optionally notify user
             String userEmail = ticket.getContactEmail();
-            String subject = "Support Ticket Updated with Attachment: " + ticket.getDisplayId();
-                String html = buildEmailTemplate(
-                    "Attachment added to your ticket",
-                    buildTicketEmailContent(
-                        "A support agent added an attachment to your ticket.",
-                        detailRow("Ticket ID", ticket.getDisplayId()) +
-                            detailRow("Attachment", fileName) +
-                            detailRow("Status", String.valueOf(ticket.getStatus())),
-                        "Attachment details",
+                String subject = "[Ticket #" + ticket.getDisplayId() + "] " + ticket.getSubject() + " – FarmEazy Support";
+                String html = buildSupportTicketEmailHtml(
+                    ticket,
+                    userEmail,
+                    buildSupportIssueSummary(
+                        "Issue summary",
+                        ticket.getDescription(),
+                        "Attachment added",
                         fileUrl != null ? (fileName + " (" + fileUrl + ")") : fileName
                     ),
-                    "Open ticket",
                     buildTicketUrl(ticket.getDisplayId(), ticket.getUser() == null)
                 );
             emailService.sendEmail(userEmail, subject, html, UnifiedEmailService.SenderType.SUPPORT);
@@ -999,15 +1055,11 @@ public class SupportTicketService {
 
         String resolvedDisplayId = resolveDisplayId(saved);
         String userTicketUrl = buildTicketUrl(resolvedDisplayId, false);
-        String userSubject = "Your FarmEazy support ticket has been created (" + resolvedDisplayId + ")";
-        String userHtml = buildEmailTemplate(
-            "Your support ticket is now live",
-            "<p>Hi " + (user.getUsername() != null ? user.getUsername() : user.getEmail()) + ",</p>" +
-            "<p>Your ticket has been successfully created. Our support team is reviewing it and will respond shortly.</p>" +
-            "<ul style='padding-left:20px; margin: 0;'><li><strong>Ticket ID:</strong> " + saved.getDisplayId() + "</li>" +
-            "<li><strong>Subject:</strong> " + saved.getSubject() + "</li>" +
-            "<li><strong>Priority:</strong> " + saved.getPriority() + "</li></ul>",
-            "Open your ticket and reply",
+        String userSubject = "[Ticket #" + resolvedDisplayId + "] " + saved.getSubject() + " – FarmEazy Support";
+        String userHtml = buildSupportTicketEmailHtml(
+            saved,
+            user.getUsername() != null ? user.getUsername() : user.getEmail(),
+            buildSupportIssueSummary("Issue summary", saved.getDescription(), null, null),
             userTicketUrl
         );
         try {
@@ -1114,18 +1166,16 @@ public class SupportTicketService {
         createSupportTicketMessage(ticket, "SYSTEM", "System", "Ticket reopened by " + (requesterEmail != null ? requesterEmail : "public user"), null);
 
         String userLink = buildTicketUrl(ticket.getDisplayId(), true);
-        String userSubject = "Your support ticket is reopened: " + ticket.getDisplayId();
-        String userHtml = buildEmailTemplate(
-            "Your ticket has been reopened",
-            buildTicketEmailContent(
-                "Your request is active again and our team will continue helping you.",
-                detailRow("Ticket ID", ticket.getDisplayId()) +
-                    detailRow("Subject", ticket.getSubject()) +
-                    detailRow("Status", String.valueOf(ticket.getStatus())),
-                "Reopen details",
-                "You can add more information or attachments from your ticket thread."
+        String userSubject = "[Ticket #" + ticket.getDisplayId() + "] " + ticket.getSubject() + " – FarmEazy Support";
+        String userHtml = buildSupportTicketEmailHtml(
+            ticket,
+            requesterEmail != null ? requesterEmail : (ticket.getContactEmail() != null ? ticket.getContactEmail() : "User"),
+            buildSupportIssueSummary(
+                "Issue summary",
+                ticket.getDescription(),
+                "Latest update",
+                "Your request is active again and our team will continue helping you. You can add more information or attachments from your ticket thread."
             ),
-            "Open ticket",
             userLink
         );
         emailService.sendEmail(ticket.getContactEmail(), userSubject, userHtml, UnifiedEmailService.SenderType.SUPPORT);

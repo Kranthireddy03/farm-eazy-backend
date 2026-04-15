@@ -67,7 +67,16 @@ public class SecurityConfig {
     public SecurityFilterChain filterChain(HttpSecurity http, JwtAuthenticationFilter jwtAuthenticationFilter) throws Exception {
         http.cors(withDefaults())
             .csrf(csrf -> csrf.disable())
-            .headers(headers -> headers.frameOptions(frameOptions -> frameOptions.sameOrigin()))
+            .headers(headers -> headers
+                .frameOptions(frameOptions -> frameOptions.sameOrigin())
+                .contentTypeOptions(withDefaults())
+                .xssProtection(withDefaults())
+                .httpStrictTransportSecurity(hsts -> hsts
+                    .includeSubDomains(true)
+                    .preload(true)
+                    .maxAgeInSeconds(31536000))
+                .cacheControl(withDefaults())
+                .referrerPolicy(referrer -> referrer.policy(org.springframework.security.web.header.writers.ReferrerPolicyHeaderWriter.ReferrerPolicy.NO_REFERRER)))
             .exceptionHandling(exceptionHandling -> exceptionHandling
                 .authenticationEntryPoint(jwtAuthenticationEntryPoint))
             .sessionManagement(sessionManagement -> sessionManagement
@@ -137,6 +146,8 @@ public class SecurityConfig {
             "https://admin.farm-eazy.com",
             "https://*.vercel.app",
             "https://farm-eazy-backend.onrender.com",
+            "http://localhost:8080",
+            "http://127.0.0.1:8080",
             "http://localhost:4200",
             "http://localhost:3000",
             "http://localhost:3001",
@@ -149,7 +160,8 @@ public class SecurityConfig {
         configuration.setMaxAge(3600L);
 
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
-        source.registerCorsConfiguration("/**", configuration);
+        // Keep CORS only for API routes; H2 console is same-origin and should bypass CORS checks.
+        source.registerCorsConfiguration("/api/**", configuration);
         return source;
     }
 }

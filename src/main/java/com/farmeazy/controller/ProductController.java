@@ -140,14 +140,14 @@ public class ProductController {
     }
     
     @GetMapping
-    public ResponseEntity<List<ProductDto>> getAllProducts() {
-        List<ProductDto> products = productService.getAllActiveProducts();
+    public ResponseEntity<List<ProductDto>> getAllProducts(@RequestHeader(value = "X-User-Location", required = false) String userLocationHeader) {
+        List<ProductDto> products = productService.getAllActiveProducts(userLocationHeader);
         return ResponseEntity.ok(products);
     }
     
     @GetMapping("/category/{category}")
-    public ResponseEntity<List<ProductDto>> getProductsByCategory(@PathVariable String category) {
-        List<ProductDto> products = productService.getProductsByCategory(category);
+    public ResponseEntity<List<ProductDto>> getProductsByCategory(@PathVariable String category, @RequestHeader(value = "X-User-Location", required = false) String userLocationHeader) {
+        List<ProductDto> products = productService.getProductsByCategory(category, userLocationHeader);
         return ResponseEntity.ok(products);
     }
     
@@ -166,8 +166,8 @@ public class ProductController {
     }
     
     @GetMapping("/{id}")
-    public ResponseEntity<ProductDto> getProductById(@PathVariable Long id) {
-        ProductDto product = productService.getProductById(id);
+    public ResponseEntity<ProductDto> getProductById(@PathVariable Long id, @RequestHeader(value = "X-User-Location", required = false) String userLocationHeader) {
+        ProductDto product = productService.getProductById(id, userLocationHeader);
         return ResponseEntity.ok(product);
     }
     

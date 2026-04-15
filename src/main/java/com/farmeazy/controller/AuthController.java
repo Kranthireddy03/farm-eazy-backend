@@ -3,6 +3,8 @@ package com.farmeazy.controller;
 import com.farmeazy.dto.AuthLoginDto;
 import com.farmeazy.dto.AuthRegisterDto;
 import com.farmeazy.dto.AuthResponseDto;
+import com.farmeazy.dto.GoogleCompleteProfileDto;
+import com.farmeazy.dto.GoogleSignInRequestDto;
 import com.farmeazy.dto.ForgotPasswordDto;
 import com.farmeazy.dto.RefreshTokenRequestDto;
 import com.farmeazy.dto.ResetPasswordDto;
@@ -10,14 +12,19 @@ import com.farmeazy.dto.OtpRequestDto;
 import com.farmeazy.dto.OtpVerifyDto;
 import com.farmeazy.dto.OtpLoginPreviewRequestDto;
 import com.farmeazy.dto.RegistrationAvailabilityRequestDto;
+import com.farmeazy.exception.UnauthorizedException;
 import com.farmeazy.service.AuthService;
 import com.farmeazy.service.OtpService;
+import com.farmeazy.util.GeocodeUtil;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.authentication.AnonymousAuthenticationToken;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
 import jakarta.servlet.http.HttpServletRequest;
 
@@ -41,13 +48,21 @@ public class AuthController {
     @Autowired
     private OtpService otpService;
 
+    @Autowired
+    private GeocodeUtil geocodeUtil;
+
     /**
      * REQUEST OTP ENDPOINT
      */
     @PostMapping("/request-otp")
     @Operation(summary = "Request OTP via email and SMS")
-    public ResponseEntity<?> requestOtp(@Valid @RequestBody OtpRequestDto otpRequestDto) {
-        String result = otpService.generateAndSendOtp(otpRequestDto);
+    public ResponseEntity<?> requestOtp(@Valid @RequestBody OtpRequestDto otpRequestDto, HttpServletRequest request) {
+        String result = otpService.generateAndSendOtp(
+                otpRequestDto,
+                resolveClientIp(request),
+                resolveLocation(request),
+                resolveDeviceInfo(request)
+        );
         return ResponseEntity.ok(new java.util.HashMap<String, String>() {{
             put("message", result);
         }});
@@ -180,6 +195,66 @@ public class AuthController {
         return ResponseEntity.ok(response);
     }
 
+    @PostMapping("/google")
+    @Operation(summary = "Login with Google credential")
+    public ResponseEntity<AuthResponseDto> googleLogin(@Valid @RequestBody GoogleSignInRequestDto request, HttpServletRequest httpRequest) {
+        AuthResponseDto response = authService.loginWithGoogle(request.getCredential(), httpRequest);
+        return ResponseEntity.ok(response);
+    }
+
+    @PostMapping("/google/register")
+    @Operation(summary = "Register with Google credential")
+    public ResponseEntity<AuthResponseDto> googleRegister(@Valid @RequestBody GoogleSignInRequestDto request, HttpServletRequest httpRequest) {
+        AuthResponseDto response = authService.registerWithGoogle(request.getCredential(), httpRequest);
+        return ResponseEntity.ok(response);
+    }
+
+    @PostMapping("/google/complete-profile")
+    @Operation(summary = "Complete Google signup profile")
+    public ResponseEntity<AuthResponseDto> completeGoogleProfile(@Valid @RequestBody GoogleCompleteProfileDto request, HttpServletRequest httpRequest, java.security.Principal principal) {
+        String userEmail = principal != null ? principal.getName() : null;
+
+        if (userEmail == null || userEmail.isBlank()) {
+            Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+            if (authentication != null
+                    && authentication.isAuthenticated()
+                    && !(authentication instanceof AnonymousAuthenticationToken)) {
+                userEmail = authentication.getName();
+            }
+        }
+
+        if (userEmail == null || userEmail.isBlank()) {
+            throw new UnauthorizedException("Authentication is required to complete Google profile. Please sign in again.");
+        }
+
+        AuthResponseDto response = authService.completeGoogleProfile(userEmail, request, httpRequest);
+        return ResponseEntity.ok(response);
+    }
+
+    @PostMapping("/google/defer-profile")
+    @Operation(summary = "Defer Google signup profile completion")
+    public ResponseEntity<?> deferGoogleProfile(HttpServletRequest httpRequest, java.security.Principal principal) {
+        String userEmail = principal != null ? principal.getName() : null;
+
+        if (userEmail == null || userEmail.isBlank()) {
+            Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+            if (authentication != null
+                    && authentication.isAuthenticated()
+                    && !(authentication instanceof AnonymousAuthenticationToken)) {
+                userEmail = authentication.getName();
+            }
+        }
+
+        if (userEmail == null || userEmail.isBlank()) {
+            throw new UnauthorizedException("Authentication is required to defer Google profile completion. Please sign in again.");
+        }
+
+        authService.deferGoogleProfileCompletion(userEmail);
+        return ResponseEntity.ok(new java.util.HashMap<String, String>() {{
+            put("message", "Google profile completion deferred");
+        }});
+    }
+
     @PostMapping("/refresh")
     @Operation(summary = "Refresh access token")
     public ResponseEntity<AuthResponseDto> refresh(@Valid @RequestBody RefreshTokenRequestDto requestDto, HttpServletRequest request) {
@@ -284,8 +359,13 @@ public class AuthController {
      */
     @PostMapping("/forgot-password")
     @Operation(summary = "Request password reset")
-    public ResponseEntity<?> forgotPassword(@Valid @RequestBody ForgotPasswordDto forgotPasswordDto) {
-        authService.forgotPassword(forgotPasswordDto.getEmail());
+    public ResponseEntity<?> forgotPassword(@Valid @RequestBody ForgotPasswordDto forgotPasswordDto, HttpServletRequest request) {
+        authService.forgotPassword(
+                forgotPasswordDto.getEmail(),
+                resolveClientIp(request),
+                resolveLocation(request),
+                resolveDeviceInfo(request)
+        );
         return ResponseEntity.ok(new java.util.HashMap<String, String>() {{
             put("message", "Password reset link sent to your email. Please check your inbox.");
         }});
@@ -409,8 +489,13 @@ public class AuthController {
      */
     @PostMapping("/login/request-otp")
     @Operation(summary = "Request OTP for phone login")
-    public ResponseEntity<?> requestLoginOtp(@Valid @RequestBody com.farmeazy.dto.OtpLoginRequestDto dto) {
-        com.farmeazy.dto.OtpResponseDto response = otpService.generateLoginOtp(dto.getPhone());
+    public ResponseEntity<?> requestLoginOtp(@Valid @RequestBody com.farmeazy.dto.OtpLoginRequestDto dto, HttpServletRequest request) {
+        com.farmeazy.dto.OtpResponseDto response = otpService.generateLoginOtp(
+                dto.getPhone(),
+                resolveClientIp(request),
+                resolveLocation(request),
+                resolveDeviceInfo(request)
+        );
         return ResponseEntity.ok(response);
     }
 
@@ -466,6 +551,61 @@ public class AuthController {
         return ResponseEntity.ok(new java.util.HashMap<String, String>() {{
             put("message", "Password changed successfully");
         }});
+    }
+
+    private String resolveClientIp(HttpServletRequest request) {
+        String forwardedFor = request.getHeader("X-Forwarded-For");
+        if (forwardedFor != null && !forwardedFor.isBlank()) {
+            return forwardedFor.split(",")[0].trim();
+        }
+        String realIp = request.getHeader("X-Real-IP");
+        if (realIp != null && !realIp.isBlank()) {
+            return realIp.trim();
+        }
+        String remoteAddr = request.getRemoteAddr();
+        // In local development, remote address will be loopback. Hide it from emails.
+        if (isLoopbackAddress(remoteAddr)) {
+            return null;
+        }
+        return remoteAddr;
+    }
+
+    private String resolveDeviceInfo(HttpServletRequest request) {
+        String userAgent = request.getHeader("User-Agent");
+        return (userAgent == null || userAgent.isBlank()) ? null : userAgent;
+    }
+
+    private String resolveLocation(HttpServletRequest request) {
+        String[] headers = {
+                "X-User-Location",
+                "CF-IPCountry",
+                "CloudFront-Viewer-Country",
+                "X-AppEngine-Country",
+                "X-Country-Code"
+        };
+        for (String header : headers) {
+            String value = request.getHeader(header);
+            if (value != null && !value.isBlank() && !"XX".equalsIgnoreCase(value.trim())) {
+                String resolved = value.trim();
+                if ("X-User-Location".equalsIgnoreCase(header)) {
+                    resolved = geocodeUtil.convertCoordinatesToLocation(resolved);
+                }
+                return resolved;
+            }
+        }
+
+        return null;
+    }
+
+    private boolean isLoopbackAddress(String ipAddress) {
+        if (ipAddress == null || ipAddress.isBlank()) {
+            return true;
+        }
+        String normalized = ipAddress.trim();
+        return "127.0.0.1".equals(normalized)
+                || "::1".equals(normalized)
+                || "0:0:0:0:0:0:0:1".equals(normalized)
+                || normalized.startsWith("127.");
     }
 }
 

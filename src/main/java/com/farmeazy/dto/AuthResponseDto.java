@@ -77,6 +77,8 @@ public class AuthResponseDto {
     private String token;
 
     private String refreshToken;
+
+    private boolean requiresProfileCompletion;
     
     /**
      * TOKEN TYPE - HOW TO USE THE TOKEN
@@ -108,6 +110,8 @@ public class AuthResponseDto {
     public void setToken(String token) { this.token = token; }
     public String getRefreshToken() { return refreshToken; }
     public void setRefreshToken(String refreshToken) { this.refreshToken = refreshToken; }
+    public boolean isRequiresProfileCompletion() { return requiresProfileCompletion; }
+    public void setRequiresProfileCompletion(boolean requiresProfileCompletion) { this.requiresProfileCompletion = requiresProfileCompletion; }
     public String getTokenType() { return tokenType; }
     public void setTokenType(String tokenType) { this.tokenType = tokenType; }
 }

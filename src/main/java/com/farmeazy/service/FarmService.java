@@ -10,6 +10,9 @@ import com.farmeazy.repository.UserRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
+import org.springframework.cache.annotation.Caching;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
@@ -41,6 +44,10 @@ public class FarmService {
     private NotificationService notificationService;
 
     @Transactional
+        @Caching(evict = {
+            @CacheEvict(cacheNames = "farmById", allEntries = true),
+            @CacheEvict(cacheNames = "farmListByUser", key = "#userId")
+        })
     public FarmDto createFarm(FarmDto farmDto, Long userId) {
         logger.info("FARM_SERVICE_CREATE_FARM_START userId={} farmName={}", userId, farmDto != null ? farmDto.getFarmName() : null);
         User user = userRepository.findById(userId)
@@ -96,6 +103,7 @@ public class FarmService {
         return mapFarmToDto(farm);
     }
 
+    @Cacheable(cacheNames = "farmById", key = "#farmId + ':' + #userId", unless = "#result == null")
     public FarmDto getFarmById(Long farmId, Long userId) {
         logger.info("FARM_SERVICE_GET_BY_ID farmId={} userId={}", farmId, userId);
         Farm farm = farmRepository.findById(farmId)
@@ -108,6 +116,7 @@ public class FarmService {
         return mapFarmToDto(farm);
     }
 
+    @Cacheable(cacheNames = "farmListByUser", key = "#userId")
     public List<FarmDto> getAllFarmsByUser(Long userId) {
         logger.info("FARM_SERVICE_GET_ALL_BY_USER userId={}", userId);
         return farmRepository.findByUserId(userId)
@@ -129,6 +138,10 @@ public class FarmService {
     }
 
     @Transactional
+        @Caching(evict = {
+            @CacheEvict(cacheNames = "farmById", allEntries = true),
+            @CacheEvict(cacheNames = "farmListByUser", key = "#userId")
+        })
     public FarmDto updateFarm(Long farmId, FarmDto farmDto, Long userId) {
         logger.info("FARM_SERVICE_UPDATE_START farmId={} userId={} farmName={}", farmId, userId, farmDto != null ? farmDto.getFarmName() : null);
         Farm farm = farmRepository.findById(farmId)
@@ -166,6 +179,10 @@ public class FarmService {
     }
 
     @Transactional
+        @Caching(evict = {
+            @CacheEvict(cacheNames = "farmById", allEntries = true),
+            @CacheEvict(cacheNames = "farmListByUser", key = "#userId")
+        })
     public void deleteFarm(Long farmId, Long userId) {
         logger.info("FARM_SERVICE_DELETE_START farmId={} userId={}", farmId, userId);
         Farm farm = farmRepository.findById(farmId)

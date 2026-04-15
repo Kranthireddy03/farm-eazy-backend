@@ -147,6 +147,9 @@ public class OrderService {
     @Autowired
     private NotificationService notificationService;
 
+    @Autowired
+    private DeliveryLocationService deliveryLocationService;
+
     /**
      * Create new order from cart
      */
@@ -210,6 +213,10 @@ public class OrderService {
             for (var itemDto : createDto.getItems()) {
                 Product product = productRepository.findById(itemDto.getProductId())
                         .orElseThrow(() -> new ResourceNotFoundException("Product not found: " + itemDto.getProductId()));
+
+                if (!deliveryLocationService.isProductDeliverable(product, null, shippingAddress)) {
+                    throw new IllegalArgumentException("Product '" + product.getProductName() + "' is not deliverable to the selected address");
+                }
 
                 OrderItem item = new OrderItem();
                 item.setOrder(order);
@@ -304,6 +311,13 @@ public class OrderService {
             boolean isPaymentFailed = PaymentStatus.FAILED.equals(paymentStatus);
 
             if (isPaymentCompleted || (isCodOrder && PaymentStatus.PENDING.equals(paymentStatus))) {
+                String orderDate = savedOrder.getCreatedAt() == null
+                        ? null
+                        : savedOrder.getCreatedAt().format(java.time.format.DateTimeFormatter.ofPattern("dd MMM yyyy, hh:mm a"));
+                String orderItemsHtml = buildOrderItemsHtml(savedOrder.getItems());
+                String deliveryAddress = buildDeliveryAddress(savedOrder.getShippingAddress());
+                String trackOrderUrl = "/orders";
+
                 httpEmailService.sendOrderConfirmationEmailAsync(
                     user.getEmail(),
                     user.getUsername(),
@@ -314,7 +328,11 @@ public class OrderService {
                     savedOrder.getFinalAmount().toPlainString(),
                     paymentMethod.name(),
                     paymentStatus.name(),
-                    orderStatus.name()
+                    orderStatus.name(),
+                    orderDate,
+                    orderItemsHtml,
+                    deliveryAddress,
+                    trackOrderUrl
                 );
 
                 // Send SMS notification based on order type.
@@ -554,6 +572,118 @@ public class OrderService {
      */
     public Long getUserOrderCount(User user) {
         return orderRepository.countByUser(user);
+    }
+
+    private String buildOrderItemsHtml(List<OrderItem> items) {
+        if (items == null || items.isEmpty()) {
+            return "<tr><td colspan=\"4\" style=\"padding:10px; border:1px solid #e2e8f0; text-align:center; color:#6b7280;\">No items found for this order.</td></tr>";
+        }
+
+        StringBuilder rows = new StringBuilder();
+        for (OrderItem item : items) {
+            if (item == null) {
+                continue;
+            }
+
+            String productName = "Product";
+            if (item.getProduct() != null) {
+                String name = item.getProduct().getProductName();
+                if (name == null || name.isBlank()) {
+                    name = item.getProduct().getName();
+                }
+                if (name != null && !name.isBlank()) {
+                    productName = name;
+                }
+            }
+
+            BigDecimal unitPrice = item.getPricePerUnit() == null ? BigDecimal.ZERO : item.getPricePerUnit();
+            BigDecimal lineTotal = item.getTotalPrice() == null
+                    ? unitPrice.multiply(BigDecimal.valueOf(item.getQuantity()))
+                    : item.getTotalPrice();
+
+            rows.append("<tr>")
+                    .append("<td style=\"padding:10px; border:1px solid #e2e8f0; word-break:break-word;\">")
+                    .append(escapeHtml(productName))
+                    .append("</td>")
+                    .append("<td align=\"center\" style=\"padding:10px; border:1px solid #e2e8f0;\">")
+                    .append(item.getQuantity())
+                    .append("</td>")
+                    .append("<td align=\"right\" style=\"padding:10px; border:1px solid #e2e8f0;\">₹")
+                    .append(formatAmount(unitPrice))
+                    .append("</td>")
+                    .append("<td align=\"right\" style=\"padding:10px; border:1px solid #e2e8f0;\">₹")
+                    .append(formatAmount(lineTotal))
+                    .append("</td>")
+                    .append("</tr>");
+        }
+
+        if (rows.length() == 0) {
+            return "<tr><td colspan=\"4\" style=\"padding:10px; border:1px solid #e2e8f0; text-align:center; color:#6b7280;\">No items found for this order.</td></tr>";
+        }
+        return rows.toString();
+    }
+
+    private String buildDeliveryAddress(Address address) {
+        if (address == null) {
+            return "";
+        }
+
+        List<String> lines = new ArrayList<>();
+        if (address.getFullName() != null && !address.getFullName().isBlank()) {
+            lines.add(escapeHtml(address.getFullName()));
+        }
+        if (address.getPhoneNumber() != null && !address.getPhoneNumber().isBlank()) {
+            lines.add(escapeHtml(address.getPhoneNumber()));
+        }
+        if (address.getAddressLine1() != null && !address.getAddressLine1().isBlank()) {
+            lines.add(escapeHtml(address.getAddressLine1()));
+        }
+        if (address.getAddressLine2() != null && !address.getAddressLine2().isBlank()) {
+            lines.add(escapeHtml(address.getAddressLine2()));
+        }
+
+        StringBuilder cityStatePostal = new StringBuilder();
+        if (address.getCity() != null && !address.getCity().isBlank()) {
+            cityStatePostal.append(address.getCity().trim());
+        }
+        if (address.getState() != null && !address.getState().isBlank()) {
+            if (!cityStatePostal.isEmpty()) {
+                cityStatePostal.append(", ");
+            }
+            cityStatePostal.append(address.getState().trim());
+        }
+        if (address.getPostalCode() != null && !address.getPostalCode().isBlank()) {
+            if (!cityStatePostal.isEmpty()) {
+                cityStatePostal.append(" - ");
+            }
+            cityStatePostal.append(address.getPostalCode().trim());
+        }
+        if (!cityStatePostal.isEmpty()) {
+            lines.add(escapeHtml(cityStatePostal.toString()));
+        }
+
+        if (address.getCountry() != null && !address.getCountry().isBlank()) {
+            lines.add(escapeHtml(address.getCountry()));
+        }
+
+        return String.join("<br>", lines);
+    }
+
+    private String formatAmount(BigDecimal amount) {
+        BigDecimal safeAmount = amount == null ? BigDecimal.ZERO : amount;
+        return safeAmount.setScale(2, java.math.RoundingMode.HALF_UP).toPlainString();
+    }
+
+    private String escapeHtml(String value) {
+        if (value == null) {
+            return "";
+        }
+        return value
+                .replace("&", "&amp;")
+                .replace("<", "&lt;")
+                .replace(">", "&gt;")
+                .replace("\"", "&quot;")
+                .replace("'", "&#39;");
     }
 
     /**

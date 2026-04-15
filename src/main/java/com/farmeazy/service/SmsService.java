@@ -1,6 +1,7 @@
 package com.farmeazy.service;
 
 import com.farmeazy.dto.SmsResponseDto;
+import com.farmeazy.sms.SmsTemplate;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -10,6 +11,9 @@ import org.springframework.web.client.RestTemplate;
 import org.springframework.beans.factory.annotation.Autowired;
 import com.farmeazy.dto.CommunicationPreferenceResponseDto;
 import com.farmeazy.entity.CommunicationPreference;
+
+import java.util.LinkedHashMap;
+import java.util.Map;
 
 /**
  * SMS SERVICE - FarmEazy SMS Communication Hub
@@ -212,17 +216,22 @@ public class SmsService {
      * Variables: user
      */
     public SmsResponseDto sendWelcome(String phoneNumber, String userName) {
-        CommunicationPreferenceResponseDto prefs = communicationPreferenceService.getPreferences(phoneNumber);
-        if (prefs == null || !prefs.getMarketingChannel().equals(CommunicationPreference.CommunicationChannel.SMS_ONLY) && !prefs.getMarketingChannel().equals(CommunicationPreference.CommunicationChannel.BOTH)) {
-            logger.info("SMS not sent due to user preference (WELCOME)");
-            return SmsResponseDto.failure("WELCOME", "User preference: SMS not allowed for WELCOME", "SMS not allowed for WELCOME");
+        try {
+            CommunicationPreferenceResponseDto prefs = communicationPreferenceService.getPreferences(phoneNumber);
+            if (prefs == null || !prefs.getMarketingChannel().equals(CommunicationPreference.CommunicationChannel.SMS_ONLY) && !prefs.getMarketingChannel().equals(CommunicationPreference.CommunicationChannel.BOTH)) {
+                logger.info("SMS not sent due to user preference (WELCOME)");
+                return SmsResponseDto.failure("WELCOME", "User preference: SMS not allowed for WELCOME", "SMS not allowed for WELCOME");
+            }
+            logger.info("SMS_WELCOME: Sending welcome to {} | message='Welcome to FARMEAZY, {}! Your account has been created successfully.' | params={{user={}}}", maskPhone(phoneNumber), sanitize(userName), sanitize(userName));
+            String variables = String.format("{\"user\":\"%s\"}", sanitize(userName));
+            auditLogger.info("SMS REQUEST: WELCOME | phone={}, variables={}", maskPhone(phoneNumber), variables);
+            SmsResponseDto response = sendFlowSms(phoneNumber, welcomeTemplateId, variables, "WELCOME", SENDER_ID_TRANSACTIONAL);
+            auditLogger.info("SMS RESPONSE: WELCOME | phone={}, success={}, message={}", maskPhone(phoneNumber), response.isSuccess(), response.getMessage());
+            return response;
+        } catch (Exception e) {
+            logger.warn("SMS_WELCOME: Skipping due to preference lookup/send failure for {}: {}", maskPhone(phoneNumber), e.getMessage(), e);
+            return SmsResponseDto.failure("WELCOME", "Welcome SMS skipped due to communication preference lookup failure", "Welcome SMS skipped");
         }
-        logger.info("SMS_WELCOME: Sending welcome to {} | message='Welcome to FARMEAZY, {}! Your account has been created successfully.' | params={{user={}}}", maskPhone(phoneNumber), sanitize(userName), sanitize(userName));
-        String variables = String.format("{\"user\":\"%s\"}", sanitize(userName));
-        auditLogger.info("SMS REQUEST: WELCOME | phone={}, variables={}", maskPhone(phoneNumber), variables);
-        SmsResponseDto response = sendFlowSms(phoneNumber, welcomeTemplateId, variables, "WELCOME", SENDER_ID_TRANSACTIONAL);
-        auditLogger.info("SMS RESPONSE: WELCOME | phone={}, success={}, message={}", maskPhone(phoneNumber), response.isSuccess(), response.getMessage());
-        return response;
     }
 
     /**
@@ -570,5 +579,62 @@ public class SmsService {
         if (authKey == null || authKey.isBlank()) return "NOT_CONFIGURED";
         if (authKey.equals("your-local-msg91-auth-key")) return "USING_PLACEHOLDER";
         return "READY";
+    }
+
+    /**
+     * Send a specific SMS template with dummy or provided variables.
+     * This bypasses communication preference checks for template validation.
+     */
+    public SmsResponseDto sendTemplateTest(String phoneNumber, SmsTemplate template, Map<String, String> inputValues) {
+        if (template == null) {
+            return SmsResponseDto.failure("TEMPLATE_TEST", "Template is required", "Template is required");
+        }
+
+        Map<String, String> normalized = new LinkedHashMap<>();
+        for (String variable : template.getVariables()) {
+            String value = inputValues == null ? null : inputValues.get(variable);
+            if (value == null || value.isBlank()) {
+                value = defaultTemplateValue(variable);
+            }
+            normalized.put(variable, sanitize(value));
+        }
+
+        StringBuilder variablesJson = new StringBuilder("{");
+        int index = 0;
+        for (Map.Entry<String, String> entry : normalized.entrySet()) {
+            if (index++ > 0) {
+                variablesJson.append(",");
+            }
+            variablesJson.append("\"")
+                    .append(entry.getKey())
+                    .append("\":\"")
+                    .append(entry.getValue())
+                    .append("\"");
+        }
+        variablesJson.append("}");
+
+        return sendFlowSms(
+                phoneNumber,
+                template.getTemplateId(),
+                variablesJson.toString(),
+                "TEMPLATE_TEST_" + template.name(),
+                template.getSenderId()
+        );
+    }
+
+    private String defaultTemplateValue(String variable) {
+        String normalized = variable == null ? "" : variable.trim().toLowerCase();
+        return switch (normalized) {
+            case "otp" -> "123456";
+            case "time" -> "10";
+            case "user" -> "FarmEazy User";
+            case "rupees" -> "199";
+            case "orderid", "bookingid" -> "FZ1001";
+            case "serviceid" -> "SV1001";
+            case "irrigationid" -> "IR1001";
+            case "farm", "farmname" -> "Demo Farm";
+            case "value" -> "updated";
+            default -> "demo";
+        };
     }
 }

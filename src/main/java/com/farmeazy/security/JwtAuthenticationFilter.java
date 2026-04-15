@@ -191,6 +191,11 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter implements Ord
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {
         String path = request.getRequestURI();
+
+        if ("/api/auth/google/complete-profile".equals(path) || "/api/auth/google/defer-profile".equals(path)) {
+            return false;
+        }
+
         return path.startsWith("/api/auth/") || 
                path.startsWith("/v3/api-docs") || 
                path.startsWith("/swagger-ui") ||
@@ -229,6 +234,12 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter implements Ord
                                    HttpServletResponse response,
                                    FilterChain filterChain) throws ServletException, IOException {
         logJwtDebug("Processing request: " + request.getMethod() + " " + request.getRequestURI());
+        if (isGoogleProfileEndpoint(request)) {
+            String authHeader = request.getHeader("Authorization");
+            logJwtDebug("Google profile endpoint hit: " + request.getRequestURI()
+                    + " | hasAuthorizationHeader=" + StringUtils.hasText(authHeader)
+                    + " | bearerPrefix=" + (authHeader != null && authHeader.startsWith("Bearer ")));
+        }
         
         try {
             /**
@@ -348,6 +359,12 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter implements Ord
         if (jwtDebugEnabled) {
             logger.info("[JWT DEBUG] " + message);
         }
+    }
+
+    private boolean isGoogleProfileEndpoint(HttpServletRequest request) {
+        String path = request.getRequestURI();
+        return "/api/auth/google/complete-profile".equals(path)
+                || "/api/auth/google/defer-profile".equals(path);
     }
 
     /**

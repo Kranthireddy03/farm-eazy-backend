@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Welcome to {{APP_NAME}}</title>
+</head>
+<body style="margin:0; padding:0; background-color:#f5f7fa; font-family:Arial, Helvetica, sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="padding:30px 0;">
+    <tr>
+      <td align="center">
+        <table width="600" cellpadding="0" cellspacing="0" style="background:#ffffff; border:1px solid #d9dee3; border-radius:6px; overflow:hidden;">
+          <tr>
+            <td style="background:#002a5c; padding:18px 24px; color:#ffffff; font-size:18px; font-weight:bold;">
+              {{APP_NAME}} | Customer Account Services
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:25px 30px; border-bottom:1px solid #e6e9ed;">
+              <h2 style="margin:0; font-size:20px; color:#1a202c;">
+                Account Successfully Created
+              </h2>
+              <p style="margin:8px 0 0 0; font-size:13px; color:#4a5568;">
+                Your account has been registered successfully and is now active.
+              </p>
+            </td>
+          </tr>
+          <tr>
+            <td style="padding:25px 30px; color:#2d3748; font-size:14px; line-height:1.6;">
+              <p>Dear {{USER_NAME}},</p>
+              <p>
+                Welcome to {{APP_NAME}}. Your account has been successfully created.
+                Please find your registered details below for your reference.
+              </p>
+              <table width="100%" style="margin:20px 0; font-size:13px; color:#4a5568;">
+                {{WELCOME_DETAILS_ROWS}}
+              </table>
+              <div style="text-align:center; margin:30px 0;">
+                <a href="{{LOGIN_URL}}" style="background:#002a5c; color:#ffffff; padding:12px 28px; text-decoration:none; border-radius:4px; font-size:14px;">
+                  Login to Your Account
+                </a>
+              </div>
+              <h4 style="margin:20px 0 10px 0;">What You Can Do:</h4>
+              <ul style="margin:0 0 16px 18px; padding:0; font-size:13px; color:#4a5568;">
+                <li>Manage farms, crops, and irrigation schedules</li>
+                <li>Buy and sell agricultural products</li>
+                <li>Track orders and service requests</li>
+                <li>Receive notifications and updates</li>
+              </ul>
+              <hr style="border:none; border-top:1px solid #e2e8f0; margin:25px 0;">
+              <h4 style="margin:0 0 10px 0;">Customer Support</h4>
+              <p style="font-size:13px; color:#4a5568;">
+                For any assistance, please contact our support team.
+                Kindly mention your <strong>User ID</strong> for faster resolution.
+              </p>
+              <p style="font-size:13px;">
+                📧 {{SUPPORT_EMAIL}}<br>
+                🌐 {{WEBSITE_URL}}
+              </p>
+              <div style="background:#f1f5f9; padding:12px; border-left:4px solid #002a5c; font-size:13px; color:#1e293b;">
+                <strong>Security Guidelines:</strong><br>
+                • Do not share your OTP or login credentials<br>
+                • Ensure you access only official {{APP_NAME}} platforms<br>
+                • Contact support immediately for suspicious activity
+              </div>
+            </td>
+          </tr>
+          <tr>
+            <td style="background:#f9fafb; padding:20px 30px; font-size:12px; color:#6b7280;">
+              <p style="margin:0 0 8px 0;">
+                Thank you for choosing {{APP_NAME}}.<br>
+                We are committed to delivering a secure and reliable experience.
+              </p>
+              <p style="margin-top:15px;">
+                &copy; {{YEAR}} {{APP_NAME}}. All rights reserved.
+              </p>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>

@@ -25,6 +25,14 @@ public class ProductDto {
     private String warrantyInfo;
     private Integer deliveryDaysMin;
     private Integer deliveryDaysMax;
+    private Long deliveryLocationId;
+    private String deliveryLocationName;
+    private String deliveryLocationCity;
+    private String deliveryLocationState;
+    private String deliveryLocationPostalCode;
+    private java.math.BigDecimal deliveryLocationRadiusKm;
+    private boolean deliverable;
+    private String deliveryMessage;
     private String status;
     private String imageUrls; // Comma-separated image URLs for frontend
     private String videoUrls; // Comma-separated video URLs for frontend
@@ -209,6 +217,70 @@ public class ProductDto {
 
     public void setDeliveryDaysMax(Integer deliveryDaysMax) {
         this.deliveryDaysMax = deliveryDaysMax;
+    }
+
+    public Long getDeliveryLocationId() {
+        return deliveryLocationId;
+    }
+
+    public void setDeliveryLocationId(Long deliveryLocationId) {
+        this.deliveryLocationId = deliveryLocationId;
+    }
+
+    public String getDeliveryLocationName() {
+        return deliveryLocationName;
+    }
+
+    public void setDeliveryLocationName(String deliveryLocationName) {
+        this.deliveryLocationName = deliveryLocationName;
+    }
+
+    public String getDeliveryLocationCity() {
+        return deliveryLocationCity;
+    }
+
+    public void setDeliveryLocationCity(String deliveryLocationCity) {
+        this.deliveryLocationCity = deliveryLocationCity;
+    }
+
+    public String getDeliveryLocationState() {
+        return deliveryLocationState;
+    }
+
+    public void setDeliveryLocationState(String deliveryLocationState) {
+        this.deliveryLocationState = deliveryLocationState;
+    }
+
+    public String getDeliveryLocationPostalCode() {
+        return deliveryLocationPostalCode;
+    }
+
+    public void setDeliveryLocationPostalCode(String deliveryLocationPostalCode) {
+        this.deliveryLocationPostalCode = deliveryLocationPostalCode;
+    }
+
+    public java.math.BigDecimal getDeliveryLocationRadiusKm() {
+        return deliveryLocationRadiusKm;
+    }
+
+    public void setDeliveryLocationRadiusKm(java.math.BigDecimal deliveryLocationRadiusKm) {
+        this.deliveryLocationRadiusKm = deliveryLocationRadiusKm;
+    }
+
+    public boolean isDeliverable() {
+        return deliverable;
+    }
+
+    public void setDeliverable(boolean deliverable) {
+        this.deliverable = deliverable;
+    }
+
+    public String getDeliveryMessage() {
+        return deliveryMessage;
+    }
+
+    public void setDeliveryMessage(String deliveryMessage) {
+        this.deliveryMessage = deliveryMessage;
     }
     
     public String getStatus() {

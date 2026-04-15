@@ -9,6 +9,8 @@ import com.farmeazy.service.HttpEmailService;
 import com.razorpay.Payment;
 import com.razorpay.RazorpayException;
 import com.razorpay.RazorpayClient;
+import io.github.resilience4j.circuitbreaker.CallNotPermittedException;
+import io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry;
 import org.json.JSONObject;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -23,6 +25,7 @@ import java.time.LocalDateTime;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Optional;
+import java.util.function.Supplier;
 
 @RestController
 @RequestMapping("/api/payment")
@@ -41,6 +44,9 @@ public class PaymentController {
 
     @Autowired
     private ServiceBookingRepository serviceBookingRepository;
+
+    @Autowired
+    private CircuitBreakerRegistry circuitBreakerRegistry;
 
     @Value("${razorpay.webhook.secret:}")
     private String webhookSecret;
@@ -156,10 +162,6 @@ public class PaymentController {
                 ));
             }
 
-            logger.debug("PAYMENT_CONTROLLER_RAZORPAY_CLIENT_INIT_START");
-            RazorpayClient client = new RazorpayClient(normalizedKeyId, normalizedKeySecret);
-            logger.debug("PAYMENT_CONTROLLER_RAZORPAY_CLIENT_INIT_DONE");
-
             JSONObject orderRequest = new JSONObject();
             orderRequest.put("amount", amountInPaise); // amount already in paise from frontend
             orderRequest.put("currency", "INR");
@@ -167,7 +169,16 @@ public class PaymentController {
             orderRequest.put("payment_capture", 1);
             logger.debug("PAYMENT_CONTROLLER_CREATE_ORDER_REQUEST_BODY {}", orderRequest);
 
-            com.razorpay.Order order = client.orders.create(orderRequest);
+            com.razorpay.Order order = executeWithBreaker("paymentCreateOrder", () -> {
+                try {
+                    logger.debug("PAYMENT_CONTROLLER_RAZORPAY_CLIENT_INIT_START");
+                    RazorpayClient client = new RazorpayClient(normalizedKeyId, normalizedKeySecret);
+                    logger.debug("PAYMENT_CONTROLLER_RAZORPAY_CLIENT_INIT_DONE");
+                    return client.orders.create(orderRequest);
+                } catch (RazorpayException ex) {
+                    throw new RuntimeException(ex);
+                }
+            });
             logger.info("PAYMENT_CONTROLLER_CREATE_ORDER_SUCCESS order={}", order);
             // Optionally save order info to DB here
             JSONObject response = new JSONObject(order.toString());
@@ -175,11 +186,19 @@ public class PaymentController {
             response.put("phone", phone);
             response.put("key_id", normalizedKeyId); // Add public Razorpay key for frontend
             return ResponseEntity.ok(response.toMap());
-        } catch (RazorpayException re) {
-            logger.error("PAYMENT_CONTROLLER_CREATE_ORDER_RAZORPAY_ERROR message={}", re.getMessage(), re);
-            return ResponseEntity.status(502).body(Map.of(
+        } catch (RuntimeException runtimeEx) {
+            Throwable cause = runtimeEx.getCause();
+            if (cause instanceof RazorpayException re) {
+                logger.error("PAYMENT_CONTROLLER_CREATE_ORDER_RAZORPAY_ERROR message={}", re.getMessage(), re);
+                return ResponseEntity.status(502).body(Map.of(
+                        "status", "failure",
+                        "message", "Razorpay authentication failed. Verify key id/secret pair in active profile."
+                ));
+            }
+            logger.error("PAYMENT_CONTROLLER_CREATE_ORDER_RUNTIME_FAILURE", runtimeEx);
+            return ResponseEntity.status(503).body(Map.of(
                     "status", "failure",
-                    "message", "Razorpay authentication failed. Verify key id/secret pair in active profile."
+                    "message", "Payment service is temporarily unavailable. Please retry."
             ));
         } catch (Exception e) {
             logger.error("PAYMENT_CONTROLLER_CREATE_ORDER_FAILED", e);
@@ -216,9 +235,15 @@ public class PaymentController {
             // Fetch payment status from Razorpay API for logging only (optional)
             String razorpayStatus = null;
             try {
-                RazorpayClient client = new RazorpayClient(keyId, keySecret);
-                Payment payment = client.payments.fetch(paymentId);
-                razorpayStatus = payment.get("status");
+                razorpayStatus = executeWithBreaker("paymentVerifyFetch", () -> {
+                    try {
+                        RazorpayClient client = new RazorpayClient(keyId, keySecret);
+                        Payment payment = client.payments.fetch(paymentId);
+                        return payment.get("status");
+                    } catch (Exception ex) {
+                        throw new RuntimeException(ex);
+                    }
+                });
             } catch (Exception ex) {
                 logger.warn("PAYMENT_CONTROLLER_VERIFY_FETCH_STATUS_FAILED paymentId={} message={}", paymentId, ex.getMessage());
             }
@@ -355,6 +380,14 @@ public class PaymentController {
         } catch (Exception e) {
             logger.error("PAYMENT_CONTROLLER_WEBHOOK_SIGNATURE_VERIFY_FAILED", e);
             return false;
+        }
+    }
+
+    private <T> T executeWithBreaker(String breakerName, Supplier<T> action) {
+        try {
+            return circuitBreakerRegistry.circuitBreaker(breakerName).executeSupplier(action::get);
+        } catch (CallNotPermittedException ex) {
+            throw new RuntimeException("Circuit breaker is open for " + breakerName, ex);
         }
     }
 }

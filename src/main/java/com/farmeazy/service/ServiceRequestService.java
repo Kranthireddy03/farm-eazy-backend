@@ -293,15 +293,25 @@ public class ServiceRequestService {
      */
     private void sendSupportNotification(ServiceRequest request) {
         try {
-            String subject = String.format("[%s] New Support Request: %s - %s",
-                    request.getPriority(), request.getRequestNumber(), request.getSubject());
-            
-            String body = buildSupportEmailBody(request);
-            
-            emailService.sendEmail(supportEmail, subject, body);
+            emailService.sendServiceRequestSupportAlertEmail(
+                    supportEmail,
+                    request.getRequestNumber(),
+                    request.getCategory() != null ? request.getCategory().name() : null,
+                    request.getPriority() != null ? request.getPriority().name() : null,
+                    request.getSubject(),
+                    request.getUser().getUsername(),
+                    request.getUserEmail(),
+                    request.getUserPhone(),
+                    request.getDescription(),
+                    request.getRelatedOrderId() != null ? String.valueOf(request.getRelatedOrderId()) : null,
+                    request.getCreatedAt()
+            );
             
             request.setEmailSentToSupport(true);
             serviceRequestRepository.save(request);
+
+            String subject = String.format("[%s] New Support Request: %s - %s",
+                    request.getPriority(), request.getRequestNumber(), request.getSubject());
             
             // Log communication
             logCommunication(request, CommunicationType.EMAIL, CommunicationPurpose.SERVICE_REQUEST,
@@ -324,31 +334,37 @@ public class ServiceRequestService {
      */
     private void sendUserConfirmation(ServiceRequest request) {
         try {
-            String subject = String.format("Service Request Received - %s", request.getRequestNumber());
-            
-            String body = String.format(
-                    "Dear %s,\n\n" +
-                    "Your support request has been received and logged.\n\n" +
-                    "Request Number: %s\n" +
-                    "Category: %s\n" +
-                    "Subject: %s\n" +
-                    "Priority: %s\n\n" +
-                    "Our support team will review your request and respond shortly.\n\n" +
-                    "Thank you for contacting FarmEazy Support.\n\n" +
-                    "Best regards,\nFarmEazy Support Team",
+            String serviceName = request.getCategory() != null
+                    ? request.getCategory().name().replace("_", " ")
+                    : "General Service";
+            String status = request.getStatus() != null
+                    ? request.getStatus().name().replace("_", " ")
+                    : "OPEN";
+            String serviceLocation = request.getRelatedOrderId() != null
+                    ? "Related Order ID: " + request.getRelatedOrderId()
+                    : request.getRelatedProductId() != null
+                    ? "Related Product ID: " + request.getRelatedProductId()
+                    : "Location details were not provided at submission.";
+
+            emailService.sendServiceRequestConfirmationEmail(
+                    request.getUserEmail(),
                     request.getUser().getUsername(),
                     request.getRequestNumber(),
-                    request.getCategory(),
-                    request.getSubject(),
-                    request.getPriority()
+                    serviceName,
+                    request.getCreatedAt(),
+                    "As per availability",
+                    status,
+                    serviceLocation,
+                    request.getDescription()
             );
-            
-            emailService.sendEmail(request.getUserEmail(), subject, body);
+
             request.setEmailNotificationSent(true);
             serviceRequestRepository.save(request);
             
             logCommunication(request, CommunicationType.EMAIL, CommunicationPurpose.SERVICE_REQUEST,
-                    request.getUserEmail(), subject, CommunicationStatus.SENT);
+                    request.getUserEmail(),
+                    "Service Request Confirmation - " + request.getRequestNumber(),
+                    CommunicationStatus.SENT);
             
         } catch (Exception e) {
             logger.error("SERVICE_REQUEST_USER_EMAIL_FAILED: requestNumber={}, error={}",
@@ -363,26 +379,15 @@ public class ServiceRequestService {
             RequestStatus newStatus) {
         try {
             String subject = String.format("Service Request %s - Status Updated", request.getRequestNumber());
-            
-            String body = String.format(
-                    "Dear %s,\n\n" +
-                    "Your service request status has been updated.\n\n" +
-                    "Request Number: %s\n" +
-                    "Previous Status: %s\n" +
-                    "New Status: %s\n" +
-                    "%s\n\n" +
-                    "Thank you for your patience.\n\n" +
-                    "Best regards,\nFarmEazy Support Team",
+
+            emailService.sendServiceRequestStatusUpdateEmail(
+                    request.getUserEmail(),
                     request.getUser().getUsername(),
                     request.getRequestNumber(),
-                    oldStatus,
-                    newStatus,
-                    request.getResolutionNotes() != null 
-                            ? "Resolution Notes: " + request.getResolutionNotes() 
-                            : ""
+                    oldStatus != null ? oldStatus.name() : null,
+                    newStatus != null ? newStatus.name() : null,
+                    request.getResolutionNotes()
             );
-            
-            emailService.sendEmail(request.getUserEmail(), subject, body);
             
             logCommunication(request, CommunicationType.EMAIL, CommunicationPurpose.SERVICE_REQUEST,
                     request.getUserEmail(), subject, CommunicationStatus.SENT);
@@ -391,39 +396,6 @@ public class ServiceRequestService {
             logger.error("SERVICE_REQUEST_STATUS_EMAIL_FAILED: requestNumber={}, error={}",
                     request.getRequestNumber(), e.getMessage());
         }
-    }
-
-    /**
-     * Builds support email body.
-     */
-    private String buildSupportEmailBody(ServiceRequest request) {
-        return String.format(
-                "NEW SUPPORT REQUEST\n" +
-                "==================\n\n" +
-                "Request Number: %s\n" +
-                "Category: %s\n" +
-                "Priority: %s\n" +
-                "Subject: %s\n\n" +
-                "User Details:\n" +
-                "- Name: %s\n" +
-                "- Email: %s\n" +
-                "- Phone: %s\n\n" +
-                "Description:\n%s\n\n" +
-                "%s" +
-                "Submitted: %s",
-                request.getRequestNumber(),
-                request.getCategory(),
-                request.getPriority(),
-                request.getSubject(),
-                request.getUser().getUsername(),
-                request.getUserEmail(),
-                request.getUserPhone() != null ? request.getUserPhone() : "N/A",
-                request.getDescription(),
-                request.getRelatedOrderId() != null 
-                        ? "Related Order ID: " + request.getRelatedOrderId() + "\n\n" 
-                        : "",
-                request.getCreatedAt()
-        );
     }
 
     /**

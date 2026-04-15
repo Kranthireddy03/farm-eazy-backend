@@ -18,10 +18,13 @@ public class JwtAuthenticationEntryPoint implements AuthenticationEntryPoint {
                          HttpServletResponse response,
                          AuthenticationException authException)
             throws IOException, ServletException {
-        
-        System.out.println("[AUTH ENTRY POINT DEBUG] 401 triggered for: " + request.getRequestURI());
-        System.out.println("[AUTH ENTRY POINT DEBUG] Exception: " + authException.getMessage());
-        System.out.println("[AUTH ENTRY POINT DEBUG] Current auth: " + org.springframework.security.core.context.SecurityContextHolder.getContext().getAuthentication());
+
+        String origin = request.getHeader("Origin");
+        if (origin != null && !origin.isBlank()) {
+            response.setHeader("Access-Control-Allow-Origin", origin);
+            response.setHeader("Access-Control-Allow-Credentials", "true");
+            response.setHeader("Vary", "Origin");
+        }
         
         response.setContentType("application/json");
         response.setStatus(HttpServletResponse.SC_UNAUTHORIZED);

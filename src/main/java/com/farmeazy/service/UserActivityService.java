@@ -5,12 +5,14 @@ import com.farmeazy.entity.User;
 import com.farmeazy.entity.UserActivity;
 import com.farmeazy.entity.UserActivity.ActivityType;
 import com.farmeazy.repository.UserActivityRepository;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
@@ -37,19 +39,25 @@ public class UserActivityService {
     /**
      * Log user activity with related entity information
      */
+    @Transactional(propagation = Propagation.REQUIRES_NEW)
     public UserActivity logActivity(User user, ActivityType activityType, String description,
                                    String details, String relatedEntityId, String relatedEntityType) {
-        UserActivity activity = new UserActivity();
-        activity.setUser(user);
-        activity.setActivityType(activityType);
-        activity.setDescription(description);
-        activity.setDetails(details);
-        activity.setRelatedEntityId(relatedEntityId);
-        activity.setRelatedEntityType(relatedEntityType);
-        
-        UserActivity saved = userActivityRepository.save(activity);
-        log.info("Activity logged for user {}: {} - {}", user.getId(), activityType, description);
-        return saved;
+        try {
+            UserActivity activity = new UserActivity();
+            activity.setUser(user);
+            activity.setActivityType(activityType);
+            activity.setDescription(description);
+            activity.setDetails(details);
+            activity.setRelatedEntityId(relatedEntityId);
+            activity.setRelatedEntityType(relatedEntityType);
+
+            UserActivity saved = userActivityRepository.save(activity);
+            log.info("Activity logged for user {}: {} - {}", user.getId(), activityType, description);
+            return saved;
+        } catch (DataIntegrityViolationException ex) {
+            log.warn("Skipping activity {} for user {} due to schema/check constraint mismatch: {}", activityType, user != null ? user.getId() : null, ex.getMessage());
+            return null;
+        }
     }
 
     /**

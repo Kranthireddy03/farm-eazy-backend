@@ -5,10 +5,18 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.io.ClassPathResource;
 import org.springframework.mail.SimpleMailMessage;
 import org.springframework.mail.javamail.JavaMailSender;
 import org.springframework.mail.javamail.MimeMessageHelper;
 import org.springframework.stereotype.Service;
+
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.List;
 
 /**
  * EMAIL SERVICE - EMAIL SENDING FUNCTIONALITY
@@ -313,60 +321,22 @@ public class EmailService {
      * @param scheduledTime Scheduled irrigation time
      */
     private void sendIrrigationReminderHtml(String userEmail, String userName, String farmName, String cropName, String scheduledTime) {
-        String subject = "⏰ FarmEazy Irrigation Reminder: " + cropName + " at " + farmName;
-        String htmlBody = String.format("""
-            <!DOCTYPE html>
-            <html lang="en">
-            <head>
-                <meta charset="UTF-8">
-                <meta name="viewport" content="width=device-width, initial-scale=1.0">
-                <style>
-                    body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; line-height: 1.6; color: #333; background-color: #f5f5f5; }
-                    .container { max-width: 600px; margin: 20px auto; background-color: white; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
-                    .header { background: linear-gradient(135deg, #3b82f6 0%%, #2563eb 100%%); color: white; padding: 30px; text-align: center; }
-                    .content { padding: 30px; }
-                    .greeting { font-size: 18px; }
-                    .details-table { width: 100%%; border-collapse: collapse; margin: 20px 0; }
-                    .details-table th, .details-table td { padding: 12px; text-align: left; border-bottom: 1px solid #e5e7eb; }
-                    .details-table th { background-color: #f9fafb; font-weight: 600; }
-                    .footer { background-color: #f9fafb; padding: 20px; text-align: center; font-size: 12px; color: #666; border-top: 1px solid #e5e7eb; }
-                </style>
-            </head>
-            <body>
-                <div class="container">
-                    <div class="header">
-                        <h1>Irrigation Reminder</h1>
-                    </div>
-                    <div class="content">
-                        <p class="greeting">Hello <strong>%s</strong>,</p>
-                        <p>This is a friendly reminder for your upcoming irrigation schedule. Timely watering is crucial for a healthy harvest.</p>
-                        <table class="details-table">
-                            <tr>
-                                <th>Farm</th>
-                                <td>%s</td>
-                            </tr>
-                            <tr>
-                                <th>Crop</th>
-                                <td>%s</td>
-                            </tr>
-                            <tr>
-                                <th>Scheduled Time</th>
-                                <td>%s</td>
-                            </tr>
-                        </table>
-                        <p>Please ensure your irrigation system is ready.</p>
-                    </div>
-                    <div class="footer">
-                        <p>You can manage your schedules in the FarmEazy dashboard.</p>
-                    </div>
-                </div>
-            </body>
-            </html>
-            """, userName, farmName, cropName, scheduledTime);
+    String subject = "Irrigation Reminder: " + safeText(cropName, "Crop") + " at " + safeText(farmName, "Farm");
+    String details = "Farm: " + safeText(farmName, "N/A") + "\n"
+            + "Crop: " + safeText(cropName, "N/A") + "\n"
+            + "Scheduled Time: " + safeText(scheduledTime, "N/A");
 
-        sendHtmlEmail(userEmail, subject, htmlBody, EmailType.INFO);
-        logger.info("HTML Irrigation Reminder email sent to: {} for farm: {} (from: info@farm-eazy.com)", userEmail, farmName);
-    }
+    String htmlBody = buildEventTemplateHtml(
+            "Irrigation Reminder",
+            "Hello " + safeText(userName, "User") + ", this is a reminder for your scheduled irrigation.",
+            details,
+            "Open Dashboard",
+            getAppBaseUrl() + "/dashboard"
+    );
+
+    sendHtmlEmail(userEmail, subject, htmlBody, EmailType.INFO);
+    logger.info("Template irrigation reminder email sent to: {}", userEmail);
+}
 
     /**
      * Sends a professional HTML harvest notification email.
@@ -378,62 +348,22 @@ public class EmailService {
      * @param estimatedDate Estimated harvest date
      */
     private void sendHarvestNotificationHtml(String userEmail, String userName, String farmName, String cropName, String estimatedDate) {
-        String subject = "🌾 Harvest Time Approaching for " + cropName;
-        String htmlBody = String.format("""
-            <!DOCTYPE html>
-            <html lang="en">
-            <head>
-                <meta charset="UTF-8">
-                <meta name="viewport" content="width=device-width, initial-scale=1.0">
-                <style>
-                    body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; line-height: 1.6; color: #333; background-color: #f5f5f5; }
-                    .container { max-width: 600px; margin: 20px auto; background-color: white; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
-                    .header { background: linear-gradient(135deg, #f59e0b 0%%, #d97706 100%%); color: white; padding: 30px; text-align: center; }
-                    .content { padding: 30px; }
-                    .greeting { font-size: 18px; }
-                    .details-table { width: 100%%; border-collapse: collapse; margin: 20px 0; }
-                    .details-table th, .details-table td { padding: 12px; text-align: left; border-bottom: 1px solid #e5e7eb; }
-                    .details-table th { background-color: #f9fafb; font-weight: 600; }
-                    .cta-button { display: inline-block; background: linear-gradient(135deg, #f59e0b 0%%, #d97706 100%%); color: white; padding: 12px 30px; text-decoration: none; border-radius: 4px; margin-top: 20px; }
-                    .footer { background-color: #f9fafb; padding: 20px; text-align: center; font-size: 12px; color: #666; border-top: 1px solid #e5e7eb; }
-                </style>
-            </head>
-            <body>
-                <div class="container">
-                    <div class="header">
-                        <h1>Harvest Notification</h1>
-                    </div>
-                    <div class="content">
-                        <p class="greeting">Hello <strong>%s</strong>,</p>
-                        <p>Get ready! The harvest time for your crop is just around the corner. Here are the details:</p>
-                        <table class="details-table">
-                            <tr>
-                                <th>Farm</th>
-                                <td>%s</td>
-                            </tr>
-                            <tr>
-                                <th>Crop</th>
-                                <td>%s</td>
-                            </tr>
-                            <tr>
-                                <th>Estimated Harvest Date</th>
-                                <td>%s</td>
-                            </tr>
-                        </table>
-                        <p>We recommend preparing your harvesting equipment and labor. Once harvested, you can easily list your produce on the FarmEazy marketplace.</p>
-                        <a href="%s/products/new" class="cta-button">List Your Produce Now</a>
-                    </div>
-                    <div class="footer">
-                        <p>Wishing you a bountiful harvest!</p>
-                    </div>
-                </div>
-            </body>
-            </html>
-            """, userName, farmName, cropName, estimatedDate, getAppBaseUrl());
+    String subject = "Harvest Time Approaching for " + safeText(cropName, "Crop");
+    String details = "Farm: " + safeText(farmName, "N/A") + "\n"
+            + "Crop: " + safeText(cropName, "N/A") + "\n"
+            + "Estimated Harvest Date: " + safeText(estimatedDate, "N/A");
 
-        sendHtmlEmail(userEmail, subject, htmlBody, EmailType.INFO);
-        logger.info("HTML Harvest Notification email sent to: {} for crop: {} (from: info@farm-eazy.com)", userEmail, cropName);
-    }
+    String htmlBody = buildEventTemplateHtml(
+            "Harvest Notification",
+            "Hello " + safeText(userName, "User") + ", your crop is nearing harvest time.",
+            details,
+            "List Produce",
+            getAppBaseUrl() + "/products/new"
+    );
+
+    sendHtmlEmail(userEmail, subject, htmlBody, EmailType.INFO);
+    logger.info("Template harvest notification email sent to: {}", userEmail);
+}
 
     /**
      * Sends crop harvest notification email.
@@ -506,108 +436,262 @@ public class EmailService {
                                                 String referenceId,
                                                 String maskedAccount,
                                                 boolean success,
-                                                String failureReason) {
-        String subject = success
-                ? "Bank Verification Successful - " + verificationNumber
-                : "Bank Verification Failed - " + verificationNumber;
+                                                String failureReason,
+                                                String accountHolderName,
+                                                String bankName,
+                                                String ifscCode,
+                                                LocalDateTime verificationTime,
+                                                String verificationSource,
+                                                String verificationStatus) {
+        String normalizedStatus = normalizeVerificationStatus(success, verificationStatus, failureReason);
+        String statusColor = resolveStatusColor(normalizedStatus);
+        String statusMessage = resolveStatusMessage(normalizedStatus, failureReason);
+        String statusImpact = resolveStatusImpact(normalizedStatus);
+        String nextSteps = buildNextStepsHtml(normalizedStatus);
 
-        String dashboardUrl = getAppBaseUrl() + "/bank-verification";
-        String supportUrl = getAppBaseUrl() + "/support";
-        String safeUser = (userName == null || userName.isBlank()) ? "Farmer" : userName;
-        String safeRef = (referenceId == null || referenceId.isBlank()) ? "Not available" : referenceId;
-        String safeAccount = (maskedAccount == null || maskedAccount.isBlank()) ? "Not available" : maskedAccount;
-        String safeReason = (failureReason == null || failureReason.isBlank()) ? "Transfer failed" : failureReason;
+        String subject = "Bank Verification Status Update - " + safeText(verificationNumber, "N/A");
+        String actionUrl = getAppBaseUrl() + "/bank-verification";
+        String actionText = "Rejected".equals(normalizedStatus) ? "Update Bank Details"
+                : "Pending".equals(normalizedStatus) ? "View Verification Status" : "Go to Dashboard";
 
-        String htmlBody = success
-                ? String.format("""
-                    <!DOCTYPE html>
-                    <html lang=\"en\">
-                    <head>
-                        <meta charset=\"UTF-8\">
-                        <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">
-                        <style>
-                            body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f4f7fb; color: #1f2937; }
-                            .card { max-width: 640px; margin: 24px auto; background: #ffffff; border-radius: 14px; overflow: hidden; border: 1px solid #e5e7eb; }
-                            .header { background: linear-gradient(135deg, #047857 0%%, #065f46 100%%); color: #ffffff; padding: 24px; }
-                            .body { padding: 24px; }
-                            .meta { width: 100%%; border-collapse: collapse; margin-top: 14px; }
-                            .meta td { padding: 10px 12px; border: 1px solid #e5e7eb; font-size: 14px; }
-                            .meta td:first-child { background: #f9fafb; font-weight: 600; width: 38%%; }
-                            .badge { display: inline-block; background: #dcfce7; color: #166534; font-weight: 700; font-size: 12px; padding: 6px 10px; border-radius: 999px; }
-                            .cta { display: inline-block; margin-top: 18px; background: #047857; color: #ffffff !important; text-decoration: none; padding: 12px 18px; border-radius: 8px; font-weight: 600; }
-                            .foot { padding: 16px 24px 22px; color: #6b7280; font-size: 12px; background: #f9fafb; border-top: 1px solid #e5e7eb; }
-                        </style>
-                    </head>
-                    <body>
-                        <div class=\"card\">
-                            <div class=\"header\">
-                                <div class=\"badge\">Verification Completed</div>
-                                <h2 style=\"margin:10px 0 0;\">Bank Verification Successful</h2>
-                                <p style=\"margin:8px 0 0; opacity:.95;\">Your account has been validated through the penny-drop process.</p>
-                            </div>
-                            <div class=\"body\">
-                                <p>Hello <strong>%s</strong>,</p>
-                                <p>Your bank verification request has been processed successfully.</p>
-                                <table class=\"meta\">
-                                    <tr><td>Verification ID</td><td>%s</td></tr>
-                                    <tr><td>Amount Transferred</td><td>INR %s</td></tr>
-                                    <tr><td>Reference ID</td><td>%s</td></tr>
-                                    <tr><td>Account</td><td>%s</td></tr>
-                                </table>
-                                <p style=\"margin-top:16px;\">Please confirm receipt from your dashboard to complete the final verification step.</p>
-                                <a class=\"cta\" href=\"%s\">Open Verification Dashboard</a>
-                            </div>
-                            <div class=\"foot\">
-                                Need help? Contact support from your portal: <a href=\"%s\">Support Center</a><br>
-                                © 2026 FarmEazy. Smart Farm Management.
-                            </div>
-                        </div>
-                    </body>
-                    </html>
-                    """, safeUser, verificationNumber, amount, safeRef, safeAccount, dashboardUrl, supportUrl)
-                : String.format("""
-                    <!DOCTYPE html>
-                    <html lang=\"en\">
-                    <head>
-                        <meta charset=\"UTF-8\">
-                        <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\">
-                        <style>
-                            body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: #f4f7fb; color: #1f2937; }
-                            .card { max-width: 640px; margin: 24px auto; background: #ffffff; border-radius: 14px; overflow: hidden; border: 1px solid #e5e7eb; }
-                            .header { background: linear-gradient(135deg, #b91c1c 0%%, #7f1d1d 100%%); color: #ffffff; padding: 24px; }
-                            .body { padding: 24px; }
-                            .meta { width: 100%%; border-collapse: collapse; margin-top: 14px; }
-                            .meta td { padding: 10px 12px; border: 1px solid #e5e7eb; font-size: 14px; }
-                            .meta td:first-child { background: #f9fafb; font-weight: 600; width: 38%%; }
-                            .cta { display: inline-block; margin-top: 18px; background: #b91c1c; color: #ffffff !important; text-decoration: none; padding: 12px 18px; border-radius: 8px; font-weight: 600; }
-                            .foot { padding: 16px 24px 22px; color: #6b7280; font-size: 12px; background: #f9fafb; border-top: 1px solid #e5e7eb; }
-                        </style>
-                    </head>
-                    <body>
-                        <div class=\"card\">
-                            <div class=\"header\">
-                                <h2 style=\"margin:0;\">Bank Verification Failed</h2>
-                                <p style=\"margin:8px 0 0; opacity:.95;\">We could not complete your bank verification request.</p>
-                            </div>
-                            <div class=\"body\">
-                                <p>Hello <strong>%s</strong>,</p>
-                                <table class=\"meta\">
-                                    <tr><td>Verification ID</td><td>%s</td></tr>
-                                    <tr><td>Failure Reason</td><td>%s</td></tr>
-                                </table>
-                                <p style=\"margin-top:16px;\">Please review your bank details and retry from the verification page.</p>
-                                <a class=\"cta\" href=\"%s\">Retry Verification</a>
-                            </div>
-                            <div class=\"foot\">
-                                Need assistance? Visit: <a href=\"%s\">Support Center</a><br>
-                                © 2026 FarmEazy. Smart Farm Management.
-                            </div>
-                        </div>
-                    </body>
-                    </html>
-                    """, safeUser, verificationNumber, safeReason, dashboardUrl, supportUrl);
+        String rejectionBlock = "Rejected".equals(normalizedStatus)
+                ? "<div style=\"margin-top:20px; font-size:13px; background:#fff5f5; padding:12px; border-left:4px solid #e53e3e;\">"
+                + "<strong>Reason (if applicable):</strong><br>"
+                + escapeHtml(safeText(failureReason, "The submitted bank account details could not be verified."))
+                + "</div>"
+                : "";
+
+        String htmlBody = loadEmailTemplate("bank-verification-status.html")
+                .replace("{{APP_NAME}}", "FarmEazy")
+                .replace("{{USER_NAME}}", escapeHtml(safeText(userName, "Customer")))
+                .replace("{{STATUS_COLOR}}", statusColor)
+                .replace("{{STATUS}}", escapeHtml(normalizedStatus))
+                .replace("{{STATUS_MESSAGE}}", escapeHtml(statusMessage))
+                .replace("{{VERIFICATION_ID}}", escapeHtml(safeText(verificationNumber, "Not available")))
+                .replace("{{VERIFICATION_TIME}}", escapeHtml(formatVerificationTime(verificationTime)))
+                .replace("{{VERIFICATION_SOURCE}}", escapeHtml(safeText(verificationSource, "FarmEazy Verification System")))
+                .replace("{{ACCOUNT_NAME}}", escapeHtml(safeText(accountHolderName, "Not available")))
+                .replace("{{BANK_NAME}}", escapeHtml(safeText(bankName, "Not available")))
+                .replace("{{MASKED_ACCOUNT_NUMBER}}", escapeHtml(safeText(maskedAccount, "Not available")))
+                .replace("{{IFSC_CODE}}", escapeHtml(safeText(ifscCode, "Not available")))
+                .replace("{{REJECTION_BLOCK}}", rejectionBlock)
+                .replace("{{STATUS_IMPACT}}", escapeHtml(statusImpact))
+                .replace("{{NEXT_STEPS}}", nextSteps)
+                .replace("{{ACTION_URL}}", escapeHtml(actionUrl))
+                .replace("{{ACTION_TEXT}}", escapeHtml(actionText))
+                .replace("{{SUPPORT_EMAIL}}", escapeHtml(safeText(supportEmail, "support@farm-eazy.com")))
+                .replace("{{WEBSITE_URL}}", escapeHtml(getAppBaseUrl()))
+                .replace("{{YEAR}}", String.valueOf(LocalDate.now().getYear()));
 
         sendHtmlEmail(userEmail, subject, htmlBody, EmailType.NOREPLY);
+    }
+
+    public void sendServiceRequestConfirmationEmail(String userEmail,
+                                                    String userName,
+                                                    String requestId,
+                                                    String serviceName,
+                                                    LocalDateTime requestDate,
+                                                    String schedule,
+                                                    String status,
+                                                    String serviceLocation,
+                                                    String serviceDescription) {
+        String subject = "Service Request Confirmation - " + safeText(requestId, "N/A");
+        String appName = "FarmEazy";
+        String htmlBody = loadEmailTemplate("service-request-confirmation.html")
+                .replace("{{APP_NAME}}", appName)
+                .replace("{{USER_NAME}}", escapeHtml(safeText(userName, "Customer")))
+                .replace("{{REQUEST_ID}}", escapeHtml(safeText(requestId, "Not available")))
+                .replace("{{SERVICE_NAME}}", escapeHtml(safeText(serviceName, "General Service")))
+                .replace("{{REQUEST_DATE}}", escapeHtml(formatServiceRequestDate(requestDate)))
+                .replace("{{SCHEDULE}}", escapeHtml(safeText(schedule, "As per availability")))
+                .replace("{{STATUS}}", escapeHtml(safeText(status, "Submitted")))
+                .replace("{{SERVICE_LOCATION}}", escapeHtml(safeText(serviceLocation, "Location details were not provided.")))
+                .replace("{{SERVICE_DESCRIPTION}}", escapeHtml(safeText(serviceDescription, "No additional details provided.")))
+                .replace("{{TRACK_REQUEST_URL}}", escapeHtml(getAppBaseUrl() + "/service-requests/" + safeText(requestId, "")))
+                .replace("{{SUPPORT_EMAIL}}", escapeHtml(safeText(supportEmail, "support@farm-eazy.com")))
+                .replace("{{WEBSITE_URL}}", escapeHtml(getAppBaseUrl()))
+                .replace("{{YEAR}}", String.valueOf(LocalDate.now().getYear()));
+
+        sendHtmlEmail(userEmail, subject, htmlBody, EmailType.NOREPLY);
+    }
+
+    public void sendServiceRequestSupportAlertEmail(String to,
+                            String requestId,
+                            String category,
+                            String priority,
+                            String subjectText,
+                            String userName,
+                            String userEmail,
+                            String userPhone,
+                            String description,
+                            String relatedOrderId,
+                            LocalDateTime submittedAt) {
+    String subject = String.format("[%s] New Support Request: %s - %s",
+        safeText(priority, "MEDIUM"), safeText(requestId, "N/A"), safeText(subjectText, "Support Request"));
+
+    String htmlBody = loadEmailTemplate("service-request-support-alert.html")
+        .replace("{{APP_NAME}}", "FarmEazy")
+        .replace("{{REQUEST_ID}}", escapeHtml(safeText(requestId, "Not available")))
+        .replace("{{CATEGORY}}", escapeHtml(safeText(category, "GENERAL")))
+        .replace("{{PRIORITY}}", escapeHtml(safeText(priority, "MEDIUM")))
+        .replace("{{REQUEST_SUBJECT}}", escapeHtml(safeText(subjectText, "Not available")))
+        .replace("{{USER_NAME}}", escapeHtml(safeText(userName, "Not available")))
+        .replace("{{USER_EMAIL}}", escapeHtml(safeText(userEmail, "Not available")))
+        .replace("{{USER_PHONE}}", escapeHtml(safeText(userPhone, "N/A")))
+        .replace("{{REQUEST_DESCRIPTION}}", escapeHtml(safeText(description, "No description provided.")))
+        .replace("{{RELATED_ORDER_ID}}", escapeHtml(safeText(relatedOrderId, "N/A")))
+        .replace("{{SUBMITTED_AT}}", escapeHtml(formatServiceRequestDate(submittedAt)))
+        .replace("{{YEAR}}", String.valueOf(LocalDate.now().getYear()));
+
+    sendHtmlEmail(to, subject, htmlBody, EmailType.SUPPORT);
+    }
+
+    public void sendServiceRequestStatusUpdateEmail(String to,
+                            String userName,
+                            String requestId,
+                            String previousStatus,
+                            String newStatus,
+                            String resolutionNotes) {
+    String subject = String.format("Service Request %s - Status Updated", safeText(requestId, "N/A"));
+
+    String htmlBody = loadEmailTemplate("service-request-status-update.html")
+        .replace("{{APP_NAME}}", "FarmEazy")
+        .replace("{{USER_NAME}}", escapeHtml(safeText(userName, "Customer")))
+        .replace("{{REQUEST_ID}}", escapeHtml(safeText(requestId, "Not available")))
+        .replace("{{PREVIOUS_STATUS}}", escapeHtml(safeText(previousStatus, "Not available")))
+        .replace("{{NEW_STATUS}}", escapeHtml(safeText(newStatus, "Not available")))
+        .replace("{{RESOLUTION_NOTES}}", escapeHtml(safeText(resolutionNotes, "No additional notes provided.")))
+        .replace("{{SUPPORT_EMAIL}}", escapeHtml(safeText(supportEmail, "support@farm-eazy.com")))
+        .replace("{{YEAR}}", String.valueOf(LocalDate.now().getYear()));
+
+    sendHtmlEmail(to, subject, htmlBody, EmailType.NOREPLY);
+    }
+
+    private String loadEmailTemplate(String templateName) {
+        try {
+            ClassPathResource resource = new ClassPathResource("templates/emails/" + templateName);
+            return new String(resource.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+        } catch (IOException ex) {
+            throw new RuntimeException("Unable to load email template: " + templateName, ex);
+        }
+    }
+
+    
+private String buildEventTemplateHtml(String title, String intro, String details, String actionText, String actionUrl) {
+    String template = loadEmailTemplate("event-notification.html");
+    return template
+            .replace("{{APP_NAME}}", "FarmEazy")
+            .replace("{{TITLE}}", escapeHtml(safeText(title, "Notification")))
+            .replace("{{INTRO}}", escapeHtml(safeText(intro, "")))
+            .replace("{{DETAILS}}", escapeHtml(safeText(details, "")).replace("\n", "<br>"))
+            .replace("{{ACTION_TEXT}}", escapeHtml(safeText(actionText, "Open Dashboard")))
+            .replace("{{ACTION_URL}}", escapeHtml(safeText(actionUrl, getAppBaseUrl() + "/dashboard")))
+            .replace("{{YEAR}}", String.valueOf(LocalDate.now().getYear()));
+}
+private String normalizeVerificationStatus(boolean success, String verificationStatus, String failureReason) {
+        String status = verificationStatus == null ? "" : verificationStatus.trim().toUpperCase();
+        if ("PENDING".equals(status) || "INITIATED".equals(status) || "PROCESSING".equals(status)) {
+            return "Pending";
+        }
+        if ("FAILED".equals(status) || "REJECTED".equals(status)) {
+            return "Rejected";
+        }
+        if ("VERIFIED".equals(status) || "APPROVED".equals(status) || "SUCCESS".equals(status)) {
+            return "Approved";
+        }
+        if (success) {
+            return "Approved";
+        }
+        String reason = failureReason == null ? "" : failureReason.toLowerCase();
+        if (reason.contains("pending") || reason.contains("under review")) {
+            return "Pending";
+        }
+        return "Rejected";
+    }
+
+    private String resolveStatusColor(String status) {
+        return switch (status) {
+            case "Approved" -> "#2f855a";
+            case "Pending" -> "#d69e2e";
+            default -> "#c53030";
+        };
+    }
+
+    private String resolveStatusMessage(String status, String failureReason) {
+        return switch (status) {
+            case "Approved" -> "Your bank account has been successfully verified. You can now proceed with transactions and withdrawals.";
+            case "Pending" -> "Your bank verification is currently under review. No action is required at this stage.";
+            default -> {
+                String reason = safeText(failureReason, "The submitted bank account details could not be verified.");
+                yield "Based on verification checks, your submission could not be approved. " + reason;
+            }
+        };
+    }
+
+    private String resolveStatusImpact(String status) {
+        return switch (status) {
+            case "Approved" -> "You can continue onboarding and use payout-related features without restrictions.";
+            case "Pending" -> "Your verification is in progress. Payout-related actions may remain temporarily restricted until review is completed.";
+            default -> "Payout and withdrawal actions will remain restricted until valid bank details are resubmitted and approved.";
+        };
+    }
+
+    private String buildNextStepsHtml(String status) {
+        List<String> steps = switch (status) {
+            case "Approved" -> List.of(
+                    "Proceed with payouts and withdrawal setup from your dashboard.",
+                    "Retain this reference for future support communication."
+            );
+            case "Pending" -> List.of(
+                    "No immediate action is required from your side.",
+                    "Track verification status from your dashboard for updates."
+            );
+            default -> List.of(
+                    "Review and correct account holder name, account number, and IFSC details.",
+                    "Resubmit bank information from your dashboard for a fresh verification attempt."
+            );
+        };
+
+        StringBuilder html = new StringBuilder();
+        for (String step : steps) {
+            html.append("<li>").append(escapeHtml(step)).append("</li>");
+        }
+        return html.toString();
+    }
+
+    private String formatVerificationTime(LocalDateTime verificationTime) {
+        if (verificationTime == null) {
+            return "Not available";
+        }
+        DateTimeFormatter formatter = DateTimeFormatter.ofPattern("dd MMM yyyy, hh:mm a");
+        return verificationTime.format(formatter);
+    }
+
+    private String formatServiceRequestDate(LocalDateTime requestDate) {
+        if (requestDate == null) {
+            return "Not available";
+        }
+        DateTimeFormatter formatter = DateTimeFormatter.ofPattern("dd MMM yyyy, hh:mm a");
+        return requestDate.format(formatter);
+    }
+
+    private String safeText(String value, String fallback) {
+        if (value == null || value.isBlank()) {
+            return fallback;
+        }
+        return value;
+    }
+
+    private String escapeHtml(String text) {
+        if (text == null) {
+            return "";
+        }
+        return text
+                .replace("&", "&amp;")
+                .replace("<", "&lt;")
+                .replace(">", "&gt;")
+                .replace("\"", "&quot;")
+                .replace("'", "&#39;");
     }
 
     /**
@@ -619,52 +703,22 @@ public class EmailService {
      * @param purpose Purpose of the OTP
      */
     public void sendOtpEmailHtml(String userEmail, String userName, String otpCode, String purpose) {
-        String subject = "🔐 Your FarmEazy Verification Code";
-        String purposeText = purpose.equals("SELLING") ? "your product listing" : 
-                           purpose.equals("BUYING") ? "your purchase" : "your verification";
+    String subject = "Your FarmEazy Verification Code";
+    String details = "Purpose: " + safeText(purpose, "Verification") + "\n"
+            + "OTP Code: " + safeText(otpCode, "N/A") + "\n"
+            + "Validity: 10 minutes";
 
-        String htmlBody = String.format("""
-            <!DOCTYPE html>
-            <html lang="en">
-            <head>
-                <meta charset="UTF-8">
-                <meta name="viewport" content="width=device-width, initial-scale=1.0">
-                <style>
-                    body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; line-height: 1.6; color: #333; background-color: #f5f5f5; }
-                    .container { max-width: 600px; margin: 20px auto; background-color: white; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
-                    .header { background: linear-gradient(135deg, #f59e0b 0%%, #d97706 100%%); color: white; padding: 30px; text-align: center; }
-                    .content { padding: 30px; }
-                    .otp-code { font-size: 36px; font-weight: bold; text-align: center; letter-spacing: 8px; margin: 20px 0; padding: 15px; background-color: #f3f4f6; border-radius: 4px; }
-                    .warning { background-color: #fefce8; border-left: 4px solid #f59e0b; padding: 15px; margin-top: 20px; border-radius: 4px; }
-                    .footer { background-color: #f9fafb; padding: 20px; text-align: center; font-size: 12px; color: #666; border-top: 1px solid #e5e7eb; }
-                </style>
-            </head>
-            <body>
-                <div class="container">
-                    <div class="header">
-                        <h1>One-Time Password</h1>
-                    </div>
-                    <div class="content">
-                        <p>Hello <strong>%s</strong>,</p>
-                        <p>Please use the following verification code to complete %s. This code is valid for 10 minutes.</p>
-                        
-                        <div class="otp-code">%s</div>
-                        
-                        <div class="warning">
-                            <strong>Security First:</strong> For your protection, do not share this code with anyone. FarmEazy will never ask for your OTP over the phone or in an email.
-                        </div>
-                    </div>
-                    <div class="footer">
-                        <p>If you did not request this code, please ignore this email.</p>
-                    </div>
-                </div>
-            </body>
-            </html>
-            """, userName, purposeText, otpCode);
+    String htmlBody = buildEventTemplateHtml(
+            "One-Time Password",
+            "Hello " + safeText(userName, "User") + ", use this OTP to continue your action.",
+            details,
+            "Open Login",
+            getAppBaseUrl() + "/login"
+    );
 
-        sendHtmlEmail(userEmail, subject, htmlBody, EmailType.NOREPLY);
-        logger.info("HTML OTP email sent to: {} for purpose: {} (from: no-reply@farm-eazy.com)", userEmail, purpose);
-    }
+    sendHtmlEmail(userEmail, subject, htmlBody, EmailType.NOREPLY);
+    logger.info("Template OTP email sent to: {}", userEmail);
+}
 
     /**
      * Sends product listing confirmation email.
@@ -687,146 +741,21 @@ public class EmailService {
      * @param userName User's full name or username
      */
     public void sendWelcomeEmailHtml(String userEmail, String userName) {
-        String subject = "Welcome to FarmEazy! 🌾 Start Your Smart Farming Journey";
-        
-        String htmlBody = String.format("""
-            <!DOCTYPE html>
-            <html lang="en">
-            <head>
-                <meta charset="UTF-8">
-                <meta name="viewport" content="width=device-width, initial-scale=1.0">
-                <style>
-                    body {
-                        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-                        line-height: 1.6;
-                        color: #333;
-                        background-color: #f5f5f5;
-                    }
-                    .container {
-                        max-width: 600px;
-                        margin: 20px auto;
-                        background-color: white;
-                        border-radius: 8px;
-                        overflow: hidden;
-                        box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-                    }
-                    .header {
-                        background: linear-gradient(135deg, #10b981 0%%, #059669 100%%);
-                        color: white;
-                        padding: 30px;
-                        text-align: center;
-                    }
-                    .header h1 {
-                        margin: 0;
-                        font-size: 28px;
-                    }
-                    .content {
-                        padding: 30px;
-                    }
-                    .greeting {
-                        font-size: 18px;
-                        margin-bottom: 20px;
-                    }
-                    .features {
-                        background-color: #f0fdf4;
-                        border-left: 4px solid #10b981;
-                        padding: 15px;
-                        margin: 20px 0;
-                        border-radius: 4px;
-                    }
-                    .feature-item {
-                        display: flex;
-                        align-items: center;
-                        margin: 10px 0;
-                    }
-                    .feature-icon {
-                        font-size: 20px;
-                        margin-right: 12px;
-                        width: 30px;
-                    }
-                    .cta-button {
-                        display: inline-block;
-                        background: linear-gradient(135deg, #10b981 0%%, #059669 100%%);
-                        color: white;
-                        padding: 12px 30px;
-                        text-decoration: none;
-                        border-radius: 4px;
-                        margin: 20px 0;
-                        font-weight: 600;
-                    }
-                    .footer {
-                        background-color: #f9fafb;
-                        padding: 20px;
-                        text-align: center;
-                        font-size: 12px;
-                        color: #666;
-                        border-top: 1px solid #e5e7eb;
-                    }
-                </style>
-            </head>
-            <body>
-                <div class="container">
-                    <div class="header">
-                        <h1>🌾 Welcome to FarmEazy</h1>
-                        <p>Your Smart Farm Management System</p>
-                    </div>
-                    
-                    <div class="content">
-                        <div class="greeting">
-                            <p>Hello <strong>%s</strong>,</p>
-                            <p>Welcome aboard! We're thrilled to have you join the FarmEazy family. Let's make your farming journey smarter and more productive.</p>
-                        </div>
-                        
-                        <h3 style="color: #10b981;">What You Can Do with FarmEazy:</h3>
-                        <div class="features">
-                            <div class="feature-item">
-                                <span class="feature-icon">🌾</span>
-                                <span>Manage multiple farms and track all your agricultural data</span>
-                            </div>
-                            <div class="feature-item">
-                                <span class="feature-icon">🌱</span>
-                                <span>Monitor crop growth and health from planting to harvest</span>
-                            </div>
-                            <div class="feature-item">
-                                <span class="feature-icon">💧</span>
-                                <span>Schedule and optimize irrigation based on soil and weather conditions</span>
-                            </div>
-                            <div class="feature-item">
-                                <span class="feature-icon">📊</span>
-                                <span>Get real-time analytics and actionable insights</span>
-                            </div>
-                            <div class="feature-item">
-                                <span class="feature-icon">🛒</span>
-                                <span>Buy and sell agricultural products in our marketplace</span>
-                            </div>
-                            <div class="feature-item">
-                                <span class="feature-icon">🪙</span>
-                                <span>Earn coins with every transaction and redeem them for discounts</span>
-                            </div>
-                        </div>
-                        
-                        <div style="text-align: center;">
-                            <a href="%s/login" class="cta-button">Get Started Now →</a>
-                        </div>
-                        
-                        <h3 style="color: #10b981;">Quick Tip:</h3>
-                        <p style="background-color: #fffbeb; border-left: 4px solid #f59e0b; padding: 15px; border-radius: 4px;">
-                            Start by adding your first farm in the dashboard. This will help you organize your crops and irrigation schedules more effectively.
-                        </p>
-                    </div>
-                    
-                    <div class="footer">
-                        <p>If you have any questions or need assistance, feel free to reach out to our support team.</p>
-                        <p style="margin-top: 15px; color: #999;">© 2026 FarmEazy. All rights reserved. | <a href="#" style="color: #10b981; text-decoration: none;">Support</a> | <a href="#" style="color: #10b981; text-decoration: none;">Contact</a></p>
-                    </div>
-                </div>
-            </body>
-            </html>
-            """, userName, getAppBaseUrl());
-        
-        sendHtmlEmail(userEmail, subject, htmlBody, EmailType.INFO);
-        logger.info("Professional HTML welcome email sent to: {} (from: info@farm-eazy.com)", userEmail);
-    }
+    String subject = "Welcome to FarmEazy";
+    String details = "Account Holder: " + safeText(userName, "User") + "\n"
+            + "Platform: FarmEazy Smart Farm Management";
+
+    String htmlBody = buildEventTemplateHtml(
+            "Welcome to FarmEazy",
+            "Hello " + safeText(userName, "User") + ", your account is ready and you can start using FarmEazy.",
+            details,
+            "Get Started",
+            getAppBaseUrl() + "/login"
+    );
+
+    sendHtmlEmail(userEmail, subject, htmlBody, EmailType.INFO);
+    logger.info("Template welcome email sent to: {}", userEmail);
+}
 
     /**
      * Sends professional HTML password reset email.
@@ -836,116 +765,23 @@ public class EmailService {
      * @param shortCode Short 8-character code for password reset
      */
     public void sendPasswordResetEmailHtml(String userEmail, String userName, String shortCode) {
-        String subject = "Reset Your FarmEazy Password";
-        String resetLink = getAppBaseUrl() + "/reset-password/" + shortCode;
-        
-        String htmlBody = String.format("""
-            <!DOCTYPE html>
-            <html lang="en">
-            <head>
-                <meta charset="UTF-8">
-                <meta name="viewport" content="width=device-width, initial-scale=1.0">
-                <style>
-                    body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; line-height: 1.6; color: #333; background-color: #f5f5f5; }
-                    .container { max-width: 600px; margin: 20px auto; background-color: white; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
-                    .header { background: linear-gradient(135deg, #ef4444 0%%, #dc2626 100%%); color: white; padding: 30px; text-align: center; }
-                    .header h1 {
-                        margin: 0;
-                        font-size: 28px;
-                    }
-                    .content { padding: 30px; }
-                    .alert-box {
-                        background-color: #fef2f2;
-                        border-left: 4px solid #ef4444;
-                        padding: 15px;
-                        margin: 20px 0;
-                        border-radius: 4px;
-                    }
-                    .cta-button {
-                        display: inline-block;
-                        background: linear-gradient(135deg, #ef4444 0%%, #dc2626 100%%);
-                        color: white;
-                        padding: 14px 40px;
-                        text-decoration: none;
-                        border-radius: 4px;
-                        margin: 20px 0;
-                        font-weight: 600;
-                        text-align: center;
-                    }
-                    .code-box {
-                        background-color: #f3f4f6;
-                        padding: 20px;
-                        border-radius: 4px;
-                        text-align: center;
-                        font-family: 'Courier New', monospace;
-                        font-size: 18px;
-                        font-weight: bold;
-                        color: #1f2937;
-                        margin: 15px 0;
-                    }
-                    .footer { background-color: #f9fafb; padding: 20px; text-align: center; font-size: 12px; color: #666; border-top: 1px solid #e5e7eb; }
-                </style>
-            </head>
-            <body>
-                <div class="container">
-                    <div class="header">
-                        <h1>🔐 Password Reset Request</h1>
-                    </div>
-                    
-                    <div class="content">
-                        <p>Hello <strong>%s</strong>,</p>
-                        
-                        <p>We received a request to reset your FarmEazy password. If this wasn't you, you can ignore this email and your password will remain unchanged.</p>
-                        
-                        <div class="alert-box">
-                            <strong>⚠️ Security Note:</strong> This link will expire in 1 hour for your security.
-                        </div>
-                        
-                        <h3>To reset your password, click the button below:</h3>
-                        <div style="text-align: center;">
-                            <a href="%s" class="cta-button">Reset Password</a>
-                        </div>
-                        
-                        <p style="text-align: center; color: #666;">Or use this code:</p>
-                        <div class="code-box">%s</div>
-                        
-                        <p style="margin-top: 30px; font-size: 14px; color: #666;">
-                            <strong>Didn't request this?</strong><br>
-                            If you didn't request a password reset, your account is still secure. Please disregard this email.
-                        </p>
-                        
-                        <table style="width: 100%%; margin-top: 20px; border-collapse: collapse;">
-                            <tr style="background-color: #f3f4f6;">
-                                <td style="padding: 10px; border: 1px solid #e5e7eb;">
-                                    <strong>Account Email:</strong>
-                                </td>
-                                <td style="padding: 10px; border: 1px solid #e5e7eb;">
-                                    %s
-                                </td>
-                            </tr>
-                            <tr>
-                                <td style="padding: 10px; border: 1px solid #e5e7eb;">
-                                    <strong>Reset Link Valid Until:</strong>
-                                </td>
-                                <td style="padding: 10px; border: 1px solid #e5e7eb;">
-                                    1 hour from now
-                                </td>
-                            </tr>
-                        </table>
-                    </div>
-                    
-                    <div class="footer">
-                        <p>If you need help, contact our support team.</p>
-                        <p style="margin-top: 15px; color: #999;">© 2026 FarmEazy. All rights reserved. | <a href="#" style="color: #ef4444; text-decoration: none;">Support</a></p>
-                    </div>
-                </div>
-            </body>
-            </html>
-            """, userName, resetLink, shortCode, userEmail);
-        
-        sendHtmlEmail(userEmail, subject, htmlBody, EmailType.SUPPORT);
-        logger.info("Professional HTML password reset email sent to: {} (from: support@farm-eazy.com)", userEmail);
-    }
+    String subject = "Reset Your FarmEazy Password";
+    String resetLink = getAppBaseUrl() + "/reset-password/" + safeText(shortCode, "");
+    String details = "Account: " + safeText(userEmail, "N/A") + "\n"
+            + "Reset Code: " + safeText(shortCode, "N/A") + "\n"
+            + "Link Validity: 1 hour";
+
+    String htmlBody = buildEventTemplateHtml(
+            "Password Reset Request",
+            "Hello " + safeText(userName, "User") + ", we received a request to reset your password.",
+            details,
+            "Reset Password",
+            resetLink
+    );
+
+    sendHtmlEmail(userEmail, subject, htmlBody, EmailType.SUPPORT);
+    logger.info("Template password reset email sent to: {}", userEmail);
+}
 
     /**
      * Sends order confirmation email with detailed breakdown.
@@ -956,75 +792,22 @@ public class EmailService {
      * @param totalAmount Total order amount
      */
     public void sendOrderConfirmationEmail(String userEmail, String userName, Long orderId, String totalAmount) {
-        String subject = "Order Confirmed! 🎉 Your FarmEazy Order #" + orderId;
-        
-        String htmlBody = String.format("""
-            <!DOCTYPE html>
-            <html lang="en">
-            <head>
-                <meta charset="UTF-8">
-                <meta name="viewport" content="width=device-width, initial-scale=1.0">
-                <style>
-                    body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; line-height: 1.6; color: #333; background-color: #f5f5f5; }
-                    .container { max-width: 600px; margin: 20px auto; background-color: white; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
-                    .header { background: linear-gradient(135deg, #10b981 0%%, #059669 100%%); color: white; padding: 30px; text-align: center; }
-                    .content { padding: 30px; }
-                    .order-summary { background-color: #f0fdf4; border-left: 4px solid #10b981; padding: 20px; margin: 20px 0; border-radius: 4px; }
-                    .footer { background-color: #f9fafb; padding: 20px; text-align: center; font-size: 12px; color: #666; border-top: 1px solid #e5e7eb; }
-                </style>
-            </head>
-            <body>
-                <div class="container">
-                    <div class="header">
-                        <h1>✅ Order Confirmed!</h1>
-                        <p>Thank you for your purchase, %s</p>
-                    </div>
-                    
-                    <div class="content">
-                        <p>Your order has been successfully placed and is being processed.</p>
-                        
-                        <div class="order-summary">
-                            <h3 style="margin-top: 0; color: #059669;">Order Details</h3>
-                            <table style="width: 100%%;">
-                                <tr>
-                                    <td><strong>Order ID:</strong></td>
-                                    <td>#FZ%s</td>
-                                </tr>
-                                <tr>
-                                    <td><strong>Total Amount:</strong></td>
-                                    <td><strong style="color: #10b981;">₹%s</strong></td>
-                                </tr>
-                                <tr>
-                                    <td><strong>Expected Delivery:</strong></td>
-                                    <td>3-5 business days</td>
-                                </tr>
-                                <tr>
-                                    <td><strong>Order Status:</strong></td>
-                                    <td><span style="background-color: #dbeafe; color: #0284c7; padding: 4px 8px; border-radius: 3px;">Processing</span></td>
-                                </tr>
-                            </table>
-                        </div>
-                        
-                        <h3>What's Next?</h3>
-                        <ul>
-                            <li>You'll receive a shipping confirmation once your order ships</li>
-                            <li>Track your order in your FarmEazy dashboard</li>
-                            <li>Contact us if you have any questions</li>
-                        </ul>
-                    </div>
-                    
-                    <div class="footer">
-                        <p>Thank you for shopping at FarmEazy! 🌾</p>
-                        <p style="margin-top: 15px; color: #999;">© 2026 FarmEazy. All rights reserved.</p>
-                    </div>
-                </div>
-            </body>
-            </html>
-            """, userName, orderId, totalAmount);
-        
-        sendHtmlEmail(userEmail, subject, htmlBody, EmailType.NOREPLY);
-        logger.info("Order confirmation email sent to: {} for order: {} (from: no-reply@farm-eazy.com)", userEmail, orderId);
-    }
+    String subject = "Order Confirmed! Your FarmEazy Order #" + safeText(orderId != null ? orderId.toString() : null, "N/A");
+    String details = "Order ID: FZ" + safeText(orderId != null ? orderId.toString() : null, "N/A") + "\n"
+            + "Total Amount: Rs " + safeText(totalAmount, "0.00") + "\n"
+            + "Status: Processing";
+
+    String htmlBody = buildEventTemplateHtml(
+            "Order Confirmed",
+            "Hello " + safeText(userName, "User") + ", your order has been placed successfully.",
+            details,
+            "Track Order",
+            getAppBaseUrl() + "/orders"
+    );
+
+    sendHtmlEmail(userEmail, subject, htmlBody, EmailType.NOREPLY);
+    logger.info("Template order confirmation email sent to: {}", userEmail);
+}
 
     /**
      * Sends professional HTML product listing confirmation email.
@@ -1038,72 +821,23 @@ public class EmailService {
      * @param unit Product unit
      */
     public void sendProductListingConfirmationHtml(String userEmail, String userName, String productName, String category, Double price, Integer quantity, String unit) {
-        String subject = "✅ Your Product is Live on FarmEazy!";
-        
-        String htmlBody = String.format("""
-            <!DOCTYPE html>
-            <html lang="en">
-            <head>
-                <meta charset="UTF-8">
-                <meta name="viewport" content="width=device-width, initial-scale=1.0">
-                <style>
-                    body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; line-height: 1.6; color: #333; background-color: #f5f5f5; }
-                    .container { max-width: 600px; margin: 20px auto; background-color: white; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
-                    .header { background: linear-gradient(135deg, #10b981 0%%, #059669 100%%); color: white; padding: 30px; text-align: center; }
-                    .content { padding: 30px; }
-                    .product-table { width: 100%%; border-collapse: collapse; margin: 20px 0; }
-                    .product-table th, .product-table td { padding: 12px; border: 1px solid #e5e7eb; text-align: left; }
-                    .product-table th { background-color: #f9fafb; }
-                    .footer { background-color: #f9fafb; padding: 20px; text-align: center; font-size: 12px; color: #666; border-top: 1px solid #e5e7eb; }
-                </style>
-            </head>
-            <body>
-                <div class="container">
-                    <div class="header">
-                        <h1>📦 Product Listed Successfully!</h1>
-                    </div>
-                    <div class="content">
-                        <p>Hello <strong>%s</strong>,</p>
-                        <p>Congratulations! Your product is now live on the FarmEazy marketplace and visible to thousands of potential buyers.</p>
-                        
-                        <h3 style="color: #059669;">Your Listing Details:</h3>
-                        <table class="product-table">
-                            <tr>
-                                <th>Product Name</th>
-                                <td>%s</td>
-                            </tr>
-                            <tr>
-                                <th>Category</th>
-                                <td>%s</td>
-                            </tr>
-                            <tr>
-                                <th>Price</th>
-                                <td>₹%.2f per %s</td>
-                            </tr>
-                            <tr>
-                                <th>Available Quantity</th>
-                                <td>%d %s</td>
-                            </tr>
-                        </table>
+    String subject = "Your Product is Live on FarmEazy";
+    String details = "Product Name: " + safeText(productName, "N/A") + "\n"
+            + "Category: " + safeText(category, "N/A") + "\n"
+            + "Price: Rs " + (price != null ? String.format("%.2f", price) : "0.00") + " per " + safeText(unit, "unit") + "\n"
+            + "Quantity: " + (quantity != null ? quantity : 0) + " " + safeText(unit, "unit");
 
-                        <h3 style="color: #059669;">What's Next?</h3>
-                        <ul>
-                            <li>Keep an eye out for inquiries from buyers.</li>
-                            <li>You can manage your listings from your dashboard.</li>
-                            <li>Consider sharing your listing on social media to increase visibility.</li>
-                        </ul>
-                    </div>
-                    <div class="footer">
-                        <p>Thank you for selling with FarmEazy! 🌾</p>
-                    </div>
-                </div>
-            </body>
-            </html>
-            """, userName, productName, category, price, unit, quantity, unit);
-        
-        sendHtmlEmail(userEmail, subject, htmlBody, EmailType.INFO);
-        logger.info("HTML Product listing confirmation email sent to: {} for product: {} (from: info@farm-eazy.com)", userEmail, productName);
-    }
+    String htmlBody = buildEventTemplateHtml(
+            "Product Listed Successfully",
+            "Hello " + safeText(userName, "User") + ", your product listing is now visible to buyers.",
+            details,
+            "Manage Listings",
+            getAppBaseUrl() + "/selling"
+    );
+
+    sendHtmlEmail(userEmail, subject, htmlBody, EmailType.INFO);
+    logger.info("Template product listing confirmation email sent to: {}", userEmail);
+}
 
     /**
      * Sends a professional HTML generic notification email using INFO sender.
@@ -1127,45 +861,16 @@ public class EmailService {
      * @param emailType The type of email (determines sender address)
      */
     private void sendNotificationHtml(String userEmail, String userName, String subject, String message, EmailType emailType) {
-        String htmlBody = String.format("""
-            <!DOCTYPE html>
-            <html lang="en">
-            <head>
-                <meta charset="UTF-8">
-                <meta name="viewport" content="width=device-width, initial-scale=1.0">
-                <style>
-                    body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; line-height: 1.6; color: #333; background-color: #f5f5f5; }
-                    .container { max-width: 600px; margin: 20px auto; background-color: white; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
-                    .header { background: linear-gradient(135deg, #6b7280 0%%, #4b5563 100%%); color: white; padding: 30px; text-align: center; }
-                    .content { padding: 30px; }
-                    .greeting { font-size: 18px; }
-                    .message-box { background-color: #f3f4f6; border-left: 4px solid #6b7280; padding: 20px; margin: 20px 0; border-radius: 4px; }
-                    .footer { background-color: #f9fafb; padding: 20px; text-align: center; font-size: 12px; color: #666; border-top: 1px solid #e5e7eb; }
-                </style>
-            </head>
-            <body>
-                <div class="container">
-                    <div class="header">
-                        <h1>FarmEazy Notification</h1>
-                    </div>
-                    <div class="content">
-                        <p class="greeting">Hello <strong>%s</strong>,</p>
-                        <p>We have an update for you:</p>
-                        <div class="message-box">
-                            <h3 style="margin-top:0;">%s</h3>
-                            <p>%s</p>
-                        </div>
-                        <p>You can always check the latest updates in your FarmEazy dashboard.</p>
-                    </div>
-                    <div class="footer">
-                        <p>This is an automated notification. Please do not reply to this email.</p>
-                    </div>
-                </div>
-            </body>
-            </html>
-            """, userName, subject, message);
+    String htmlBody = buildEventTemplateHtml(
+            safeText(subject, "FarmEazy Notification"),
+            "Hello " + safeText(userName, "User") + ", we have an update for you.",
+            safeText(message, "Please check your dashboard for details."),
+            "Open Dashboard",
+            getAppBaseUrl() + "/dashboard"
+    );
 
-        sendHtmlEmail(userEmail, subject, htmlBody, emailType);
-        logger.info("HTML Notification email sent to: {} (from: {})", userEmail, emailType);
-    }
+    sendHtmlEmail(userEmail, subject, htmlBody, emailType);
+    logger.info("Template notification email sent to: {}", userEmail);
 }
+}
+

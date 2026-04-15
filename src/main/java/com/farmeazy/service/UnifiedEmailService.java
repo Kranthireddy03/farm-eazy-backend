@@ -19,6 +19,9 @@ import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import org.springframework.core.io.ClassPathResource;
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.util.concurrent.CompletableFuture;
 
 /**
@@ -28,8 +31,8 @@ import java.util.concurrent.CompletableFuture;
  * Supports both Resend (HTTP API) and Zoho (SMTP) with a simple flag.
  * 
  * CONFIGURATION:
- * - farmeazy.mail.provider=resend  → Uses Resend HTTP API
- * - farmeazy.mail.provider=zoho    → Uses Zoho SMTP via JavaMailSender
+ * - farmeazy.mail.provider=resend  â†’ Uses Resend HTTP API
+ * - farmeazy.mail.provider=zoho    â†’ Uses Zoho SMTP via JavaMailSender
  * 
  * FEATURES:
  * - Multi-sender support (NOREPLY, INFO, SUPPORT, ORDERS)
@@ -377,7 +380,7 @@ public class UnifiedEmailService {
      * Send welcome email
      */
     public boolean sendWelcomeEmail(String userEmail, String userName) {
-        String subject = "Welcome to FarmEazy! 🌾";
+        String subject = "Welcome to FarmEazy! ðŸŒ¾";
         String html = buildWelcomeEmailHtml(userName);
         return sendEmail(userEmail, subject, html, SenderType.INFO);
     }
@@ -447,239 +450,103 @@ public class UnifiedEmailService {
     // ==========================================
 
     private String buildWelcomeEmailHtml(String userName) {
-        return """
-            <!DOCTYPE html>
-            <html>
-            <head>
-                <style>
-                    body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
-                    .container { max-width: 600px; margin: 0 auto; padding: 20px; }
-                    .header { background: linear-gradient(135deg, #22c55e, #16a34a); padding: 30px; text-align: center; border-radius: 10px 10px 0 0; }
-                    .header h1 { color: white; margin: 0; font-size: 28px; }
-                    .content { background: #f9fafb; padding: 30px; border-radius: 0 0 10px 10px; }
-                    .button { display: inline-block; background: #22c55e; color: white; padding: 12px 30px; text-decoration: none; border-radius: 5px; margin: 20px 0; }
-                    .footer { text-align: center; margin-top: 20px; color: #6b7280; font-size: 14px; }
-                </style>
-            </head>
-            <body>
-                <div class="container">
-                    <div class="header">
-                        <h1>🌾 Welcome to FarmEazy!</h1>
-                    </div>
-                    <div class="content">
-                        <h2>Hello, %s! 👋</h2>
-                        <p>Thank you for joining FarmEazy - your smart farm management solution!</p>
-                        <p>With FarmEazy, you can:</p>
-                        <ul>
-                            <li>🌱 Track your crops and their growth stages</li>
-                            <li>💧 Manage irrigation schedules</li>
-                            <li>🏡 Organize multiple farms</li>
-                            <li>📊 Monitor farm activities</li>
-                        </ul>
-                        <a href="%s/login" class="button">Go to Dashboard</a>
-                    </div>
-                    <div class="footer">
-                        <p>© 2026 FarmEazy. Smart Farm Management.</p>
-                    </div>
-                </div>
-            </body>
-            </html>
-            """.formatted(userName, appBaseUrl);
-    }
+    return buildEventTemplateHtml(
+            "Welcome to FarmEazy",
+            "Hello " + safeValue(userName) + ", your account is ready to use.",
+            "Explore crops, irrigation scheduling, and marketplace features from your dashboard.",
+            "Go to Dashboard",
+            resolveEmailUrl("public", "/login")
+    );
+}
 
     private String buildPasswordResetEmailHtml(String resetLink) {
-        return """
-            <!DOCTYPE html>
-            <html>
-            <head>
-                <style>
-                    body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
-                    .container { max-width: 600px; margin: 0 auto; padding: 20px; }
-                    .header { background: linear-gradient(135deg, #3b82f6, #1d4ed8); padding: 30px; text-align: center; border-radius: 10px 10px 0 0; }
-                    .header h1 { color: white; margin: 0; font-size: 24px; }
-                    .content { background: #f9fafb; padding: 30px; border-radius: 0 0 10px 10px; }
-                    .button { display: inline-block; background: #3b82f6; color: white; padding: 12px 30px; text-decoration: none; border-radius: 5px; margin: 20px 0; }
-                    .warning { background: #fef3c7; border-left: 4px solid #f59e0b; padding: 10px 15px; margin: 15px 0; }
-                    .footer { text-align: center; margin-top: 20px; color: #6b7280; font-size: 14px; }
-                </style>
-            </head>
-            <body>
-                <div class="container">
-                    <div class="header">
-                        <h1>🔐 Password Reset Request</h1>
-                    </div>
-                    <div class="content">
-                        <p>Hello,</p>
-                        <p>We received a request to reset your FarmEazy password.</p>
-                        <a href="%s" class="button">Reset Password</a>
-                        <div class="warning">
-                            <strong>⚠️ Important:</strong> This link expires in 1 hour.
-                        </div>
-                        <p>If you didn't request this, you can safely ignore this email.</p>
-                    </div>
-                    <div class="footer">
-                        <p>© 2026 FarmEazy. Smart Farm Management.</p>
-                    </div>
-                </div>
-            </body>
-            </html>
-            """.formatted(resetLink);
-    }
+    return buildEventTemplateHtml(
+            "Password Reset Request",
+            "We received a request to reset your FarmEazy password.",
+            "For security reasons, this link expires in 1 hour.",
+            "Reset Password",
+            resetLink
+    );
+}
 
     private String buildPasswordChangedEmailHtml(String userName) {
-        return """
-            <!DOCTYPE html>
-            <html>
-            <head>
-                <style>
-                    body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
-                    .container { max-width: 600px; margin: 0 auto; padding: 20px; }
-                    .header { background: linear-gradient(135deg, #22c55e, #16a34a); padding: 30px; text-align: center; border-radius: 10px 10px 0 0; }
-                    .header h1 { color: white; margin: 0; font-size: 24px; }
-                    .content { background: #f9fafb; padding: 30px; border-radius: 0 0 10px 10px; }
-                    .success-box { background: #dcfce7; border-left: 4px solid #22c55e; padding: 15px; margin: 20px 0; }
-                    .warning-box { background: #fef3c7; border-left: 4px solid #f59e0b; padding: 15px; margin: 20px 0; }
-                    .footer { text-align: center; margin-top: 20px; color: #6b7280; font-size: 14px; }
-                </style>
-            </head>
-            <body>
-                <div class="container">
-                    <div class="header">
-                        <h1>🔐 Password Changed Successfully</h1>
-                    </div>
-                    <div class="content">
-                        <p>Hello, %s! 👋</p>
-                        <div class="success-box">
-                            <strong>✅ Your password has been successfully changed.</strong>
-                        </div>
-                        <div class="warning-box">
-                            <strong>⚠️ If you didn't make this change:</strong>
-                            <p>Contact support immediately at support@farm-eazy.com</p>
-                        </div>
-                    </div>
-                    <div class="footer">
-                        <p>© 2026 FarmEazy. Smart Farm Management.</p>
-                    </div>
-                </div>
-            </body>
-            </html>
-            """.formatted(userName);
-    }
+    return buildEventTemplateHtml(
+            "Password Changed Successfully",
+            "Hello " + safeValue(userName) + ", your password was updated successfully.",
+            "If you did not perform this action, contact support immediately.",
+            "Contact Support",
+            resolveEmailUrl("support", "/support")
+    );
+}
 
     private String buildOtpEmailHtml(String userName, String otpCode, String purpose) {
-        return """
-            <!DOCTYPE html>
-            <html>
-            <head>
-                <style>
-                    body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
-                    .container { max-width: 600px; margin: 0 auto; padding: 20px; }
-                    .header { background: linear-gradient(135deg, #8b5cf6, #6d28d9); padding: 30px; text-align: center; border-radius: 10px 10px 0 0; }
-                    .header h1 { color: white; margin: 0; font-size: 24px; }
-                    .content { background: #f9fafb; padding: 30px; border-radius: 0 0 10px 10px; text-align: center; }
-                    .otp-box { background: white; padding: 20px; border-radius: 8px; margin: 20px 0; }
-                    .otp-code { font-size: 32px; font-weight: bold; letter-spacing: 8px; color: #6d28d9; }
-                    .footer { text-align: center; margin-top: 20px; color: #6b7280; font-size: 14px; }
-                </style>
-            </head>
-            <body>
-                <div class="container">
-                    <div class="header">
-                        <h1>🔑 Verification Code</h1>
-                    </div>
-                    <div class="content">
-                        <p>Hello, %s!</p>
-                        <p>Your OTP for <strong>%s</strong>:</p>
-                        <div class="otp-box">
-                            <div class="otp-code">%s</div>
-                        </div>
-                        <p>This code expires in 10 minutes.</p>
-                    </div>
-                    <div class="footer">
-                        <p>© 2026 FarmEazy. Smart Farm Management.</p>
-                    </div>
-                </div>
-            </body>
-            </html>
-            """.formatted(userName, purpose, otpCode);
-    }
+    String details = "Purpose: " + safeValue(purpose) + "\nOTP: " + safeValue(otpCode) + "\nValidity: 10 minutes";
+    return buildEventTemplateHtml(
+            "Verification Code",
+            "Hello " + safeValue(userName) + ", use this OTP to continue.",
+            details,
+            "Open Login",
+            resolveEmailUrl("public", "/login")
+    );
+}
 
     private String buildNotificationEmailHtml(String userName, String subject, String message) {
-        return """
-            <!DOCTYPE html>
-            <html>
-            <head>
-                <style>
-                    body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
-                    .container { max-width: 600px; margin: 0 auto; padding: 20px; }
-                    .header { background: linear-gradient(135deg, #22c55e, #16a34a); padding: 30px; text-align: center; border-radius: 10px 10px 0 0; }
-                    .header h1 { color: white; margin: 0; font-size: 24px; }
-                    .content { background: #f9fafb; padding: 30px; border-radius: 0 0 10px 10px; }
-                    .message-box { background: white; padding: 20px; border-radius: 8px; border-left: 4px solid #22c55e; }
-                    .footer { text-align: center; margin-top: 20px; color: #6b7280; font-size: 14px; }
-                </style>
-            </head>
-            <body>
-                <div class="container">
-                    <div class="header">
-                        <h1>🌾 %s</h1>
-                    </div>
-                    <div class="content">
-                        <p>Hello, %s! 👋</p>
-                        <div class="message-box">
-                            <p>%s</p>
-                        </div>
-                    </div>
-                    <div class="footer">
-                        <p>© 2026 FarmEazy. Smart Farm Management.</p>
-                    </div>
-                </div>
-            </body>
-            </html>
-            """.formatted(subject, userName, message);
-    }
+    return buildEventTemplateHtml(
+            safeValue(subject),
+            "Hello " + safeValue(userName) + ", here is an important update.",
+            safeValue(message),
+            "Open Dashboard",
+            resolveEmailUrl("public", "/dashboard")
+    );
+}
 
-    private String buildOrderConfirmationEmailHtml(String userName, Long orderId, 
-            String subtotal, String coinsDiscount, String taxAmount, String finalAmount) {
-        return """
-            <!DOCTYPE html>
-            <html>
-            <head>
-                <style>
-                    body { font-family: Arial, sans-serif; line-height: 1.6; color: #333; }
-                    .container { max-width: 600px; margin: 0 auto; padding: 20px; }
-                    .header { background: linear-gradient(135deg, #22c55e, #16a34a); padding: 30px; text-align: center; border-radius: 10px 10px 0 0; }
-                    .header h1 { color: white; margin: 0; font-size: 24px; }
-                    .content { background: #f9fafb; padding: 30px; border-radius: 0 0 10px 10px; }
-                    .order-box { background: white; padding: 20px; border-radius: 8px; margin: 20px 0; }
-                    .order-id { font-size: 20px; font-weight: bold; color: #22c55e; }
-                    .price-row { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid #e5e7eb; }
-                    .total-row { font-weight: bold; font-size: 18px; border-bottom: none; }
-                    .footer { text-align: center; margin-top: 20px; color: #6b7280; font-size: 14px; }
-                </style>
-            </head>
-            <body>
-                <div class="container">
-                    <div class="header">
-                        <h1>✅ Order Confirmed!</h1>
-                    </div>
-                    <div class="content">
-                        <p>Hello, %s! 👋</p>
-                        <div class="order-box">
-                            <p class="order-id">Order #FZ%d</p>
-                            <div class="price-row"><span>Subtotal</span><span>₹%s</span></div>
-                            <div class="price-row"><span>Coins Discount</span><span>-₹%s</span></div>
-                            <div class="price-row"><span>Tax</span><span>₹%s</span></div>
-                            <div class="price-row total-row"><span>Total</span><span>₹%s</span></div>
-                        </div>
-                        <p>Thank you for your order!</p>
-                    </div>
-                    <div class="footer">
-                        <p>© 2026 FarmEazy. Smart Farm Management.</p>
-                    </div>
-                </div>
-            </body>
-            </html>
-            """.formatted(userName, orderId, subtotal, coinsDiscount, taxAmount, finalAmount);
+    private String buildOrderConfirmationEmailHtml(String userName, Long orderId,
+        String subtotal, String coinsDiscount, String taxAmount, String finalAmount) {
+    String details = "Order ID: FZ" + safeValue(orderId != null ? orderId.toString() : null) + "\n"
+            + "Subtotal: Rs " + safeValue(subtotal) + "\n"
+            + "Coins Discount: Rs " + safeValue(coinsDiscount) + "\n"
+            + "Tax: Rs " + safeValue(taxAmount) + "\n"
+            + "Total: Rs " + safeValue(finalAmount);
+
+    return buildEventTemplateHtml(
+            "Order Confirmed",
+            "Hello " + safeValue(userName) + ", your order has been confirmed.",
+            details,
+            "View Orders",
+            resolveEmailUrl("public", "/orders")
+    );
+}
+
+private String buildEventTemplateHtml(String title, String intro, String details, String actionText, String actionUrl) {
+    String template = loadEmailTemplate("templates/emails/event-notification.html");
+    return template
+            .replace("{{APP_NAME}}", "FarmEazy")
+            .replace("{{TITLE}}", safeValue(title))
+            .replace("{{INTRO}}", safeValue(intro))
+            .replace("{{DETAILS}}", safeValue(details).replace("\n", "<br>"))
+            .replace("{{ACTION_TEXT}}", safeValue(actionText))
+            .replace("{{ACTION_URL}}", safeValue(actionUrl))
+            .replace("{{YEAR}}", String.valueOf(java.time.Year.now().getValue()));
+}
+
+private String loadEmailTemplate(String classpathLocation) {
+    try {
+        ClassPathResource resource = new ClassPathResource(classpathLocation);
+        return new String(resource.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
+    } catch (IOException ex) {
+        throw new RuntimeException("Unable to load email template: " + classpathLocation, ex);
     }
+}
+
+private String safeValue(String value) {
+    if (value == null || value.isBlank()) {
+        return "N/A";
+    }
+    return value
+            .replace("&", "&amp;")
+            .replace("<", "&lt;")
+            .replace(">", "&gt;")
+            .replace("\"", "&quot;")
+            .replace("'", "&#39;");
+}
 }

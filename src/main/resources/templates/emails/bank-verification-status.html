@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Bank Verification Status</title>
+</head>
+<body style="margin:0; padding:0; background-color:#f5f7fa; font-family:Arial, Helvetica, sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="padding:30px 0;">
+    <tr>
+      <td align="center">
+        <table width="640" cellpadding="0" cellspacing="0" style="background:#ffffff; border:1px solid #d9dee3; border-radius:6px; overflow:hidden;">
+          <tr>
+            <td style="background:#002a5c; padding:18px 24px; color:#ffffff; font-size:18px; font-weight:bold;">
+              {{APP_NAME}} | Account Verification Services
+            </td>
+          </tr>
+
+          <tr>
+            <td style="padding:25px 30px; border-bottom:1px solid #e6e9ed;">
+              <h2 style="margin:0; font-size:20px;">Bank Account Verification Update</h2>
+              <p style="margin:8px 0 0 0; font-size:13px; color:#4a5568;">
+                This communication is regarding the verification of your submitted bank account details.
+              </p>
+            </td>
+          </tr>
+
+          <tr>
+            <td style="padding:25px 30px; font-size:14px; color:#2d3748; line-height:1.7;">
+              <p>Dear {{USER_NAME}},</p>
+
+              <p>
+                We would like to inform you that your bank account details submitted to {{APP_NAME}} have been successfully processed through our verification system.
+                The verification was conducted based on the information provided during your account setup.
+              </p>
+
+              <div style="margin:20px 0; padding:16px; border-left:4px solid {{STATUS_COLOR}}; background:#f1f5f9;">
+                <strong>Verification Status: {{STATUS}}</strong><br><br>
+                {{STATUS_MESSAGE}}
+              </div>
+
+              <h4 style="margin:20px 0 10px 0;">Verification Reference</h4>
+              <table width="100%" style="font-size:13px; color:#4a5568;">
+                <tr>
+                  <td>Reference ID:</td>
+                  <td><strong>{{VERIFICATION_ID}}</strong></td>
+                </tr>
+                <tr>
+                  <td>Verified On:</td>
+                  <td><strong>{{VERIFICATION_TIME}}</strong></td>
+                </tr>
+                <tr>
+                  <td>Status Updated By:</td>
+                  <td><strong>{{VERIFICATION_SOURCE}}</strong></td>
+                </tr>
+              </table>
+
+              <h4 style="margin:20px 0 10px 0;">Verified Bank Details</h4>
+              <table width="100%" style="font-size:13px; color:#4a5568;">
+                <tr>
+                  <td>Account Holder Name:</td>
+                  <td><strong>{{ACCOUNT_NAME}}</strong></td>
+                </tr>
+                <tr>
+                  <td>Bank Name:</td>
+                  <td><strong>{{BANK_NAME}}</strong></td>
+                </tr>
+                <tr>
+                  <td>Account Number:</td>
+                  <td><strong>{{MASKED_ACCOUNT_NUMBER}}</strong></td>
+                </tr>
+                <tr>
+                  <td>IFSC Code:</td>
+                  <td><strong>{{IFSC_CODE}}</strong></td>
+                </tr>
+              </table>
+
+              {{REJECTION_BLOCK}}
+
+              <h4 style="margin:20px 0 10px 0;">What This Means</h4>
+              <p style="font-size:13px; color:#4a5568;">
+                {{STATUS_IMPACT}}
+              </p>
+
+              <h4 style="margin:20px 0 10px 0;">Next Steps</h4>
+              <ul style="margin:0 0 16px 18px; font-size:13px; color:#4a5568;">
+                {{NEXT_STEPS}}
+              </ul>
+
+              <div style="text-align:center; margin:30px 0;">
+                <a href="{{ACTION_URL}}" style="background:#002a5c; color:#ffffff; padding:12px 28px; text-decoration:none; border-radius:4px;">
+                  {{ACTION_TEXT}}
+                </a>
+              </div>
+
+              <div style="background:#f1f5f9; padding:12px; border-left:4px solid #002a5c; font-size:13px;">
+                <strong>Security & Compliance Notice:</strong><br>
+                &bull; Your bank details are processed using secure verification systems<br>
+                &bull; Sensitive financial data is masked for your protection<br>
+                &bull; {{APP_NAME}} will never request full banking credentials via email or phone
+              </div>
+            </td>
+          </tr>
+
+          <tr>
+            <td style="background:#f9fafb; padding:20px 30px; font-size:12px; color:#6b7280;">
+              <p>
+                For any queries, please contact our support team:<br>
+                Email: {{SUPPORT_EMAIL}}<br>
+                Website: {{WEBSITE_URL}}
+              </p>
+
+              <p style="margin-top:10px;">
+                This is an automated system-generated communication. Please do not reply directly.
+              </p>
+
+              <p style="margin-top:10px;">
+                Copyright {{YEAR}} {{APP_NAME}}. All rights reserved.
+              </p>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+</body>
+</html>

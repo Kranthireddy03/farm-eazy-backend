@@ -70,6 +70,9 @@ public class Product {
 
     @Column(name = "delivery_days_max")
     private Integer deliveryDaysMax = 5;
+
+    @Column(name = "delivery_location_id")
+    private Long deliveryLocationId;
     
     @Column(nullable = false)
     private String status; // ACTIVE, OUT_OF_STOCK, DISCONTINUED
@@ -293,6 +296,14 @@ public class Product {
 
     public void setDeliveryDaysMax(Integer deliveryDaysMax) {
         this.deliveryDaysMax = deliveryDaysMax;
+    }
+
+    public Long getDeliveryLocationId() {
+        return deliveryLocationId;
+    }
+
+    public void setDeliveryLocationId(Long deliveryLocationId) {
+        this.deliveryLocationId = deliveryLocationId;
     }
     
     public String getStatus() {
