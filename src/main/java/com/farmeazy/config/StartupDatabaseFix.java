@@ -34,6 +34,8 @@ public class StartupDatabaseFix {
 
     public void ensureSuperadminUser() {
         try {
+            jdbc.update("UPDATE users SET profile_completed = TRUE WHERE profile_completed IS NULL");
+
             if (superadminPassword == null || superadminPassword.isBlank()) {
                 logger.warn("[StartupDatabaseFix] SUPERADMIN_DEFAULT_PASSWORD not set; skipping support@farm-eazy.com bootstrap");
                 return;
