@@ -2,6 +2,19 @@
 -- Ensures the users table has the profile_completed column before JPA validation.
 
 ALTER TABLE users
+    ADD COLUMN IF NOT EXISTS auth_provider VARCHAR(50);
+
+UPDATE users
+SET auth_provider = 'PASSWORD'
+WHERE auth_provider IS NULL OR auth_provider = '';
+
+ALTER TABLE users
+    ALTER COLUMN auth_provider SET DEFAULT 'PASSWORD';
+
+ALTER TABLE users
+    ALTER COLUMN auth_provider SET NOT NULL;
+
+ALTER TABLE users
     ADD COLUMN IF NOT EXISTS profile_completed BOOLEAN;
 
 UPDATE users
