@@ -7,6 +7,7 @@ import jakarta.servlet.http.HttpServletResponse;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
 import org.springframework.stereotype.Component;
@@ -50,6 +51,9 @@ public class ApiGatewaySecurityFilter extends OncePerRequestFilter {
 
     private final ConcurrentHashMap<String, Long> seenRequestSignatures = new ConcurrentHashMap<>();
 
+    @Autowired
+    private com.farmeazy.security.RedisNonceService redisNonceService;
+
     @Override
     protected boolean shouldNotFilter(HttpServletRequest request) {
         String path = request.getRequestURI();
@@ -88,19 +92,15 @@ public class ApiGatewaySecurityFilter extends OncePerRequestFilter {
         String clientId = request.getHeader("X-Gateway-Client");
         String timestampHeader = request.getHeader("X-Gateway-Timestamp");
         String signature = request.getHeader("X-Gateway-Signature");
+        String nonce = request.getHeader("X-Request-Nonce");
 
-        if ((clientId == null || timestampHeader == null || signature == null) && !gatewayRequired) {
+        // If gateway headers are not required, allow through
+        if ((clientId == null || timestampHeader == null) && !gatewayRequired) {
             filterChain.doFilter(request, response);
             return;
         }
 
-        if (sharedSecret == null || sharedSecret.isBlank()) {
-            logger.error("Gateway security is enabled but security.api.gateway.shared-secret is missing");
-            sendErrorWithCors(request, response, HttpServletResponse.SC_SERVICE_UNAVAILABLE, "Gateway security is not configured");
-            return;
-        }
-
-        if (clientId == null || timestampHeader == null || signature == null) {
+        if (clientId == null || timestampHeader == null) {
             sendErrorWithCors(request, response, HttpServletResponse.SC_UNAUTHORIZED, "Missing gateway security headers");
             return;
         }
@@ -128,22 +128,57 @@ public class ApiGatewaySecurityFilter extends OncePerRequestFilter {
 
         String method = request.getMethod();
         String path = request.getRequestURI();
-        String message = clientId + ":" + timestamp + ":" + method + ":" + path;
-        String expectedSignature = hmacSha256Base64(message, sharedSecret);
 
-        if (!constantTimeEquals(expectedSignature, signature)) {
-            sendErrorWithCors(request, response, HttpServletResponse.SC_UNAUTHORIZED, "Invalid gateway signature");
-            return;
-        }
+        // Two supported flows:
+        // 1) Signature flow (machine clients): X-Gateway-Signature present -> validate HMAC using sharedSecret
+        // 2) Nonce flow (browsers): no signature, require X-Request-Nonce for mutating requests and validate via Redis
 
-        if (replayProtectionEnabled && isMutatingMethod(method)) {
-            long ttlMillis = allowedSkewMillis;
-            cleanupExpiredReplayEntries(nowMillis - ttlMillis);
-            String replayKey = clientId + ":" + timestamp + ":" + method + ":" + path + ":" + signature;
-            Long existing = seenRequestSignatures.putIfAbsent(replayKey, nowMillis);
-            if (existing != null) {
-                sendErrorWithCors(request, response, HttpServletResponse.SC_CONFLICT, "Replay request detected");
+        if (signature != null) {
+            if (sharedSecret == null || sharedSecret.isBlank()) {
+                logger.error("Gateway signature present but shared secret is not configured");
+                sendErrorWithCors(request, response, HttpServletResponse.SC_SERVICE_UNAVAILABLE, "Gateway signature verification not configured");
                 return;
+            }
+
+            String message = clientId + ":" + timestamp + ":" + method + ":" + path;
+            String expectedSignature = hmacSha256Base64(message, sharedSecret);
+            if (!constantTimeEquals(expectedSignature, signature)) {
+                sendErrorWithCors(request, response, HttpServletResponse.SC_UNAUTHORIZED, "Invalid gateway signature");
+                return;
+            }
+
+            if (replayProtectionEnabled && isMutatingMethod(method)) {
+                long ttlMillis = allowedSkewMillis;
+                // Prefer Redis for replay protection when available
+                boolean recorded = true;
+                try {
+                    recorded = redisNonceService.recordNonce(clientId, signature, ttlMillis);
+                } catch (Exception ex) {
+                    // fallback to in-memory
+                    cleanupExpiredReplayEntries(nowMillis - ttlMillis);
+                    String replayKey = clientId + ":" + timestamp + ":" + method + ":" + path + ":" + signature;
+                    Long existing = seenRequestSignatures.putIfAbsent(replayKey, nowMillis);
+                    recorded = (existing == null);
+                }
+                if (!recorded) {
+                    sendErrorWithCors(request, response, HttpServletResponse.SC_CONFLICT, "Replay request detected");
+                    return;
+                }
+            }
+
+        } else {
+            // Nonce-based browser flow
+            if (replayProtectionEnabled && isMutatingMethod(method)) {
+                if (nonce == null || nonce.isBlank()) {
+                    sendErrorWithCors(request, response, HttpServletResponse.SC_UNAUTHORIZED, "Missing request nonce for mutating method");
+                    return;
+                }
+                long ttlMillis = allowedSkewMillis;
+                boolean recorded = redisNonceService.recordNonce(clientId, nonce, ttlMillis);
+                if (!recorded) {
+                    sendErrorWithCors(request, response, HttpServletResponse.SC_CONFLICT, "Replay request detected");
+                    return;
+                }
             }
         }
 

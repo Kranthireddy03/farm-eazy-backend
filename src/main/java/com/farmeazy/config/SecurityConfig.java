@@ -10,6 +10,7 @@ import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.HttpMethod;
 import org.springframework.security.authentication.AuthenticationManager;
+import org.springframework.security.authorization.AuthorizationDecision;
 import org.springframework.security.config.annotation.authentication.configuration.AuthenticationConfiguration;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
@@ -22,6 +23,7 @@ import org.springframework.security.web.authentication.UsernamePasswordAuthentic
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.CorsConfiguration;
+import org.springframework.beans.factory.annotation.Value;
 
 import org.springframework.security.web.context.SecurityContextRepository;
 import org.springframework.security.web.context.HttpSessionSecurityContextRepository;
@@ -31,6 +33,8 @@ import org.springframework.security.web.context.RequestAttributeSecurityContextR
 import lombok.RequiredArgsConstructor;
 
 import java.util.Arrays;
+import java.util.List;
+import java.util.stream.Collectors;
 
 import static org.springframework.security.config.Customizer.withDefaults;
 @Configuration
@@ -39,6 +43,15 @@ public class SecurityConfig {
     private final JwtAuthenticationEntryPoint jwtAuthenticationEntryPoint;
     private final JwtUtil jwtUtil;
     private final RateLimitingFilter rateLimitingFilter;
+
+    @Value("${cors.allowed-origins:}")
+    private String allowedOrigins;
+
+    @Value("${spring.h2.console.enabled:false}")
+    private boolean h2ConsoleEnabled;
+
+    @Value("${security.headers.csp:default-src 'self'; connect-src 'self' https://farm-eazy-backend.onrender.com https://www.googleapis.com; img-src 'self' data: https:; script-src 'self' 'unsafe-inline' https://accounts.google.com; style-src 'self' 'unsafe-inline'; frame-ancestors 'none';}")
+    private String contentSecurityPolicy;
 
     public SecurityConfig(JwtAuthenticationEntryPoint jwtAuthenticationEntryPoint,
                           JwtUtil jwtUtil,
@@ -71,6 +84,7 @@ public class SecurityConfig {
                 .frameOptions(frameOptions -> frameOptions.sameOrigin())
                 .contentTypeOptions(withDefaults())
                 .xssProtection(withDefaults())
+                .contentSecurityPolicy(csp -> csp.policyDirectives(contentSecurityPolicy))
                 .httpStrictTransportSecurity(hsts -> hsts
                     .includeSubDomains(true)
                     .preload(true)
@@ -89,7 +103,7 @@ public class SecurityConfig {
                 .requestMatchers("/api/otp/**").permitAll()
                 .requestMatchers("/api/push/vapid-key").permitAll()
                 .requestMatchers("/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html", "/swagger-ui/*.css", "/swagger-ui/*.js", "/swagger-ui/*.png").permitAll()
-                .requestMatchers("/h2-console/**").permitAll()
+                .requestMatchers("/h2-console/**").access((authentication, context) -> new AuthorizationDecision(h2ConsoleEnabled))
                 .requestMatchers(HttpMethod.GET, "/api/public/**").permitAll()
                 .requestMatchers(HttpMethod.POST, "/api/public/**").permitAll()
                 .requestMatchers(HttpMethod.POST, "/api/public/support-message").permitAll()
@@ -139,22 +153,13 @@ public class SecurityConfig {
     @Bean
     public CorsConfigurationSource corsConfigurationSource() {
         CorsConfiguration configuration = new CorsConfiguration();
-        configuration.setAllowedOriginPatterns(Arrays.asList(
-            "https://farm-eazy.com",
-            "https://www.farm-eazy.com",
-            "https://support.farm-eazy.com",
-            "https://admin.farm-eazy.com",
-            "https://*.vercel.app",
-            "https://farm-eazy-backend.onrender.com",
-            "http://localhost:8080",
-            "http://127.0.0.1:8080",
-            "http://localhost:4200",
-            "http://localhost:3000",
-            "http://localhost:3001",
-            "http://localhost:5173"
-        ));
+        List<String> exactOrigins = Arrays.stream(String.valueOf(allowedOrigins == null ? "" : allowedOrigins).split(","))
+            .map(String::trim)
+            .filter(origin -> !origin.isBlank())
+            .collect(Collectors.toList());
+        configuration.setAllowedOrigins(exactOrigins);
         configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH", "HEAD"));
-        configuration.setAllowedHeaders(Arrays.asList("*"));
+        configuration.setAllowedHeaders(Arrays.asList("Authorization", "Content-Type", "Accept", "Origin", "X-Requested-With", "X-Gateway-Client", "X-Gateway-Timestamp", "X-Request-Nonce", "X-User-Location"));
         configuration.setExposedHeaders(Arrays.asList("Authorization", "Content-Type"));
         configuration.setAllowCredentials(true);
         configuration.setMaxAge(3600L);

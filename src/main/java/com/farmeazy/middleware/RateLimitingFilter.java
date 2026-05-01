@@ -1,26 +1,29 @@
 package com.farmeazy.middleware;
 
+import java.io.IOException;
+import java.time.Duration;
+import java.time.Instant;
+import java.util.LinkedHashMap;
+import java.util.Map;
+
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
-import java.io.IOException;
-import java.time.Instant;
-import java.util.LinkedHashMap;
-import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
-
 /**
  * RATE LIMITING FILTER - Limits requests per IP for sensitive auth endpoints.
- * Protects both user and admin portal authentication flows because they share backend auth APIs.
+ * Uses Redis so throttling is consistent across instances.
  */
 @Component
 public class RateLimitingFilter extends OncePerRequestFilter {
+    private static final Logger logger = LoggerFactory.getLogger(RateLimitingFilter.class);
     private static final long WINDOW_MILLIS = 60_000; // 1 minute rolling window
-    private static final int CLEANUP_THRESHOLD = 10_000;
     private static final Map<String, Integer> ENDPOINT_LIMITS = new LinkedHashMap<>();
 
     static {
@@ -35,7 +38,11 @@ public class RateLimitingFilter extends OncePerRequestFilter {
         ENDPOINT_LIMITS.put("/api/auth/register/availability", 30);
     }
 
-    private final Map<String, RequestCounter> attempts = new ConcurrentHashMap<>();
+    private final StringRedisTemplate redisTemplate;
+
+    public RateLimitingFilter(StringRedisTemplate redisTemplate) {
+        this.redisTemplate = redisTemplate;
+    }
 
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain filterChain)
@@ -45,18 +52,17 @@ public class RateLimitingFilter extends OncePerRequestFilter {
 
         if (maxAttempts != null) {
             String ip = resolveClientIp(request);
-            String limitKey = ip + "::" + path;
-            long now = Instant.now().toEpochMilli();
-            RequestCounter counter = attempts.computeIfAbsent(limitKey, k -> new RequestCounter());
-            synchronized (counter) {
-                if (now - counter.windowStart > WINDOW_MILLIS) {
-                    counter.windowStart = now;
-                    counter.count = 0;
+            long bucket = Instant.now().toEpochMilli() / WINDOW_MILLIS;
+            String key = "rate-limit:" + ip + ":" + path + ":" + bucket;
+
+            try {
+                Long currentCount = redisTemplate.opsForValue().increment(key);
+                if (currentCount != null && currentCount == 1L) {
+                    redisTemplate.expire(key, Duration.ofMillis(WINDOW_MILLIS * 2));
                 }
-                counter.count++;
-                if (counter.count > maxAttempts) {
-                    long windowRemaining = WINDOW_MILLIS - (now - counter.windowStart);
-                    long retryAfterSeconds = Math.max(1L, (windowRemaining + 999L) / 1000L);
+
+                if (currentCount != null && currentCount > maxAttempts) {
+                    long retryAfterSeconds = 60L;
                     response.setStatus(429);
                     response.setContentType("application/json");
                     response.setCharacterEncoding("UTF-8");
@@ -64,12 +70,13 @@ public class RateLimitingFilter extends OncePerRequestFilter {
                     response.getWriter().write("{\"status\":429,\"message\":\"Too many requests. Please try again later.\",\"retryAfterSeconds\":" + retryAfterSeconds + "}");
                     return;
                 }
-            }
-
-            // Keep in-memory map bounded in long-running processes.
-            if (attempts.size() > CLEANUP_THRESHOLD) {
-                long staleBefore = now - (WINDOW_MILLIS * 2);
-                attempts.entrySet().removeIf(entry -> entry.getValue().windowStart < staleBefore);
+            } catch (Exception exception) {
+                logger.warn("Rate limiting Redis error for path={} ip={}: {}", path, ip, exception.getMessage());
+                response.setStatus(503);
+                response.setContentType("application/json");
+                response.setCharacterEncoding("UTF-8");
+                response.getWriter().write("{\"status\":503,\"message\":\"Rate limiting is temporarily unavailable\"}");
+                return;
             }
         }
 
@@ -86,10 +93,5 @@ public class RateLimitingFilter extends OncePerRequestFilter {
             return realIp.trim();
         }
         return request.getRemoteAddr();
-    }
-
-    private static class RequestCounter {
-        long windowStart = Instant.now().toEpochMilli();
-        int count = 0;
     }
 }
