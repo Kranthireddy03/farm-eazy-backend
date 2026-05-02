@@ -1,28 +1,3 @@
--- Idempotent startup schema fixes for PostgreSQL production profile.
--- Ensures the users table has the profile_completed column before JPA validation.
-
-ALTER TABLE users
-    ADD COLUMN IF NOT EXISTS auth_provider VARCHAR(50);
-
-UPDATE users
-SET auth_provider = 'PASSWORD'
-WHERE auth_provider IS NULL OR auth_provider = '';
-
-ALTER TABLE users
-    ALTER COLUMN auth_provider SET DEFAULT 'PASSWORD';
-
-ALTER TABLE users
-    ALTER COLUMN auth_provider SET NOT NULL;
-
-ALTER TABLE users
-    ADD COLUMN IF NOT EXISTS profile_completed BOOLEAN;
-
-UPDATE users
-SET profile_completed = TRUE
-WHERE profile_completed IS NULL;
-
-ALTER TABLE users
-    ALTER COLUMN profile_completed SET DEFAULT TRUE;
-
-ALTER TABLE users
-    ALTER COLUMN profile_completed SET NOT NULL;
+-- Schema initialization moved to an external, DBA-run script.
+-- See: ../sql/production_add_auth_provider_and_profile_completed.sql
+-- Purpose: avoid performing runtime ALTER/UPDATE during application startup.
