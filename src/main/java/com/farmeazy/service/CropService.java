@@ -104,12 +104,8 @@ public class CropService {
     @Cacheable(cacheNames = "cropById", key = "#cropId + ':' + #userId", unless = "#result == null")
     public CropDto getCropById(Long cropId, Long userId) {
         logger.info("CROP_SERVICE_GET_BY_ID cropId={} userId={}", cropId, userId);
-        Crop crop = cropRepository.findById(cropId)
+        Crop crop = cropRepository.findByIdAndFarmUserId(cropId, userId)
                 .orElseThrow(() -> new ResourceNotFoundException("Crop not found"));
-        
-        if (!crop.getFarm().getUser().getId().equals(userId)) {
-            throw new UnauthorizedException("You do not have permission to access this crop");
-        }
 
         return mapCropToDto(crop, userId);
     }
@@ -173,12 +169,8 @@ public class CropService {
         })
     public CropDto updateCrop(Long cropId, CropDto cropDto, Long userId) {
         logger.info("CROP_SERVICE_UPDATE_START cropId={} userId={} cropName={}", cropId, userId, cropDto != null ? cropDto.getCropName() : null);
-        Crop crop = cropRepository.findById(cropId)
+        Crop crop = cropRepository.findByIdAndFarmUserId(cropId, userId)
                 .orElseThrow(() -> new ResourceNotFoundException("Crop not found"));
-        
-        if (!crop.getFarm().getUser().getId().equals(userId)) {
-            throw new UnauthorizedException("You do not have permission to update this crop");
-        }
 
         crop.setCropName(cropDto.getCropName());
         crop.setSeason(cropDto.getSeason());
@@ -218,12 +210,8 @@ public class CropService {
         })
     public void deleteCrop(Long cropId, Long userId) {
         logger.info("CROP_SERVICE_DELETE_START cropId={} userId={}", cropId, userId);
-        Crop crop = cropRepository.findById(cropId)
+        Crop crop = cropRepository.findByIdAndFarmUserId(cropId, userId)
                 .orElseThrow(() -> new ResourceNotFoundException("Crop not found"));
-        
-        if (!crop.getFarm().getUser().getId().equals(userId)) {
-            throw new UnauthorizedException("You do not have permission to delete this crop");
-        }
 
         // Log activity before deleting
         userActivityService.logActivity(crop.getFarm().getUser(), com.farmeazy.entity.UserActivity.ActivityType.CROP_DELETED, "Deleted crop '" + crop.getCropName() + "' from farm '" + crop.getFarm().getFarmName() + "'");

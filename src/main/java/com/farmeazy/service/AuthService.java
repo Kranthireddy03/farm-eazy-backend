@@ -53,6 +53,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Locale;
+import java.util.Optional;
 import java.util.Set;
 import org.springframework.http.HttpStatus;
 import org.springframework.transaction.support.TransactionSynchronization;
@@ -990,25 +991,27 @@ public class AuthService implements UserDetailsService {
 
     @Transactional
     public void forgotPassword(String email, String ipAddress, String location, String deviceInfo) {
-        User user = userRepository.findByEmail(email)
-                .orElseThrow(() -> new ResourceNotFoundException("Email not found in system"));
+        Optional<User> userOpt = userRepository.findByEmail(email);
+        if (userOpt.isEmpty()) {
+            // Do not reveal whether the email exists
+            return;
+        }
 
+        User user = userOpt.get();
         if (user.getActive() == null || !user.getActive()) {
-            throw new UnauthorizedException("User account is inactive");
+            // Do not disclose account status in forgot-password flow
+            return;
         }
 
         LocalDateTime now = LocalDateTime.now();
-        passwordResetTokenRepository.findTopByEmailAndUsedTrueOrderByUsedAtDesc(email)
-                .ifPresent(recentUsedToken -> {
+        if (passwordResetTokenRepository.findTopByEmailAndUsedTrueOrderByUsedAtDesc(email)
+                .filter(recentUsedToken -> {
                     LocalDateTime usedAt = recentUsedToken.getUsedAt();
-                    if (usedAt != null && usedAt.isAfter(now.minusHours(PASSWORD_RESET_COOLDOWN_HOURS))) {
-                        long minutesLeft = Duration.between(now, usedAt.plusHours(PASSWORD_RESET_COOLDOWN_HOURS)).toMinutes();
-                        long hoursLeft = Math.max(1, (int) ((minutesLeft + 59) / 60));
-                        String message = "A password reset has already been completed recently. "
-                                + "Please request a new reset link after " + hoursLeft + " hour" + (hoursLeft == 1 ? "" : "s") + ".";
-                        throw new ResponseStatusException(HttpStatus.CONFLICT, message);
-                    }
-                });
+                    return usedAt != null && usedAt.isAfter(now.minusHours(PASSWORD_RESET_COOLDOWN_HOURS));
+                }).isPresent()) {
+            // Cooldown active; do not reveal details and return generic success.
+            return;
+        }
 
         // Remove any unused reset tokens for this email before creating a fresh one
         passwordResetTokenRepository.deleteByEmailAndUsedFalse(email);

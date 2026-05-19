@@ -34,5 +34,7 @@ public interface ProductRepository extends JpaRepository<Product, Long> {
     @EntityGraph(attributePaths = {"seller", "mediaFiles"})
     Optional<Product> findWithDetailsById(Long id);
 
+    Optional<Product> findByIdAndSellerEmail(Long id, String sellerEmail);
+
     long countByStatus(String status);
 }

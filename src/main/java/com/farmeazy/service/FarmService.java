@@ -106,12 +106,8 @@ public class FarmService {
     @Cacheable(cacheNames = "farmById", key = "#farmId + ':' + #userId", unless = "#result == null")
     public FarmDto getFarmById(Long farmId, Long userId) {
         logger.info("FARM_SERVICE_GET_BY_ID farmId={} userId={}", farmId, userId);
-        Farm farm = farmRepository.findById(farmId)
+        Farm farm = farmRepository.findByIdAndUserId(farmId, userId)
                 .orElseThrow(() -> new ResourceNotFoundException("Farm not found"));
-        
-        if (!farm.getUser().getId().equals(userId)) {
-            throw new UnauthorizedException("You do not have permission to access this farm");
-        }
 
         return mapFarmToDto(farm);
     }
@@ -144,12 +140,8 @@ public class FarmService {
         })
     public FarmDto updateFarm(Long farmId, FarmDto farmDto, Long userId) {
         logger.info("FARM_SERVICE_UPDATE_START farmId={} userId={} farmName={}", farmId, userId, farmDto != null ? farmDto.getFarmName() : null);
-        Farm farm = farmRepository.findById(farmId)
+        Farm farm = farmRepository.findByIdAndUserId(farmId, userId)
                 .orElseThrow(() -> new ResourceNotFoundException("Farm not found"));
-        
-        if (!farm.getUser().getId().equals(userId)) {
-            throw new UnauthorizedException("You do not have permission to update this farm");
-        }
 
         farm.setFarmName(farmDto.getFarmName());
         farm.setLocation(farmDto.getLocation());
@@ -185,12 +177,8 @@ public class FarmService {
         })
     public void deleteFarm(Long farmId, Long userId) {
         logger.info("FARM_SERVICE_DELETE_START farmId={} userId={}", farmId, userId);
-        Farm farm = farmRepository.findById(farmId)
+        Farm farm = farmRepository.findByIdAndUserId(farmId, userId)
                 .orElseThrow(() -> new ResourceNotFoundException("Farm not found"));
-        
-        if (!farm.getUser().getId().equals(userId)) {
-            throw new UnauthorizedException("You do not have permission to delete this farm");
-        }
 
         // Log activity before deleting
         userActivityService.logActivity(farm.getUser(), com.farmeazy.entity.UserActivity.ActivityType.FARM_DELETED, "Deleted farm '" + farm.getFarmName() + "'");

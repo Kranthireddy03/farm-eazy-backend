@@ -313,16 +313,15 @@ public class ProductService {
             .orElseThrow(() -> new ResourceNotFoundException("Product not found with id: " + id));
         return convertToDto(product, userLocationHeader, null);
     }
+
+    private Product requireOwnedProduct(Long id, String email) {
+        return productRepository.findByIdAndSellerEmail(id, email)
+            .orElseThrow(() -> new ResourceNotFoundException("Product not found"));
+    }
     
     @Transactional
     public ProductDto updateProduct(Long id, ProductCreateDto dto, String email) {
-        // TODO: Handle file updates
-        Product product = productRepository.findById(id)
-            .orElseThrow(() -> new ResourceNotFoundException("Product not found with id: " + id));
-        
-        if (!product.getSeller().getEmail().equals(email)) {
-            throw new UnauthorizedException("You are not authorized to update this product");
-        }
+        Product product = requireOwnedProduct(id, email);
         
         product.setProductName(dto.getProductName());
         product.setCategory(dto.getCategory());
@@ -394,12 +393,7 @@ public class ProductService {
     
     @Transactional
     public void deleteProduct(Long id, String email) {
-        Product product = productRepository.findById(id)
-            .orElseThrow(() -> new ResourceNotFoundException("Product not found with id: " + id));
-        
-        if (!product.getSeller().getEmail().equals(email)) {
-            throw new UnauthorizedException("You are not authorized to delete this product");
-        }
+        Product product = requireOwnedProduct(id, email);
         
         // Log activity before deleting
         userActivityService.logActivity(product.getSeller(), com.farmeazy.entity.UserActivity.ActivityType.PRODUCT_DELETED, "Deleted product: " + product.getProductName());
@@ -436,12 +430,7 @@ public class ProductService {
     
     @Transactional
     public ProductDto updateProductStatus(Long id, String status, String email) {
-        Product product = productRepository.findById(id)
-            .orElseThrow(() -> new ResourceNotFoundException("Product not found with id: " + id));
-        
-        if (!product.getSeller().getEmail().equals(email)) {
-            throw new UnauthorizedException("You are not authorized to update this product");
-        }
+        Product product = requireOwnedProduct(id, email);
         
         product.setStatus(status);
         Product updatedProduct = productRepository.save(product);

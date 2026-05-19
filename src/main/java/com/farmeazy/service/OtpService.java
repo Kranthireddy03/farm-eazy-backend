@@ -85,6 +85,11 @@ public class OtpService {
                 }
             }
         }
+
+        expirePreviousOtpsByEmail(dto.getEmail(), dto.getPurpose());
+        if (dto.getPhone() != null && !dto.getPhone().isBlank()) {
+            expirePreviousOtpsByPhone(dto.getPhone(), dto.getPurpose());
+        }
         
         // Generate 6-digit OTP
         String otpCode = String.format("%06d", random.nextInt(1000000));
@@ -182,6 +187,30 @@ public class OtpService {
         }
         
         return response;
+    }
+
+    private void expirePreviousOtpsByEmail(String email, String purpose) {
+        if (email == null || email.isBlank() || purpose == null || purpose.isBlank()) {
+            return;
+        }
+        java.util.List<OtpVerification> previousOtps = otpRepository.findByEmailAndPurposeAndVerifiedFalse(email, purpose);
+        if (!previousOtps.isEmpty()) {
+            LocalDateTime now = LocalDateTime.now();
+            previousOtps.forEach(existing -> existing.setExpiresAt(now));
+            otpRepository.saveAll(previousOtps);
+        }
+    }
+
+    private void expirePreviousOtpsByPhone(String phone, String purpose) {
+        if (phone == null || phone.isBlank() || purpose == null || purpose.isBlank()) {
+            return;
+        }
+        java.util.List<OtpVerification> previousOtps = otpRepository.findByPhoneAndPurposeAndVerifiedFalse(phone, purpose);
+        if (!previousOtps.isEmpty()) {
+            LocalDateTime now = LocalDateTime.now();
+            previousOtps.forEach(existing -> existing.setExpiresAt(now));
+            otpRepository.saveAll(previousOtps);
+        }
     }
     
     /**
@@ -367,6 +396,9 @@ public class OtpService {
             ? userOpt.get().getUsername()
             : "User";
         
+        expirePreviousOtpsByPhone(phone, "LOGIN");
+        expirePreviousOtpsByEmail(userEmail, "LOGIN");
+
         // Create OTP verification entry (phone-based)
         OtpVerification otp = new OtpVerification();
         otp.setPhone(phone);
