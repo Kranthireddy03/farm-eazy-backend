@@ -203,7 +203,7 @@ public class AuthService implements UserDetailsService {
     @Value("${jwt.refresh-expiration:2592000000}")
     private Long refreshTokenExpirationMs;
 
-    @Value("${google.oauth.client-id:1034508002249-srcflft5dikg07p55qkmhd8has9oo9h4.apps.googleusercontent.com}")
+    @Value("${google.oauth.client-id:1034508002249-ms9o9tpqd0cs4jrkubhicg36oskot3a1.apps.googleusercontent.com}")
     private String googleOAuthClientId;
     
     private static final String SHORT_CODE_CHARS = "abcdefghijklmnopqrstuvwxyz0123456789";
