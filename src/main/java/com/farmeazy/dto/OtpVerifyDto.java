@@ -42,6 +42,14 @@ public class OtpVerifyDto {
         this.purpose = purpose;
     }
 
+    public OtpVerifyDto() {}
+
+    public OtpVerifyDto(String email, String otpCode, String purpose) {
+        this.email = email;
+        this.otpCode = otpCode;
+        this.purpose = purpose;
+    }
+
     public String getPhone() {
         return phone;
     }
