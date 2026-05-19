@@ -100,7 +100,15 @@ public class ApiGatewaySecurityFilter extends OncePerRequestFilter {
             return;
         }
 
+        // If headers are missing but the request already carries an Authorization bearer token,
+        // allow it through. This permits browser-based JWT-authenticated requests that may not
+        // include gateway headers (client-side builds or proxies that strip custom headers).
         if (clientId == null || timestampHeader == null) {
+            String authHeader = request.getHeader("Authorization");
+            if (authHeader != null && authHeader.toLowerCase().startsWith("bearer ")) {
+                filterChain.doFilter(request, response);
+                return;
+            }
             sendErrorWithCors(request, response, HttpServletResponse.SC_UNAUTHORIZED, "Missing gateway security headers");
             return;
         }
