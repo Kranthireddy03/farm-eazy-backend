@@ -159,14 +159,19 @@ public class SecurityConfig {
             .collect(Collectors.toList());
         configuration.setAllowedOrigins(exactOrigins);
         configuration.setAllowedMethods(Arrays.asList("GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH", "HEAD"));
-        configuration.setAllowedHeaders(Arrays.asList("Authorization", "Content-Type", "Accept", "Origin", "X-Requested-With", "X-Gateway-Client", "X-Gateway-Timestamp", "X-Request-Nonce", "X-User-Location"));
+        configuration.setAllowedHeaders(Arrays.asList("Authorization", "Content-Type", "Accept", "Origin", "X-Requested-With", "X-Gateway-Client", "X-Gateway-Timestamp", "X-Gateway-Signature", "X-Request-Nonce", "X-User-Location"));
         configuration.setExposedHeaders(Arrays.asList("Authorization", "Content-Type"));
         configuration.setAllowCredentials(true);
         configuration.setMaxAge(3600L);
 
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
-        // Keep CORS only for API routes; H2 console is same-origin and should bypass CORS checks.
+        // CORS for API routes and root-level support/FAQ endpoints used by the support portal.
         source.registerCorsConfiguration("/api/**", configuration);
+        source.registerCorsConfiguration("/support-tickets/**", configuration);
+        source.registerCorsConfiguration("/faq/**", configuration);
+        source.registerCorsConfiguration("/faq-question/**", configuration);
+        source.registerCorsConfiguration("/faq-questions/**", configuration);
+        source.registerCorsConfiguration("/notifications/**", configuration);
         return source;
     }
 }

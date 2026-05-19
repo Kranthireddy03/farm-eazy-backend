@@ -168,5 +168,80 @@ public class WebConfig implements WebMvcConfigurer {
                 .exposedHeaders("Authorization", "Content-Type")
                 .allowCredentials(true)
                 .maxAge(3600);
+
+        registry.addMapping("/support-tickets/**")
+                .allowedOriginPatterns(
+                    "https://farm-eazy.com",
+                    "https://www.farm-eazy.com",
+                    "https://support.farm-eazy.com",
+                    "https://admin.farm-eazy.com",
+                    "https://*.vercel.app",
+                    "https://farm-eazy-backend.onrender.com"
+                )
+                .allowedMethods("GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH", "HEAD")
+                .allowedHeaders("*")
+                .exposedHeaders("Authorization", "Content-Type")
+                .allowCredentials(true)
+                .maxAge(3600);
+
+        registry.addMapping("/faq/**")
+                .allowedOriginPatterns(
+                    "https://farm-eazy.com",
+                    "https://www.farm-eazy.com",
+                    "https://support.farm-eazy.com",
+                    "https://admin.farm-eazy.com",
+                    "https://*.vercel.app",
+                    "https://farm-eazy-backend.onrender.com"
+                )
+                .allowedMethods("GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH", "HEAD")
+                .allowedHeaders("*")
+                .exposedHeaders("Authorization", "Content-Type")
+                .allowCredentials(true)
+                .maxAge(3600);
+
+        registry.addMapping("/faq-question/**")
+                .allowedOriginPatterns(
+                    "https://farm-eazy.com",
+                    "https://www.farm-eazy.com",
+                    "https://support.farm-eazy.com",
+                    "https://admin.farm-eazy.com",
+                    "https://*.vercel.app",
+                    "https://farm-eazy-backend.onrender.com"
+                )
+                .allowedMethods("GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH", "HEAD")
+                .allowedHeaders("*")
+                .exposedHeaders("Authorization", "Content-Type")
+                .allowCredentials(true)
+                .maxAge(3600);
+
+        registry.addMapping("/faq-questions/**")
+                .allowedOriginPatterns(
+                    "https://farm-eazy.com",
+                    "https://www.farm-eazy.com",
+                    "https://support.farm-eazy.com",
+                    "https://admin.farm-eazy.com",
+                    "https://*.vercel.app",
+                    "https://farm-eazy-backend.onrender.com"
+                )
+                .allowedMethods("GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH", "HEAD")
+                .allowedHeaders("*")
+                .exposedHeaders("Authorization", "Content-Type")
+                .allowCredentials(true)
+                .maxAge(3600);
+
+        registry.addMapping("/notifications/**")
+                .allowedOriginPatterns(
+                    "https://farm-eazy.com",
+                    "https://www.farm-eazy.com",
+                    "https://support.farm-eazy.com",
+                    "https://admin.farm-eazy.com",
+                    "https://*.vercel.app",
+                    "https://farm-eazy-backend.onrender.com"
+                )
+                .allowedMethods("GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH", "HEAD")
+                .allowedHeaders("*")
+                .exposedHeaders("Authorization", "Content-Type")
+                .allowCredentials(true)
+                .maxAge(3600);
     }
 }
