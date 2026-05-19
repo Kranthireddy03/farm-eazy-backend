@@ -97,6 +97,13 @@ public class AuthRegisterDto {
     private String phone;
     
     /**
+     * REGISTRATION OTP CODE - REQUIRED TO COMPLETE SIGNUP
+     * - This value must be verified with purpose "REGISTRATION" before account creation.
+     * - It is optional in the DTO to preserve compatibility, but register() enforces verification.
+     */
+    private String registrationOtpCode;
+    
+    /**
      * ADDRESS - STREET ADDRESS (OPTIONAL)
      * Optional field for user's residential address
      * Example: "123 Farm Lane"
@@ -126,11 +133,12 @@ public class AuthRegisterDto {
     
     public AuthRegisterDto() {}
     
-    public AuthRegisterDto(String username, String email, String password, String phone, String address, String city, String state, String pinCode) {
+    public AuthRegisterDto(String username, String email, String password, String phone, String registrationOtpCode, String address, String city, String state, String pinCode) {
         this.username = username;
         this.email = email;
         this.password = password;
         this.phone = phone;
+        this.registrationOtpCode = registrationOtpCode;
         this.address = address;
         this.city = city;
         this.state = state;
@@ -153,4 +161,6 @@ public class AuthRegisterDto {
     public void setState(String state) { this.state = state; }
     public String getPinCode() { return pinCode; }
     public void setPinCode(String pinCode) { this.pinCode = pinCode; }
+    public String getRegistrationOtpCode() { return registrationOtpCode; }
+    public void setRegistrationOtpCode(String registrationOtpCode) { this.registrationOtpCode = registrationOtpCode; }
 }

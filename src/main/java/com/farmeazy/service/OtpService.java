@@ -5,6 +5,7 @@ import com.farmeazy.dto.OtpResponseDto;
 import com.farmeazy.dto.OtpVerifyDto;
 import com.farmeazy.dto.SmsResponseDto;
 import com.farmeazy.entity.OtpVerification;
+import com.farmeazy.exception.DuplicateResourceException;
 import com.farmeazy.exception.UnauthorizedException;
 import com.farmeazy.repository.OtpVerificationRepository;
 import com.farmeazy.repository.UserRepository;
@@ -69,6 +70,20 @@ public class OtpService {
             targetPhone = userRepository.findByEmail(dto.getEmail())
                     .map(com.farmeazy.entity.User::getPhone)
                     .orElse(null);
+        }
+
+        // Registration OTP should only be generated for new accounts
+        if ("REGISTRATION".equalsIgnoreCase(dto.getPurpose())) {
+            if (userRepository.existsByEmail(dto.getEmail())) {
+                throw new DuplicateResourceException("Email already registered. Please login instead.");
+            }
+            if (dto.getPhone() != null && !dto.getPhone().isBlank()) {
+                boolean phoneTaken = userRepository.findAllByPhone(dto.getPhone()).stream()
+                        .anyMatch(user -> !user.getEmail().equalsIgnoreCase(dto.getEmail()));
+                if (phoneTaken) {
+                    throw new DuplicateResourceException("Phone number already registered. Please use a different phone number.");
+                }
+            }
         }
         
         // Generate 6-digit OTP

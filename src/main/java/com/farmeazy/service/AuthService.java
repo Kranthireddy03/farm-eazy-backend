@@ -5,6 +5,7 @@ import com.farmeazy.dto.AuthRegisterDto;
 import com.farmeazy.dto.AuthResponseDto;
 import com.farmeazy.dto.GoogleCompleteProfileDto;
 import com.farmeazy.dto.OtpRequestDto;
+import com.farmeazy.dto.OtpVerifyDto;
 import com.farmeazy.dto.SmsResponseDto;
 import com.farmeazy.entity.PasswordResetToken;
 import com.farmeazy.entity.RefreshToken;
@@ -286,6 +287,20 @@ public class AuthService implements UserDetailsService {
      */
     @Transactional
     public AuthResponseDto register(AuthRegisterDto registerDto) {
+        // If OTP code was provided directly in the registration request, verify it now.
+        if (registerDto.getRegistrationOtpCode() != null && !registerDto.getRegistrationOtpCode().isBlank()) {
+            otpService.verifyOtp(new OtpVerifyDto(
+                    registerDto.getEmail(),
+                    registerDto.getRegistrationOtpCode(),
+                    "REGISTRATION"
+            ));
+        }
+
+        // Require successful registration OTP verification before creating account
+        if (!otpService.isOtpVerified(registerDto.getEmail(), "REGISTRATION")) {
+            throw new UnauthorizedException("Registration OTP verification is required. Please verify the OTP sent to your email.");
+        }
+
         // Check if email already exists in database
         if (userRepository.existsByEmail(registerDto.getEmail())) {
             throw new DuplicateResourceException("Email already registered");
@@ -1066,11 +1081,22 @@ public class AuthService implements UserDetailsService {
      */
     @Transactional
     public void resetPassword(String token, String newPassword) {
-        // Validate token and extract email
-        String email = jwtUtil.extractEmailFromToken(token);
-        
+        // Look up the reset token record and ensure it has not already been used
+        PasswordResetToken resetTokenEntity = passwordResetTokenRepository.findByFullTokenAndUsedFalse(token)
+                .orElseThrow(() -> new UnauthorizedException("Invalid, expired, or already used reset token"));
+
+        if (resetTokenEntity.getExpiresAt().isBefore(LocalDateTime.now())) {
+            throw new UnauthorizedException("Reset link has expired");
+        }
+
+        // Validate token payload and ensure it matches the saved record
         if (!jwtUtil.validateToken(token)) {
             throw new IllegalArgumentException("Invalid or expired reset token");
+        }
+
+        String email = jwtUtil.extractEmailFromToken(token);
+        if (!email.equalsIgnoreCase(resetTokenEntity.getEmail())) {
+            throw new UnauthorizedException("Reset token does not match the requested account");
         }
 
         // Find user
@@ -1080,6 +1106,10 @@ public class AuthService implements UserDetailsService {
         // Encrypt and update password
         user.setPassword(passwordEncoder.encode(newPassword));
         userRepository.save(user);
+
+        // Mark the reset token as used so it cannot be reused
+        resetTokenEntity.setUsed(true);
+        passwordResetTokenRepository.save(resetTokenEntity);
 
         // Send confirmation email asynchronously - does not block response
         String message = "Your password has been successfully reset. "

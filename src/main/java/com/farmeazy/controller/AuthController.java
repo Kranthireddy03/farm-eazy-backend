@@ -116,6 +116,7 @@ public class AuthController {
      * - 400 BAD REQUEST: Validation failed (missing/invalid fields)
      * - 409 CONFLICT: Email already registered
      * PROCESS:
+     * 0. Request a registration OTP with purpose "REGISTRATION" and verify it before calling this endpoint
      * 1. Validate request body against AuthRegisterDto constraints
      * 2. Call authService.register() to create user
      * 3. Return 201 status with user info and JWT token
