@@ -435,9 +435,10 @@ public class AuthController {
      * }
      * 
      * ERROR RESPONSES:
-     * - 404 NOT FOUND: Invalid or expired short code
-     * - 401 UNAUTHORIZED: Reset link already used or expired
-     * 
+     * - 404 NOT FOUND: Invalid short code
+     * - 409 CONFLICT: Reset link already used
+     * - 410 GONE: Reset link expired
+     *
      * PROCESS:
      * 1. Extract short code from URL path
      * 2. Look up short code in database

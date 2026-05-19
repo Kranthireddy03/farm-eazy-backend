@@ -44,6 +44,7 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.security.SecureRandom;
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -53,7 +54,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.Locale;
 import java.util.Set;
+import org.springframework.http.HttpStatus;
 import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
+import org.springframework.web.server.ResponseStatusException;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 /**
@@ -209,6 +213,7 @@ public class AuthService implements UserDetailsService {
     
     private static final String SHORT_CODE_CHARS = "abcdefghijklmnopqrstuvwxyz0123456789";
     private static final int SHORT_CODE_LENGTH = 8;
+    private static final int PASSWORD_RESET_COOLDOWN_HOURS = 24;
     private static final int REFRESH_TOKEN_BYTES = 64;
     private static final SecureRandom RANDOM = new SecureRandom();
 
@@ -992,8 +997,21 @@ public class AuthService implements UserDetailsService {
             throw new UnauthorizedException("User account is inactive");
         }
 
-        // Delete any existing reset tokens for this email
-        passwordResetTokenRepository.deleteByEmail(email);
+        LocalDateTime now = LocalDateTime.now();
+        passwordResetTokenRepository.findTopByEmailAndUsedTrueOrderByUsedAtDesc(email)
+                .ifPresent(recentUsedToken -> {
+                    LocalDateTime usedAt = recentUsedToken.getUsedAt();
+                    if (usedAt != null && usedAt.isAfter(now.minusHours(PASSWORD_RESET_COOLDOWN_HOURS))) {
+                        long minutesLeft = Duration.between(now, usedAt.plusHours(PASSWORD_RESET_COOLDOWN_HOURS)).toMinutes();
+                        long hoursLeft = Math.max(1, (int) ((minutesLeft + 59) / 60));
+                        String message = "A password reset has already been completed recently. "
+                                + "Please request a new reset link after " + hoursLeft + " hour" + (hoursLeft == 1 ? "" : "s") + ".";
+                        throw new ResponseStatusException(HttpStatus.CONFLICT, message);
+                    }
+                });
+
+        // Remove any unused reset tokens for this email before creating a fresh one
+        passwordResetTokenRepository.deleteByEmailAndUsedFalse(email);
 
         // Generate full JWT reset token
         UserDetails userDetails = loadUserByUsername(email);
@@ -1047,14 +1065,15 @@ public class AuthService implements UserDetailsService {
     @Transactional(readOnly = true)
     public String getFullTokenByShortCode(String shortCode) {
         PasswordResetToken resetToken = passwordResetTokenRepository.findByShortCode(shortCode)
-                .orElseThrow(() -> new UnauthorizedException("Invalid or expired reset link"));
+                .orElseThrow(() -> new ResourceNotFoundException("Invalid password reset link"));
 
         if (resetToken.isUsed()) {
-            throw new UnauthorizedException("Reset link has already been used");
+            throw new ResponseStatusException(HttpStatus.CONFLICT,
+                    "This reset link has already been used. You can request a new password reset after 24 hours.");
         }
 
         if (resetToken.getExpiresAt().isBefore(LocalDateTime.now())) {
-            throw new UnauthorizedException("Reset link has expired");
+            throw new ResponseStatusException(HttpStatus.GONE, "This reset link has expired. Please request a new one.");
         }
 
         return resetToken.getFullToken();
@@ -1109,6 +1128,7 @@ public class AuthService implements UserDetailsService {
 
         // Mark the reset token as used so it cannot be reused
         resetTokenEntity.setUsed(true);
+        resetTokenEntity.setUsedAt(LocalDateTime.now());
         passwordResetTokenRepository.save(resetTokenEntity);
 
         // Send confirmation email asynchronously - does not block response

@@ -29,12 +29,15 @@ public class PasswordResetToken {
     
     @Column(nullable = false)
     private boolean used = false;
+
+    @Column(nullable = true)
+    private LocalDateTime usedAt;
     
     // Constructors
     public PasswordResetToken() {}
     
     public PasswordResetToken(Long id, String shortCode, String fullToken, String email, 
-                             LocalDateTime createdAt, LocalDateTime expiresAt, boolean used) {
+                             LocalDateTime createdAt, LocalDateTime expiresAt, boolean used, LocalDateTime usedAt) {
         this.id = id;
         this.shortCode = shortCode;
         this.fullToken = fullToken;
@@ -42,6 +45,7 @@ public class PasswordResetToken {
         this.createdAt = createdAt;
         this.expiresAt = expiresAt;
         this.used = used;
+        this.usedAt = usedAt;
     }
     
     // Getters and Setters
@@ -65,4 +69,7 @@ public class PasswordResetToken {
     
     public boolean isUsed() { return used; }
     public void setUsed(boolean used) { this.used = used; }
+
+    public LocalDateTime getUsedAt() { return usedAt; }
+    public void setUsedAt(LocalDateTime usedAt) { this.usedAt = usedAt; }
 }

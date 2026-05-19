@@ -12,8 +12,10 @@ public interface PasswordResetTokenRepository extends JpaRepository<PasswordRese
     
     Optional<PasswordResetToken> findByShortCode(String shortCode);
     Optional<PasswordResetToken> findByFullTokenAndUsedFalse(String fullToken);
+    Optional<PasswordResetToken> findTopByEmailAndUsedTrueOrderByUsedAtDesc(String email);
     
     void deleteByExpiresAtBefore(LocalDateTime dateTime);
+    void deleteByEmailAndUsedFalse(String email);
     
     void deleteByEmail(String email);
 }

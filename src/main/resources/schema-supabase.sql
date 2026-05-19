@@ -212,7 +212,8 @@ CREATE TABLE IF NOT EXISTS password_reset_tokens (
     email VARCHAR(255) NOT NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL,
     expires_at TIMESTAMP NOT NULL,
-    used BOOLEAN DEFAULT FALSE NOT NULL
+    used BOOLEAN DEFAULT FALSE NOT NULL,
+    used_at TIMESTAMP NULL
 );
 
 CREATE INDEX IF NOT EXISTS idx_password_reset_tokens_email ON password_reset_tokens(email);
