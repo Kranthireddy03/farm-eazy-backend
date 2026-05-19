@@ -424,7 +424,7 @@ public class AuthService implements UserDetailsService {
         return mapUserToAuthResponseDto(user, token, refreshToken);
     }
 
-    @Transactional(readOnly = true)
+    @Transactional
     public AuthResponseDto loginWithGoogle(String credential, HttpServletRequest request) {
         String normalizedCredential = credential == null ? "" : credential.trim();
         if (normalizedCredential.isBlank()) {
