@@ -1,5 +1,6 @@
 package com.farmeazy.dto;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import java.util.Set;
 
 /**
@@ -76,6 +77,7 @@ public class AuthResponseDto {
      */
     private String token;
 
+    @JsonProperty(access = JsonProperty.Access.WRITE_ONLY)
     private String refreshToken;
 
     private boolean requiresProfileCompletion;

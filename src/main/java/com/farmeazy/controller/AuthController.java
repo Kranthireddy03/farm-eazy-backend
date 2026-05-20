@@ -6,7 +6,6 @@ import com.farmeazy.dto.AuthResponseDto;
 import com.farmeazy.dto.GoogleCompleteProfileDto;
 import com.farmeazy.dto.GoogleSignInRequestDto;
 import com.farmeazy.dto.ForgotPasswordDto;
-import com.farmeazy.dto.RefreshTokenRequestDto;
 import com.farmeazy.dto.ResetPasswordDto;
 import com.farmeazy.dto.OtpRequestDto;
 import com.farmeazy.dto.OtpVerifyDto;
@@ -20,13 +19,17 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseCookie;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.authentication.AnonymousAuthenticationToken;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 
 @RestController
 @RequestMapping("/api/auth")
@@ -50,6 +53,11 @@ public class AuthController {
 
     @Autowired
     private GeocodeUtil geocodeUtil;
+
+    @Value("${jwt.refresh-expiration:2592000000}")
+    private Long refreshTokenExpirationMs;
+
+    private static final String REFRESH_TOKEN_COOKIE = "farmEazy_refresh_token";
 
     /**
      * REQUEST OTP ENDPOINT
@@ -126,11 +134,9 @@ public class AuthController {
      */
     @PostMapping("/register")
     @Operation(summary = "Register a new user")
-    public ResponseEntity<AuthResponseDto> register(@Valid @RequestBody AuthRegisterDto registerDto) {
-        // Call service to register user and get response with token
+    public ResponseEntity<AuthResponseDto> register(@Valid @RequestBody AuthRegisterDto registerDto, HttpServletResponse servletResponse) {
         AuthResponseDto response = authService.register(registerDto);
-        // Return 201 CREATED status (user successfully created)
-        return new ResponseEntity<>(response, HttpStatus.CREATED);
+        return buildRefreshCookieResponse(response, servletResponse, HttpStatus.CREATED);
     }
 
     @PostMapping("/register/availability")
@@ -189,30 +195,28 @@ public class AuthController {
      */
     @PostMapping("/login")
     @Operation(summary = "Login user")
-    public ResponseEntity<AuthResponseDto> login(@Valid @RequestBody AuthLoginDto loginDto, HttpServletRequest request) {
-        // Call service to authenticate user and get response with token
+    public ResponseEntity<AuthResponseDto> login(@Valid @RequestBody AuthLoginDto loginDto, HttpServletRequest request, HttpServletResponse servletResponse) {
         AuthResponseDto response = authService.login(loginDto, request);
-        // Return 200 OK status with user info and token
-        return ResponseEntity.ok(response);
+        return buildRefreshCookieResponse(response, servletResponse, HttpStatus.OK);
     }
 
     @PostMapping("/google")
     @Operation(summary = "Login with Google credential")
-    public ResponseEntity<AuthResponseDto> googleLogin(@Valid @RequestBody GoogleSignInRequestDto request, HttpServletRequest httpRequest) {
+    public ResponseEntity<AuthResponseDto> googleLogin(@Valid @RequestBody GoogleSignInRequestDto request, HttpServletRequest httpRequest, HttpServletResponse servletResponse) {
         AuthResponseDto response = authService.loginWithGoogle(request.getCredential(), httpRequest);
-        return ResponseEntity.ok(response);
+        return buildRefreshCookieResponse(response, servletResponse, HttpStatus.OK);
     }
 
     @PostMapping("/google/register")
     @Operation(summary = "Register with Google credential")
-    public ResponseEntity<AuthResponseDto> googleRegister(@Valid @RequestBody GoogleSignInRequestDto request, HttpServletRequest httpRequest) {
+    public ResponseEntity<AuthResponseDto> googleRegister(@Valid @RequestBody GoogleSignInRequestDto request, HttpServletRequest httpRequest, HttpServletResponse servletResponse) {
         AuthResponseDto response = authService.registerWithGoogle(request.getCredential(), httpRequest);
-        return ResponseEntity.ok(response);
+        return buildRefreshCookieResponse(response, servletResponse, HttpStatus.OK);
     }
 
     @PostMapping("/google/complete-profile")
     @Operation(summary = "Complete Google signup profile")
-    public ResponseEntity<AuthResponseDto> completeGoogleProfile(@Valid @RequestBody GoogleCompleteProfileDto request, HttpServletRequest httpRequest, java.security.Principal principal) {
+    public ResponseEntity<AuthResponseDto> completeGoogleProfile(@Valid @RequestBody GoogleCompleteProfileDto request, HttpServletRequest httpRequest, HttpServletResponse servletResponse, java.security.Principal principal) {
         String userEmail = principal != null ? principal.getName() : null;
 
         if (userEmail == null || userEmail.isBlank()) {
@@ -229,7 +233,7 @@ public class AuthController {
         }
 
         AuthResponseDto response = authService.completeGoogleProfile(userEmail, request, httpRequest);
-        return ResponseEntity.ok(response);
+        return buildRefreshCookieResponse(response, servletResponse, HttpStatus.OK);
     }
 
     @PostMapping("/google/defer-profile")
@@ -258,19 +262,67 @@ public class AuthController {
 
     @PostMapping("/refresh")
     @Operation(summary = "Refresh access token")
-    public ResponseEntity<AuthResponseDto> refresh(@Valid @RequestBody RefreshTokenRequestDto requestDto, HttpServletRequest request) {
-        return ResponseEntity.ok(authService.refreshAccessToken(requestDto.getRefreshToken(), request));
+    public ResponseEntity<AuthResponseDto> refresh(HttpServletRequest request, HttpServletResponse servletResponse) {
+        String refreshToken = getRefreshTokenFromCookie(request);
+        AuthResponseDto response = authService.refreshAccessToken(refreshToken, request);
+        return buildRefreshCookieResponse(response, servletResponse, HttpStatus.OK);
     }
 
     @PostMapping("/logout")
     @Operation(summary = "Logout and revoke refresh token")
-    public ResponseEntity<?> logout(@RequestBody(required = false) RefreshTokenRequestDto requestDto) {
-        if (requestDto != null) {
-            authService.logout(requestDto.getRefreshToken());
+    public ResponseEntity<?> logout(HttpServletRequest request, HttpServletResponse servletResponse) {
+        String refreshToken = getRefreshTokenFromCookie(request);
+        if (refreshToken != null) {
+            authService.logout(refreshToken);
         }
-        return ResponseEntity.ok(new java.util.HashMap<String, String>() {{
-            put("message", "Logged out successfully");
-        }});
+        ResponseCookie clearCookie = ResponseCookie.from(REFRESH_TOKEN_COOKIE, "")
+                .path("/")
+                .httpOnly(true)
+                .secure(true)
+                .sameSite("None")
+                .maxAge(0)
+                .build();
+        return ResponseEntity.ok()
+                .header(HttpHeaders.SET_COOKIE, clearCookie.toString())
+                .body(new java.util.HashMap<String, String>() {{
+                    put("message", "Logged out successfully");
+                }});
+    }
+
+    private ResponseEntity<AuthResponseDto> buildRefreshCookieResponse(AuthResponseDto authResponse, HttpServletResponse servletResponse, HttpStatus status) {
+        if (authResponse != null && authResponse.getRefreshToken() != null && !authResponse.getRefreshToken().isBlank()) {
+            ResponseCookie refreshCookie = ResponseCookie.from(REFRESH_TOKEN_COOKIE, authResponse.getRefreshToken())
+                    .path("/")
+                    .httpOnly(true)
+                    .secure(true)
+                    .sameSite("None")
+                    .maxAge(refreshTokenExpirationMs / 1000)
+                    .build();
+            servletResponse.addHeader(HttpHeaders.SET_COOKIE, refreshCookie.toString());
+            authResponse.setRefreshToken(null);
+        } else {
+            ResponseCookie clearCookie = ResponseCookie.from(REFRESH_TOKEN_COOKIE, "")
+                    .path("/")
+                    .httpOnly(true)
+                    .secure(true)
+                    .sameSite("None")
+                    .maxAge(0)
+                    .build();
+            servletResponse.addHeader(HttpHeaders.SET_COOKIE, clearCookie.toString());
+        }
+        return ResponseEntity.status(status).body(authResponse);
+    }
+
+    private String getRefreshTokenFromCookie(HttpServletRequest request) {
+        if (request == null || request.getCookies() == null) {
+            return null;
+        }
+        for (jakarta.servlet.http.Cookie cookie : request.getCookies()) {
+            if (REFRESH_TOKEN_COOKIE.equals(cookie.getName())) {
+                return cookie.getValue();
+            }
+        }
+        return null;
     }
 
     /**

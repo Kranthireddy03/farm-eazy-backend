@@ -77,7 +77,7 @@ class SmartIrrigationServiceTest {
         crop.setFarm(farm);
         crop.setCropName("GROUNDNUT");
 
-        when(cropRepository.findById(200L)).thenReturn(Optional.of(crop));
+        when(cropRepository.findByIdAndFarmUserId(200L, 1L)).thenReturn(Optional.of(crop));
         when(userRepository.findByEmail("test@farmeazy.com")).thenReturn(Optional.of(user));
 
         ResourceNotFoundException ex = Assertions.assertThrows(
@@ -103,7 +103,7 @@ class SmartIrrigationServiceTest {
         crop.setFarm(farm);
         crop.setCropName("BANANA");
 
-        when(cropRepository.findById(201L)).thenReturn(Optional.of(crop));
+        when(cropRepository.findByIdAndFarmUserId(201L, 1L)).thenReturn(Optional.of(crop));
         when(userRepository.findByEmail("test@farmeazy.com")).thenReturn(Optional.of(user));
 
         ResourceNotFoundException ex = Assertions.assertThrows(
@@ -138,7 +138,7 @@ class SmartIrrigationServiceTest {
         schedule.setIntervalDays(6);
         schedule.setLastIrrigationDate(LocalDate.now().minusDays(4));
 
-        when(cropRepository.findById(202L)).thenReturn(Optional.of(crop));
+        when(cropRepository.findByIdAndFarmUserId(202L, 1L)).thenReturn(Optional.of(crop));
         when(userRepository.findByEmail("test@farmeazy.com")).thenReturn(Optional.of(user));
         when(irrigationScheduleRepository.findByCropId(202L)).thenReturn(Collections.singletonList(schedule));
 
