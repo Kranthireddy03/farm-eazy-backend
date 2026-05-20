@@ -14,6 +14,11 @@ public class OtpRequestDto {
     @NotBlank(message = "Purpose is required")
     private String purpose;
 
+    /**
+     * CAPTCHA TOKEN - Required when CAPTCHA protection is enabled.
+     */
+    private String captchaToken;
+
     // Getters and Setters
     public String getEmail() {
         return email;
@@ -37,5 +42,13 @@ public class OtpRequestDto {
 
     public void setPurpose(String purpose) {
         this.purpose = purpose;
+    }
+
+    public String getCaptchaToken() {
+        return captchaToken;
+    }
+
+    public void setCaptchaToken(String captchaToken) {
+        this.captchaToken = captchaToken;
     }
 }

@@ -363,6 +363,7 @@ public class AuthController {
     public ResponseEntity<?> forgotPassword(@Valid @RequestBody ForgotPasswordDto forgotPasswordDto, HttpServletRequest request) {
         authService.forgotPassword(
                 forgotPasswordDto.getEmail(),
+                forgotPasswordDto.getCaptchaToken(),
                 resolveClientIp(request),
                 resolveLocation(request),
                 resolveDeviceInfo(request)
@@ -494,6 +495,7 @@ public class AuthController {
     public ResponseEntity<?> requestLoginOtp(@Valid @RequestBody com.farmeazy.dto.OtpLoginRequestDto dto, HttpServletRequest request) {
         com.farmeazy.dto.OtpResponseDto response = otpService.generateLoginOtp(
                 dto.getPhone(),
+                dto.getCaptchaToken(),
                 resolveClientIp(request),
                 resolveLocation(request),
                 resolveDeviceInfo(request)

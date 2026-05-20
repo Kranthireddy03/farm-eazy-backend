@@ -84,18 +84,13 @@ public class SmartIrrigationService {
     public IrrigationRecommendationDto getIrrigationRecommendation(Long cropId, String userEmail) {
         logger.info("Fetching irrigation recommendation for crop {} by user {}", cropId, userEmail);
 
-        // Get crop
-        Crop crop = cropRepository.findById(cropId)
-            .orElseThrow(() -> new ResourceNotFoundException("Crop not found with id: " + cropId));
-
-        // Verify user owns this crop
         User user = userRepository.findByEmail(userEmail)
             .orElseThrow(() -> new ResourceNotFoundException("User not found"));
-        
+
+        Crop crop = cropRepository.findByIdAndFarmUserId(cropId, user.getId())
+            .orElseThrow(() -> new ResourceNotFoundException("Crop not found or not owned by user: " + cropId));
+
         Farm farm = crop.getFarm();
-        if (!farm.getUser().getId().equals(user.getId())) {
-            throw new UnauthorizedException("You don't have access to this crop");
-        }
         validatePilotScope(farm, crop);
 
         // Get or create irrigation schedule
@@ -127,16 +122,11 @@ public class SmartIrrigationService {
     public List<IrrigationScheduleDto> getPendingIrrigations(Long farmId, String userEmail, int daysAhead) {
         logger.info("Fetching pending irrigations for farm {} (next {} days)", farmId, daysAhead);
 
-        // Verify user owns farm
-        Farm farm = farmRepository.findById(farmId)
-            .orElseThrow(() -> new ResourceNotFoundException("Farm not found"));
-        
         User user = userRepository.findByEmail(userEmail)
             .orElseThrow(() -> new ResourceNotFoundException("User not found"));
-        
-        if (!farm.getUser().getId().equals(user.getId())) {
-            throw new UnauthorizedException("You don't have access to this farm");
-        }
+
+        Farm farm = farmRepository.findByIdAndUserId(farmId, user.getId())
+            .orElseThrow(() -> new ResourceNotFoundException("Farm not found or not owned by user"));
         validatePilotLocation(farm);
 
         LocalDate today = LocalDate.now();
@@ -168,17 +158,12 @@ public class SmartIrrigationService {
 
         logger.info("Confirming irrigation for schedule {} by user {}", scheduleId, userEmail);
 
-        // Get schedule
-        IrrigationSchedule schedule = irrigationScheduleRepository.findById(scheduleId)
-            .orElseThrow(() -> new ResourceNotFoundException("Schedule not found"));
-
-        // Verify ownership
         User user = userRepository.findByEmail(userEmail)
             .orElseThrow(() -> new ResourceNotFoundException("User not found"));
-        
-        if (!schedule.getFarm().getUser().getId().equals(user.getId())) {
-            throw new UnauthorizedException("You don't have access to this schedule");
-        }
+
+        IrrigationSchedule schedule = irrigationScheduleRepository.findByIdAndFarmUserId(scheduleId, user.getId())
+            .orElseThrow(() -> new ResourceNotFoundException("Schedule not found"));
+
         validatePilotScope(schedule.getFarm(), schedule.getCrop());
 
         // Record in history
@@ -235,17 +220,12 @@ public class SmartIrrigationService {
 
         logger.info("Skipping irrigation for schedule {} - Reason: {}", scheduleId, reason);
 
-        // Get schedule
-        IrrigationSchedule schedule = irrigationScheduleRepository.findById(scheduleId)
-            .orElseThrow(() -> new ResourceNotFoundException("Schedule not found"));
-
-        // Verify ownership
         User user = userRepository.findByEmail(userEmail)
             .orElseThrow(() -> new ResourceNotFoundException("User not found"));
-        
-        if (!schedule.getFarm().getUser().getId().equals(user.getId())) {
-            throw new UnauthorizedException("You don't have access to this schedule");
-        }
+
+        IrrigationSchedule schedule = irrigationScheduleRepository.findByIdAndFarmUserId(scheduleId, user.getId())
+            .orElseThrow(() -> new ResourceNotFoundException("Schedule not found"));
+
         validatePilotScope(schedule.getFarm(), schedule.getCrop());
 
         // Record in history
@@ -295,16 +275,11 @@ public class SmartIrrigationService {
 
         logger.info("Fetching irrigation history for farm {}", farmId);
 
-        // Verify ownership
-        Farm farm = farmRepository.findById(farmId)
-            .orElseThrow(() -> new ResourceNotFoundException("Farm not found"));
-        
         User user = userRepository.findByEmail(userEmail)
             .orElseThrow(() -> new ResourceNotFoundException("User not found"));
-        
-        if (!farm.getUser().getId().equals(user.getId())) {
-            throw new UnauthorizedException("You don't have access to this farm");
-        }
+
+        Farm farm = farmRepository.findByIdAndUserId(farmId, user.getId())
+            .orElseThrow(() -> new ResourceNotFoundException("Farm not found or not owned by user"));
         validatePilotLocation(farm);
 
         LocalDate from = startDate != null ? startDate : LocalDate.now().minusMonths(6);
@@ -336,16 +311,11 @@ public class SmartIrrigationService {
     public Object getIrrigationStatistics(Long farmId, String userEmail, String season) {
         logger.info("Calculating irrigation statistics for farm {}", farmId);
 
-        // Verify ownership
-        Farm farm = farmRepository.findById(farmId)
-            .orElseThrow(() -> new ResourceNotFoundException("Farm not found"));
-        
         User user = userRepository.findByEmail(userEmail)
             .orElseThrow(() -> new ResourceNotFoundException("User not found"));
-        
-        if (!farm.getUser().getId().equals(user.getId())) {
-            throw new UnauthorizedException("You don't have access to this farm");
-        }
+
+        Farm farm = farmRepository.findByIdAndUserId(farmId, user.getId())
+            .orElseThrow(() -> new ResourceNotFoundException("Farm not found or not owned by user"));
         validatePilotLocation(farm);
 
         LocalDate monthStart = LocalDate.now().withDayOfMonth(1);
@@ -412,16 +382,11 @@ public class SmartIrrigationService {
 
         logger.info("Toggling reminders for schedule {}", scheduleId);
 
-        IrrigationSchedule schedule = irrigationScheduleRepository.findById(scheduleId)
-            .orElseThrow(() -> new ResourceNotFoundException("Schedule not found"));
-
-        // Verify ownership
         User user = userRepository.findByEmail(userEmail)
             .orElseThrow(() -> new ResourceNotFoundException("User not found"));
-        
-        if (!schedule.getFarm().getUser().getId().equals(user.getId())) {
-            throw new UnauthorizedException("You don't have access to this schedule");
-        }
+
+        IrrigationSchedule schedule = irrigationScheduleRepository.findByIdAndFarmUserId(scheduleId, user.getId())
+            .orElseThrow(() -> new ResourceNotFoundException("Schedule not found"));
 
         if (reminderEnabled != null) {
             schedule.setReminderEnabled(reminderEnabled);

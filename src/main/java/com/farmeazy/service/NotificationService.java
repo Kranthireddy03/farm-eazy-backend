@@ -6,6 +6,7 @@ import com.farmeazy.entity.Notification.NotificationPriority;
 import com.farmeazy.entity.Notification.NotificationType;
 import com.farmeazy.entity.User;
 import com.farmeazy.exception.ResourceNotFoundException;
+import com.farmeazy.exception.UnauthorizedException;
 import com.farmeazy.repository.NotificationRepository;
 import com.farmeazy.repository.UserRepository;
 import org.slf4j.Logger;
@@ -137,6 +138,22 @@ public class NotificationService {
         return new NotificationDto.NotificationCountResponse(unread, unread);
     }
 
+    private Notification requireNotificationAccess(Long notificationId, User user) {
+        Notification notification = notificationRepository.findById(notificationId)
+                .orElseThrow(() -> new ResourceNotFoundException("Notification not found"));
+
+        if (notification.getIsBroadcast()) {
+            // Broadcast is visible to all users unless dismissed
+            return notification;
+        }
+
+        if (!notification.getUser().getId().equals(user.getId())) {
+            throw new UnauthorizedException("You do not have permission to access this notification");
+        }
+
+        return notification;
+    }
+
     // ==================== UPDATE NOTIFICATIONS ====================
 
     /**
@@ -144,19 +161,17 @@ public class NotificationService {
      */
     @Transactional
     public void markAsRead(Long notificationId, User user) {
-        Notification notification = notificationRepository.findById(notificationId)
-                .orElseThrow(() -> new ResourceNotFoundException("Notification not found"));
+        Notification notification = requireNotificationAccess(notificationId, user);
 
-        // For broadcast notifications, add to dismissed list
         if (notification.getIsBroadcast()) {
             notification.dismissForUser(user.getId());
             notification.setIsRead(true);
             notification.setReadAt(LocalDateTime.now());
-        } else if (notification.getUser().getId().equals(user.getId())) {
+        } else {
             notification.setIsRead(true);
             notification.setReadAt(LocalDateTime.now());
         }
-        
+
         notificationRepository.save(notification);
         log.debug("NOTIF_READ: id={}, userId={}", notificationId, user.getId());
     }
@@ -176,13 +191,12 @@ public class NotificationService {
      */
     @Transactional
     public void dismiss(Long notificationId, User user) {
-        Notification notification = notificationRepository.findById(notificationId)
-                .orElseThrow(() -> new ResourceNotFoundException("Notification not found"));
+        Notification notification = requireNotificationAccess(notificationId, user);
 
         if (notification.getIsBroadcast()) {
             notification.dismissForUser(user.getId());
             notificationRepository.save(notification);
-        } else if (notification.getUser().getId().equals(user.getId())) {
+        } else {
             notificationRepository.delete(notification);
         }
         

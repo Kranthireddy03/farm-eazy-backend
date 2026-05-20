@@ -48,22 +48,14 @@ public class IrrigationService {
     @Transactional
     public IrrigationScheduleDto createSchedule(IrrigationScheduleDto scheduleDto, Long userId) {
         logger.info("IRRIGATION_SERVICE_CREATE_START userId={} farmId={} cropId={} irrigationDate={}", userId, scheduleDto != null ? scheduleDto.getFarmId() : null, scheduleDto != null ? scheduleDto.getCropId() : null, scheduleDto != null ? scheduleDto.getIrrigationDate() : null);
-        Crop crop = cropRepository.findById(scheduleDto.getCropId())
-                .orElseThrow(() -> new ResourceNotFoundException("Crop not found"));
-        
-        Farm farm = farmRepository.findById(scheduleDto.getFarmId())
-                .orElseThrow(() -> new ResourceNotFoundException("Farm not found"));
+        Farm farm = farmRepository.findByIdAndUserId(scheduleDto.getFarmId(), userId)
+                .orElseThrow(() -> new ResourceNotFoundException("Farm not found or not owned by user"));
+
+        Crop crop = cropRepository.findByIdAndFarmUserId(scheduleDto.getCropId(), userId)
+                .orElseThrow(() -> new ResourceNotFoundException("Crop not found or not owned by user"));
 
         if (crop.getFarm() == null || !crop.getFarm().getId().equals(farm.getId())) {
             throw new UnauthorizedException("Selected crop does not belong to the provided farm");
-        }
-        
-        if (!farm.getUser().getId().equals(userId)) {
-            throw new UnauthorizedException("You do not have permission to create schedules for this farm");
-        }
-
-        if (!crop.getFarm().getUser().getId().equals(userId)) {
-            throw new UnauthorizedException("You do not have permission to create schedules for this crop");
         }
 
         IrrigationSchedule schedule = new IrrigationSchedule();
@@ -113,24 +105,16 @@ public class IrrigationService {
 
     public IrrigationScheduleDto getScheduleById(Long scheduleId, Long userId) {
         logger.info("IRRIGATION_SERVICE_GET_BY_ID scheduleId={} userId={}", scheduleId, userId);
-        IrrigationSchedule schedule = irrigationRepository.findById(scheduleId)
+        IrrigationSchedule schedule = irrigationRepository.findByIdAndFarmUserId(scheduleId, userId)
                 .orElseThrow(() -> new ResourceNotFoundException("Schedule not found"));
-        
-        if (!schedule.getFarm().getUser().getId().equals(userId)) {
-            throw new UnauthorizedException("You do not have permission to access this schedule");
-        }
 
         return mapScheduleToDto(schedule, userId);
     }
 
     public Page<IrrigationScheduleDto> getSchedulesByFarm(Long farmId, Long userId, Pageable pageable) {
         logger.info("IRRIGATION_SERVICE_GET_BY_FARM farmId={} userId={} page={} size={}", farmId, userId, pageable.getPageNumber(), pageable.getPageSize());
-        Farm farm = farmRepository.findById(farmId)
-                .orElseThrow(() -> new ResourceNotFoundException("Farm not found"));
-        
-        if (!farm.getUser().getId().equals(userId)) {
-            throw new UnauthorizedException("You do not have permission to access this farm");
-        }
+        Farm farm = farmRepository.findByIdAndUserId(farmId, userId)
+                .orElseThrow(() -> new ResourceNotFoundException("Farm not found or not owned by user"));
 
         return irrigationRepository.findByFarmId(farmId, pageable)
                 .map(schedule -> mapScheduleToDto(schedule, userId));
@@ -142,8 +126,7 @@ public class IrrigationService {
         List<Long> farmIds = farms.stream().map(Farm::getId).toList();
         
         return farmIds.stream()
-                .flatMap(farmId -> irrigationRepository.findByIrrigationDateAfter(LocalDate.now()).stream()
-                        .filter(s -> s.getFarm().getId().equals(farmId)))
+                .flatMap(farmId -> irrigationRepository.findByFarmIdAndIrrigationDateAfter(farmId, LocalDate.now()).stream())
                 .map(schedule -> mapScheduleToDto(schedule, userId))
                 .toList();
     }
@@ -151,12 +134,8 @@ public class IrrigationService {
     @Transactional
     public IrrigationScheduleDto updateSchedule(Long scheduleId, IrrigationScheduleDto scheduleDto, Long userId) {
         logger.info("IRRIGATION_SERVICE_UPDATE_START scheduleId={} userId={} irrigationDate={}", scheduleId, userId, scheduleDto != null ? scheduleDto.getIrrigationDate() : null);
-        IrrigationSchedule schedule = irrigationRepository.findById(scheduleId)
+        IrrigationSchedule schedule = irrigationRepository.findByIdAndFarmUserId(scheduleId, userId)
                 .orElseThrow(() -> new ResourceNotFoundException("Schedule not found"));
-        
-        if (!schedule.getFarm().getUser().getId().equals(userId)) {
-            throw new UnauthorizedException("You do not have permission to update this schedule");
-        }
 
         schedule.setIrrigationDate(scheduleDto.getIrrigationDate());
         schedule.setStartTime(scheduleDto.getStartTime());
@@ -188,12 +167,8 @@ public class IrrigationService {
     @Transactional
     public IrrigationScheduleDto markAsCompleted(Long scheduleId, Long userId) {
         logger.info("IRRIGATION_SERVICE_MARK_COMPLETED_START scheduleId={} userId={}", scheduleId, userId);
-        IrrigationSchedule schedule = irrigationRepository.findById(scheduleId)
+        IrrigationSchedule schedule = irrigationRepository.findByIdAndFarmUserId(scheduleId, userId)
                 .orElseThrow(() -> new ResourceNotFoundException("Schedule not found"));
-        
-        if (!schedule.getFarm().getUser().getId().equals(userId)) {
-            throw new UnauthorizedException("You do not have permission to update this schedule");
-        }
 
         schedule.setStatus("COMPLETED");
         schedule.setCompletedAt(LocalDateTime.now());
@@ -210,12 +185,8 @@ public class IrrigationService {
     @Transactional
     public void deleteSchedule(Long scheduleId, Long userId) {
         logger.info("IRRIGATION_SERVICE_DELETE_START scheduleId={} userId={}", scheduleId, userId);
-        IrrigationSchedule schedule = irrigationRepository.findById(scheduleId)
+        IrrigationSchedule schedule = irrigationRepository.findByIdAndFarmUserId(scheduleId, userId)
                 .orElseThrow(() -> new ResourceNotFoundException("Schedule not found"));
-        
-        if (!schedule.getFarm().getUser().getId().equals(userId)) {
-            throw new UnauthorizedException("You do not have permission to delete this schedule");
-        }
 
         // Log activity before deleting
         userActivityService.logActivity(schedule.getFarm().getUser(), com.farmeazy.entity.UserActivity.ActivityType.IRRIGATION_DELETED, "Deleted irrigation schedule for crop '" + schedule.getCrop().getCropName() + "'");

@@ -288,15 +288,15 @@ public class ServiceService {
 
         // Set farm
         if (dto.getFarmId() != null) {
-            Farm farm = farmRepository.findById(dto.getFarmId())
-                    .orElseThrow(() -> new ResourceNotFoundException("Farm not found"));
+            Farm farm = farmRepository.findByIdAndUserId(dto.getFarmId(), user.getId())
+                    .orElseThrow(() -> new ResourceNotFoundException("Farm not found or not owned by user"));
             booking.setFarm(farm);
         }
 
         // Set crop
         if (dto.getCropId() != null) {
-            Crop crop = cropRepository.findById(dto.getCropId())
-                    .orElseThrow(() -> new ResourceNotFoundException("Crop not found"));
+            Crop crop = cropRepository.findByIdAndFarmUserId(dto.getCropId(), user.getId())
+                    .orElseThrow(() -> new ResourceNotFoundException("Crop not found or not owned by user"));
             booking.setCrop(crop);
         }
 
@@ -599,13 +599,13 @@ public class ServiceService {
             throw new UnauthorizedException("You cannot book your own service listing.");
         }
 
-        Farm farm = farmRepository.findById(dto.getFarmId())
-                .orElseThrow(() -> new ResourceNotFoundException("Farm not found"));
+        Farm farm = farmRepository.findByIdAndUserId(dto.getFarmId(), user.getId())
+                .orElseThrow(() -> new ResourceNotFoundException("Farm not found or not owned by user"));
 
         Crop crop = null;
         if (dto.getCropId() != null) {
-            crop = cropRepository.findById(dto.getCropId())
-                    .orElseThrow(() -> new ResourceNotFoundException("Crop not found"));
+            crop = cropRepository.findByIdAndFarmUserId(dto.getCropId(), user.getId())
+                    .orElseThrow(() -> new ResourceNotFoundException("Crop not found or not owned by user"));
         }
 
         ServiceBooking booking = new ServiceBooking();

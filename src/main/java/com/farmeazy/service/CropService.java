@@ -48,12 +48,8 @@ public class CropService {
         })
     public CropDto createCrop(CropDto cropDto, Long userId) {
         logger.info("CROP_SERVICE_CREATE_START userId={} farmId={} cropName={}", userId, cropDto != null ? cropDto.getFarmId() : null, cropDto != null ? cropDto.getCropName() : null);
-        Farm farm = farmRepository.findById(cropDto.getFarmId())
-                .orElseThrow(() -> new ResourceNotFoundException("Farm not found"));
-        
-        if (!farm.getUser().getId().equals(userId)) {
-            throw new UnauthorizedException("You do not have permission to add crops to this farm");
-        }
+        Farm farm = farmRepository.findByIdAndUserId(cropDto.getFarmId(), userId)
+                .orElseThrow(() -> new ResourceNotFoundException("Farm not found or not owned by user"));
 
         Crop crop = new Crop();
         crop.setCropName(cropDto.getCropName());
@@ -122,12 +118,8 @@ public class CropService {
     @Cacheable(cacheNames = "cropListByFarm", key = "#farmId + ':' + #userId")
     public List<CropDto> getCropsByFarm(Long farmId, Long userId) {
         logger.info("CROP_SERVICE_GET_BY_FARM farmId={} userId={}", farmId, userId);
-        Farm farm = farmRepository.findById(farmId)
-                .orElseThrow(() -> new ResourceNotFoundException("Farm not found"));
-        
-        if (!farm.getUser().getId().equals(userId)) {
-            throw new UnauthorizedException("You do not have permission to access this farm");
-        }
+        Farm farm = farmRepository.findByIdAndUserId(farmId, userId)
+                .orElseThrow(() -> new ResourceNotFoundException("Farm not found or not owned by user"));
 
         return cropRepository.findByFarmId(farmId)
                 .stream()
@@ -137,12 +129,8 @@ public class CropService {
 
     public Page<CropDto> getCropsByFarmPaginated(Long farmId, Long userId, Pageable pageable) {
         logger.info("CROP_SERVICE_GET_BY_FARM_PAGINATED farmId={} userId={} page={} size={}", farmId, userId, pageable.getPageNumber(), pageable.getPageSize());
-        Farm farm = farmRepository.findById(farmId)
-                .orElseThrow(() -> new ResourceNotFoundException("Farm not found"));
-        
-        if (!farm.getUser().getId().equals(userId)) {
-            throw new UnauthorizedException("You do not have permission to access this farm");
-        }
+        Farm farm = farmRepository.findByIdAndUserId(farmId, userId)
+                .orElseThrow(() -> new ResourceNotFoundException("Farm not found or not owned by user"));
 
         return cropRepository.findByFarmId(farmId, pageable)
                 .map(crop -> mapCropToDto(crop, userId));
@@ -150,12 +138,8 @@ public class CropService {
 
     public Page<CropDto> searchCrops(Long farmId, String cropName, Long userId, Pageable pageable) {
         logger.info("CROP_SERVICE_SEARCH farmId={} userId={} cropName={} page={} size={}", farmId, userId, cropName, pageable.getPageNumber(), pageable.getPageSize());
-        Farm farm = farmRepository.findById(farmId)
-                .orElseThrow(() -> new ResourceNotFoundException("Farm not found"));
-        
-        if (!farm.getUser().getId().equals(userId)) {
-            throw new UnauthorizedException("You do not have permission to access this farm");
-        }
+        Farm farm = farmRepository.findByIdAndUserId(farmId, userId)
+                .orElseThrow(() -> new ResourceNotFoundException("Farm not found or not owned by user"));
 
         return cropRepository.findByFarmIdAndCropNameContainingIgnoreCase(farmId, cropName, pageable)
                 .map(crop -> mapCropToDto(crop, userId));

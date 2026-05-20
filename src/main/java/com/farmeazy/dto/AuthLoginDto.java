@@ -74,6 +74,12 @@ public class AuthLoginDto {
     private String password;
 
     /**
+     * Captcha token from the client to validate that the request is from a real user.
+     * This token is required only when CAPTCHA protection is enabled in configuration.
+     */
+    private String captchaToken;
+
+    /**
      * Remember-me toggle from client.
      * true: issue refresh token for long-lived sign-in.
      * false: session-only auth with short-lived access token.
@@ -96,6 +102,9 @@ public class AuthLoginDto {
     
     public String getPassword() { return password; }
     public void setPassword(String password) { this.password = password; }
+
+    public String getCaptchaToken() { return captchaToken; }
+    public void setCaptchaToken(String captchaToken) { this.captchaToken = captchaToken; }
 
     public Boolean getRememberMe() { return rememberMe; }
     public void setRememberMe(Boolean rememberMe) { this.rememberMe = rememberMe; }

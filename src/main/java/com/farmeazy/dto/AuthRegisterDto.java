@@ -102,6 +102,12 @@ public class AuthRegisterDto {
      * - It is optional in the DTO to preserve compatibility, but register() enforces verification.
      */
     private String registrationOtpCode;
+
+    /**
+     * CAPTCHA TOKEN - REQUIRED WHEN CAPTCHA IS ENABLED
+     * Helps protect registration and related auth endpoints from abuse.
+     */
+    private String captchaToken;
     
     /**
      * ADDRESS - STREET ADDRESS (OPTIONAL)
@@ -134,11 +140,16 @@ public class AuthRegisterDto {
     public AuthRegisterDto() {}
     
     public AuthRegisterDto(String username, String email, String password, String phone, String registrationOtpCode, String address, String city, String state, String pinCode) {
+        this(username, email, password, phone, registrationOtpCode, null, address, city, state, pinCode);
+    }
+
+    public AuthRegisterDto(String username, String email, String password, String phone, String registrationOtpCode, String captchaToken, String address, String city, String state, String pinCode) {
         this.username = username;
         this.email = email;
         this.password = password;
         this.phone = phone;
         this.registrationOtpCode = registrationOtpCode;
+        this.captchaToken = captchaToken;
         this.address = address;
         this.city = city;
         this.state = state;
@@ -163,4 +174,6 @@ public class AuthRegisterDto {
     public void setPinCode(String pinCode) { this.pinCode = pinCode; }
     public String getRegistrationOtpCode() { return registrationOtpCode; }
     public void setRegistrationOtpCode(String registrationOtpCode) { this.registrationOtpCode = registrationOtpCode; }
+    public String getCaptchaToken() { return captchaToken; }
+    public void setCaptchaToken(String captchaToken) { this.captchaToken = captchaToken; }
 }

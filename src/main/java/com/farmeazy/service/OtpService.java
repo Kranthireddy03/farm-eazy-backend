@@ -43,6 +43,9 @@ public class OtpService {
     private final Random random = new Random();
 
     @Autowired
+    private CaptchaService captchaService;
+
+    @Autowired
     public OtpService(OtpVerificationRepository otpRepository, HttpEmailService httpEmailService, SmsService smsService, UserRepository userRepository) {
         this.otpRepository = otpRepository;
         this.httpEmailService = httpEmailService;
@@ -61,6 +64,7 @@ public class OtpService {
 
     @Transactional
     public OtpResponseDto generateAndSendOtpWithDetails(OtpRequestDto dto, String ipAddress, String location, String deviceInfo) {
+        captchaService.validateCaptcha(dto.getCaptchaToken());
         OtpResponseDto response = new OtpResponseDto();
         List<String> sentVia = new ArrayList<>();
         List<String> failedVia = new ArrayList<>();
@@ -369,11 +373,17 @@ public class OtpService {
      */
     @Transactional
     public OtpResponseDto generateLoginOtp(String phone) {
-        return generateLoginOtp(phone, null, null, null);
+        return generateLoginOtp(phone, null, null, null, null);
     }
 
     @Transactional
-    public OtpResponseDto generateLoginOtp(String phone, String ipAddress, String location, String deviceInfo) {
+    public OtpResponseDto generateLoginOtp(String phone, String captchaToken) {
+        return generateLoginOtp(phone, captchaToken, null, null, null);
+    }
+
+    @Transactional
+    public OtpResponseDto generateLoginOtp(String phone, String captchaToken, String ipAddress, String location, String deviceInfo) {
+        captchaService.validateCaptcha(captchaToken);
         OtpResponseDto response = new OtpResponseDto();
         List<String> sentVia = new ArrayList<>();
         List<String> failedVia = new ArrayList<>();

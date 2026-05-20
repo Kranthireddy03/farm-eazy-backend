@@ -13,6 +13,8 @@ public class ForgotPasswordDto {
     @NotBlank(message = "Email is required")
     private String email;
 
+    private String captchaToken;
+
     public ForgotPasswordDto() {
     }
 
@@ -26,5 +28,13 @@ public class ForgotPasswordDto {
 
     public void setEmail(String email) {
         this.email = email;
+    }
+
+    public String getCaptchaToken() {
+        return captchaToken;
+    }
+
+    public void setCaptchaToken(String captchaToken) {
+        this.captchaToken = captchaToken;
     }
 }

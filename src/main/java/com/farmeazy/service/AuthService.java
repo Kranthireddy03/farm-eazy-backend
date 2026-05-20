@@ -119,6 +119,9 @@ public class AuthService implements UserDetailsService {
 
     @Autowired
     private OtpService otpService;
+
+    @Autowired
+    private CaptchaService captchaService;
     /**
      * CHANGE PASSWORD LOGIC
      * Validates current password, updates to new password, sends confirmation email.
@@ -293,6 +296,7 @@ public class AuthService implements UserDetailsService {
      */
     @Transactional
     public AuthResponseDto register(AuthRegisterDto registerDto) {
+        captchaService.validateCaptcha(registerDto.getCaptchaToken());
         // If OTP code was provided directly in the registration request, verify it now.
         if (registerDto.getRegistrationOtpCode() != null && !registerDto.getRegistrationOtpCode().isBlank()) {
             otpService.verifyOtp(new OtpVerifyDto(
@@ -407,6 +411,7 @@ public class AuthService implements UserDetailsService {
      * HANDLED BY: GlobalExceptionHandler converts to HTTP 401 Unauthorized
      */
     public AuthResponseDto login(AuthLoginDto loginDto, HttpServletRequest request) {
+        captchaService.validateCaptcha(loginDto.getCaptchaToken());
         String identifier = loginDto.getIdentifier();
         
         // Resolve identifier to user (supports email, username, or user ID)
@@ -986,11 +991,18 @@ public class AuthService implements UserDetailsService {
      */
     @Transactional
     public void forgotPassword(String email) {
-        forgotPassword(email, null, null, null);
+        forgotPassword(email, null);
     }
 
     @Transactional
-    public void forgotPassword(String email, String ipAddress, String location, String deviceInfo) {
+    public void forgotPassword(String email, String captchaToken) {
+        captchaService.validateCaptcha(captchaToken);
+        forgotPassword(email, captchaToken, null, null, null);
+    }
+
+    @Transactional
+    public void forgotPassword(String email, String captchaToken, String ipAddress, String location, String deviceInfo) {
+        captchaService.validateCaptcha(captchaToken);
         Optional<User> userOpt = userRepository.findByEmail(email);
         if (userOpt.isEmpty()) {
             // Do not reveal whether the email exists

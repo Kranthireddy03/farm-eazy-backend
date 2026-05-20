@@ -19,6 +19,8 @@ public interface IrrigationScheduleRepository extends JpaRepository<IrrigationSc
     Page<IrrigationSchedule> findByFarmId(Long farmId, Pageable pageable);
     List<IrrigationSchedule> findByFarmIdAndStatus(Long farmId, String status);
     List<IrrigationSchedule> findByIrrigationDateAfter(LocalDate date);
+    List<IrrigationSchedule> findByFarmIdAndIrrigationDateAfter(Long farmId, LocalDate date);
+    Optional<IrrigationSchedule> findByIdAndFarmUserId(Long id, Long userId);
     List<IrrigationSchedule> findByFarmIdAndIrrigationDateBetween(Long farmId, LocalDate startDate, LocalDate endDate);
 
     /**

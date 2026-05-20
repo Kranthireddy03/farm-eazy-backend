@@ -15,6 +15,8 @@ public class OtpLoginRequestDto {
     @NotBlank(message = "Phone number is required")
     @Pattern(regexp = "^[0-9]{10}$", message = "Phone must be 10 digits")
     private String phone;
+
+    private String captchaToken;
     
     // Getters and Setters
     public String getPhone() {
@@ -23,5 +25,13 @@ public class OtpLoginRequestDto {
     
     public void setPhone(String phone) {
         this.phone = phone;
+    }
+
+    public String getCaptchaToken() {
+        return captchaToken;
+    }
+
+    public void setCaptchaToken(String captchaToken) {
+        this.captchaToken = captchaToken;
     }
 }
