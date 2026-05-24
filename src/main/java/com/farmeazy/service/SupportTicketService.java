@@ -1,7 +1,6 @@
 package com.farmeazy.service;
-
-import com.farmeazy.dto.SupportTicketDto;
 import com.farmeazy.dto.SupportTicketResponseDto;
+import com.farmeazy.dto.SupportTicketDto;
 import com.farmeazy.entity.Notification.NotificationPriority;
 import com.farmeazy.entity.Notification.NotificationType;
 import com.farmeazy.entity.SupportTicket;
@@ -164,20 +163,20 @@ public class SupportTicketService {
                 .map(User::getEmail);
     }
 
-    private void assignTicketToAvailableAgent(SupportTicket ticket) {
+    private Optional<String> assignTicketToAvailableAgent(SupportTicket ticket) {
         if (ticket == null || ticket.getAssignedTo() != null) {
-            return;
+            return Optional.empty();
         }
         Optional<String> agentEmail = findLeastLoadedActiveAgentEmail();
         if (agentEmail.isEmpty()) {
-            return;
+            return Optional.empty();
         }
 
         ticket.setAssignedTo(agentEmail.get());
         if (ticket.getStatus() == TicketStatus.OPEN) {
             ticket.setStatus(TicketStatus.IN_PROGRESS);
         }
-        createSupportTicketMessage(ticket, "SYSTEM", "Auto Assign", "Ticket assigned to " + agentEmail.get(), null);
+        return agentEmail;
     }
 
     private SupportTicket requirePublicAccessibleTicket(String displayId) {
@@ -268,6 +267,16 @@ public class SupportTicketService {
         return escapeHtml(value).replace("\n", "<br>");
     }
 
+    private String toHtmlWithAttachmentLinks(String value) {
+        if (value == null) return "";
+        String escaped = escapeHtml(value);
+        String linked = escaped.replaceAll(
+                "(?im)Attachment:\\s*([^\\n(]+?)\\s*\\((https?://[^)]+|/uploads/[^)]+)\\)",
+                "<a href=\"$2\" target=\"_blank\" rel=\"noreferrer noopener\">$1</a>"
+        );
+        return linked.replace("\n", "<br>");
+    }
+
     private String detailRow(String label, String value) {
         if (value == null || value.isBlank()) {
             return "";
@@ -334,7 +343,7 @@ public class SupportTicketService {
             html.append("<strong>")
                     .append(escapeHtml(issueLabel))
                     .append("</strong><br>")
-                    .append(toHtmlLines(issueText));
+                    .append(toHtmlWithAttachmentLinks(issueText));
         }
         if (updateText != null && !updateText.isBlank()) {
             if (!html.isEmpty()) {
@@ -343,7 +352,7 @@ public class SupportTicketService {
             html.append("<strong>")
                     .append(escapeHtml(updateLabel))
                     .append("</strong><br>")
-                    .append(toHtmlLines(updateText));
+                    .append(toHtmlWithAttachmentLinks(updateText));
         }
         return html.toString();
     }
@@ -418,14 +427,20 @@ public class SupportTicketService {
                 ticket.setOrderId(dto.getOrderId());
                 ticket.setServiceId(dto.getServiceId());
                 ticket.setDisplayId(sequenceGeneratorService.getNextSupportTicketDisplayId());
-                assignTicketToAvailableAgent(ticket);
-                SupportTicket saved = ticketRepository.save(ticket);
+                Optional<String> assignedAgent = assignTicketToAvailableAgent(ticket);
+                SupportTicket saved = ticketRepository.saveAndFlush(ticket);
+                if (saved == null || saved.getId() == null) {
+                    throw new IllegalStateException("Support ticket ID missing after save");
+                }
+                if (assignedAgent.isPresent()) {
+                    createSupportTicketMessage(saved, "SYSTEM", "Auto Assign", "Ticket assigned to " + assignedAgent.get(), (String) null);
+                }
 
                 List<StoredAttachment> storedAttachments = storeAttachments(files);
 
                 // Record initial user message in conversation
                 String initialBody = appendAttachmentsToBody(saved.getDescription(), storedAttachments);
-                createSupportTicketMessage(saved, "USER", saved.getContactEmail(), initialBody, primaryAttachmentUrl(storedAttachments));
+                createSupportTicketMessage(saved, "USER", saved.getContactEmail(), initialBody, storedAttachments);
 
                 logger.info("Created guest support ticket {}", saved.getDisplayId());
                 String subject = "[Ticket #" + saved.getDisplayId() + "] " + saved.getSubject() + " – FarmEazy Support";
@@ -610,7 +625,7 @@ public class SupportTicketService {
         ticket.setImportant(important);
         ticketRepository.save(ticket);
 
-        createSupportTicketMessage(ticket, "SYSTEM", "System", "Important flag set to " + important + "", null);
+        createSupportTicketMessage(ticket, "SYSTEM", "System", "Important flag set to " + important + "", (String) null);
 
         return SupportTicketResponseDto.fromEntity(ticket);
     }
@@ -622,7 +637,7 @@ public class SupportTicketService {
         ticket.setArchived(archived);
         ticketRepository.save(ticket);
 
-        createSupportTicketMessage(ticket, "SYSTEM", "System", "Archived flag set to " + archived + "", null);
+        createSupportTicketMessage(ticket, "SYSTEM", "System", "Archived flag set to " + archived + "", (String) null);
 
         return SupportTicketResponseDto.fromEntity(ticket);
     }
@@ -636,8 +651,26 @@ public class SupportTicketService {
     }
 
     private void createSupportTicketMessage(SupportTicket ticket, String senderType, String senderName, String message, String attachmentUrl) {
+        if (ticket == null || ticket.getId() == null) {
+            throw new IllegalStateException("Cannot create support ticket message without a saved ticket ID");
+        }
         SupportTicketMessage event = new SupportTicketMessage(ticket.getId(), senderType, senderName, message, attachmentUrl);
         supportTicketMessageRepository.save(event);
+    }
+    private void createSupportTicketMessage(SupportTicket ticket, String senderType, String senderName, String message, java.util.List<StoredAttachment> attachments) {
+        if (ticket == null || ticket.getId() == null) {
+            throw new IllegalStateException("Cannot create support ticket message without a saved ticket ID");
+        }
+        String primary = primaryAttachmentUrl(attachments);
+        SupportTicketMessage event = new SupportTicketMessage(ticket.getId(), senderType, senderName, message, primary);
+        supportTicketMessageRepository.save(event);
+
+        if (attachments != null && !attachments.isEmpty()) {
+            for (StoredAttachment a : attachments) {
+                com.farmeazy.entity.SupportTicketAttachment ta = new com.farmeazy.entity.SupportTicketAttachment(event.getId(), a.name(), a.url());
+                supportTicketAttachmentRepository.save(ta);
+            }
+        }
     }
 
     /**
@@ -656,7 +689,7 @@ public class SupportTicketService {
             ticketRepository.save(ticket);
 
             String statusChangeMessage = "Status changed from " + oldStatus + " to " + st + ".";
-            createSupportTicketMessage(ticket, "SYSTEM", "System", statusChangeMessage, null);
+            createSupportTicketMessage(ticket, "SYSTEM", "System", statusChangeMessage, (String) null);
 
                 String resolvedDisplayId = resolveDisplayId(ticket);
                 notifyTicketOwner(
@@ -734,7 +767,7 @@ public class SupportTicketService {
         ticketRepository.save(ticket);
 
         // Add new conversation record
-        createSupportTicketMessage(ticket, "ADMIN", adminEmail, reply, null);
+        createSupportTicketMessage(ticket, "ADMIN", adminEmail, reply, (String) null);
 
         logger.info("Admin {} replied to ticket {}", adminEmail, displayId);
 
@@ -776,7 +809,7 @@ public class SupportTicketService {
         ticket.setUpdatedAt(LocalDateTime.now());
         ticketRepository.save(ticket);
 
-        createSupportTicketMessage(ticket, "SYSTEM", "System", "Ticket marked RESOLVED by " + adminEmail, null);
+        createSupportTicketMessage(ticket, "SYSTEM", "System", "Ticket marked RESOLVED by " + adminEmail, (String) null);
 
         logger.info("Admin {} resolved ticket {}", adminEmail, displayId);
             // Trigger email notification to user
@@ -823,6 +856,9 @@ public class SupportTicketService {
 
     @Autowired
     private SequenceGeneratorService sequenceGeneratorService;
+
+    @Autowired
+    private com.farmeazy.repository.SupportTicketAttachmentRepository supportTicketAttachmentRepository;
 
     private void notifyTicketOwner(SupportTicket ticket, String title, String message, String actionUrl, NotificationPriority priority) {
         if (ticket == null || ticket.getUser() == null) {
@@ -915,11 +951,7 @@ public class SupportTicketService {
         ticketRepository.save(ticket);
 
         // Add message row
-        if (hasReply) {
-            createSupportTicketMessage(ticket, "ADMIN", adminEmail, responseMessage, primaryAttachmentUrl(storedAttachments));
-        } else {
-            createSupportTicketMessage(ticket, "ADMIN", adminEmail, responseMessage, primaryAttachmentUrl(storedAttachments));
-        }
+        createSupportTicketMessage(ticket, "ADMIN", adminEmail, responseMessage, storedAttachments);
 
         // Notify user once about reply and/or attachment
         try {
@@ -1018,16 +1050,22 @@ public class SupportTicketService {
         ticket.setOrderId(dto.getOrderId());
         ticket.setServiceId(dto.getServiceId());
         ticket.setDisplayId(sequenceGeneratorService.getNextSupportTicketDisplayId());
-        assignTicketToAvailableAgent(ticket);
+        Optional<String> assignedAgent = assignTicketToAvailableAgent(ticket);
 
         // Save to get ID
-        SupportTicket saved = ticketRepository.save(ticket);
+        SupportTicket saved = ticketRepository.saveAndFlush(ticket);
+        if (saved == null || saved.getId() == null) {
+            throw new IllegalStateException("Support ticket ID missing after save");
+        }
+        if (assignedAgent.isPresent()) {
+                createSupportTicketMessage(saved, "SYSTEM", "Auto Assign", "Ticket assigned to " + assignedAgent.get(), (String) null);
+        }
 
         List<StoredAttachment> storedAttachments = storeAttachments(files);
 
         // Record initial user message in conversation
         String initialBody = appendAttachmentsToBody(saved.getDescription(), storedAttachments);
-        createSupportTicketMessage(saved, "USER", saved.getContactEmail(), initialBody, primaryAttachmentUrl(storedAttachments));
+        createSupportTicketMessage(saved, "USER", saved.getContactEmail(), initialBody, storedAttachments);
 
         logger.info("Created support ticket {} for user {}", saved.getDisplayId(), userEmail);
         // Send email to support@farm-eazy.com
@@ -1123,7 +1161,7 @@ public class SupportTicketService {
         String sender = senderEmail != null ? senderEmail : ticket.getContactEmail();
         String messageBody = hasResponse ? response : "Attachment added";
         messageBody = appendAttachmentsToBody(messageBody, storedAttachments);
-        createSupportTicketMessage(ticket, "USER", sender, messageBody, primaryAttachmentUrl(storedAttachments));
+        createSupportTicketMessage(ticket, "USER", sender, messageBody, storedAttachments);
 
         ticket.setStatus(TicketStatus.IN_PROGRESS);
         ticket.setUpdatedAt(LocalDateTime.now());
@@ -1163,7 +1201,7 @@ public class SupportTicketService {
         ticket.setUpdatedAt(LocalDateTime.now());
         ticketRepository.save(ticket);
 
-        createSupportTicketMessage(ticket, "SYSTEM", "System", "Ticket reopened by " + (requesterEmail != null ? requesterEmail : "public user"), null);
+        createSupportTicketMessage(ticket, "SYSTEM", "System", "Ticket reopened by " + (requesterEmail != null ? requesterEmail : "public user"), (String) null);
 
         String userLink = buildTicketUrl(ticket.getDisplayId(), true);
         String userSubject = "[Ticket #" + ticket.getDisplayId() + "] " + ticket.getSubject() + " – FarmEazy Support";
@@ -1306,7 +1344,7 @@ public class SupportTicketService {
         ticket.setDescription(updatedDescription);
 
         // Persist the response as a conversation message so both user/admin history stays in sync.
-        createSupportTicketMessage(ticket, "USER", userEmail, responseMessage, primaryAttachmentUrl(storedAttachments));
+        createSupportTicketMessage(ticket, "USER", userEmail, responseMessage, storedAttachments);
         
         // User has replied, ticket should return to active support handling.
         ticket.setStatus(TicketStatus.IN_PROGRESS);
@@ -1360,7 +1398,7 @@ public class SupportTicketService {
         ticket.setUpdatedAt(LocalDateTime.now());
         ticketRepository.save(ticket);
 
-        createSupportTicketMessage(ticket, "SYSTEM", "System", "Ticket reopened by " + userEmail, null);
+        createSupportTicketMessage(ticket, "SYSTEM", "System", "Ticket reopened by " + userEmail, (String) null);
 
         return SupportTicketResponseDto.fromEntity(ticket);
     }
@@ -1384,7 +1422,7 @@ public class SupportTicketService {
         ticket.setUpdatedAt(LocalDateTime.now());
         ticketRepository.save(ticket);
 
-        createSupportTicketMessage(ticket, "SYSTEM", "Assignment", "Ticket assigned to " + assignee.getEmail() + " by " + requestedByEmail, null);
+        createSupportTicketMessage(ticket, "SYSTEM", "Assignment", "Ticket assigned to " + assignee.getEmail() + " by " + requestedByEmail, (String) null);
         return SupportTicketResponseDto.fromEntity(ticket);
     }
 

@@ -136,7 +136,7 @@ public class SecurityConfig {
                 .requestMatchers(HttpMethod.POST, "/api/payment/webhook").permitAll()
                 .requestMatchers(HttpMethod.POST, "/api/razorpay/webhook/bank-verification").permitAll()
                 .requestMatchers(HttpMethod.GET, "/api/products/media/**").permitAll()
-                .requestMatchers(HttpMethod.GET, "/uploads/**").denyAll()
+                .requestMatchers(HttpMethod.GET, "/uploads/**").permitAll()
                 .requestMatchers(HttpMethod.GET, "/api/faq-questions").permitAll()
                 .requestMatchers(HttpMethod.GET, "/api/faq-question/**").permitAll()
                 .requestMatchers(HttpMethod.POST, "/api/faq-question/**").permitAll()

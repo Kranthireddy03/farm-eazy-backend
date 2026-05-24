@@ -236,15 +236,7 @@ public class FAQQuestionService {
             return "PENDING";
         }
 
-        if (latestAdminReplyAt != null) {
-            OffsetDateTime now = OffsetDateTime.now();
-            if (Duration.between(latestAdminReplyAt, now).compareTo(FAQ_AUTO_RESOLVE_AFTER) >= 0) {
-                return entity.isAddedToFAQ() ? "RESOLVED" : "REJECTED";
-            }
-        }
-
-        // Awaiting explicit user confirmation or timeout.
-        return "PENDING";
+        return entity.isAddedToFAQ() ? "RESOLVED" : "REJECTED";
     }
 
     private String normalizeUrl(String url, String defaultUrl) {

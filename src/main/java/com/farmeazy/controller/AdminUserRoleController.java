@@ -10,9 +10,8 @@ import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.web.bind.annotation.*;
 
-import java.util.HashSet;
-import java.util.Optional;
-import java.util.Set;
+import java.util.Collections;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/admin/users")
@@ -29,9 +28,9 @@ public class AdminUserRoleController {
     @PutMapping("/{email}/role")
     @PreAuthorize("hasRole('ADMIN') or hasRole('SUPERADMIN')")
     @Operation(summary = "Assign role to user", description = "Add or update a role for a user by email")
-    public ResponseEntity<?> assignRole(@PathVariable String email, @RequestParam String role) {
+    public ResponseEntity<Map<String, String>> assignRole(@PathVariable String email, @RequestParam String role) {
         // New behavior: log assignment and keep immutable audit history via RoleAuditLog
         roleService.assignUserRole(email, role, SecurityContextHolder.getContext().getAuthentication().getName());
-        return ResponseEntity.ok("Role assigned: " + role);
+        return ResponseEntity.ok(Collections.singletonMap("message", "Role assigned: " + role));
     }
 }
