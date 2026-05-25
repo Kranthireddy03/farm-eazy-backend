@@ -30,6 +30,8 @@ import org.springframework.web.multipart.MultipartFile;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -57,8 +59,24 @@ public class SupportTicketService {
 
     private record StoredAttachment(String name, String url) {}
 
+        private static final int MAX_ATTACHMENTS = 3;
+        private static final long MAX_ATTACHMENT_SIZE = 5L * 1024L * 1024L; // 5 MB
+        private static final java.util.Set<String> ALLOWED_CONTENT_TYPES = java.util.Set.of(
+            "image/jpeg", "image/png", "image/jpg", "image/gif", "image/webp",
+            "application/pdf", "text/plain", "text/csv",
+            "application/msword", "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            "application/vnd.ms-excel", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        );
+
     private StoredAttachment storeAttachment(MultipartFile file) {
         if (file == null || file.isEmpty()) return null;
+        if (file.getSize() > MAX_ATTACHMENT_SIZE) {
+            throw new IllegalArgumentException("Attachment exceeds maximum size of 5 MB: " + (file.getOriginalFilename() != null ? file.getOriginalFilename() : "file"));
+        }
+        String contentType = file.getContentType();
+        if (contentType != null && !ALLOWED_CONTENT_TYPES.contains(contentType)) {
+            throw new IllegalArgumentException("Attachment has disallowed content type: " + contentType);
+        }
         String originalName = file.getOriginalFilename() != null ? file.getOriginalFilename() : "attachment";
         String storedName = fileStorageService.store(file);
         return new StoredAttachment(originalName, "/uploads/" + storedName);
@@ -68,14 +86,17 @@ public class SupportTicketService {
         if (files == null || files.isEmpty()) {
             return Collections.emptyList();
         }
-        List<StoredAttachment> stored = new ArrayList<>();
+        if (files.size() > MAX_ATTACHMENTS) {
+            throw new IllegalArgumentException("Maximum " + MAX_ATTACHMENTS + " attachments allowed");
+        }
+        java.util.Map<String, StoredAttachment> unique = new java.util.LinkedHashMap<>();
         for (MultipartFile file : files) {
             StoredAttachment item = storeAttachment(file);
             if (item != null) {
-                stored.add(item);
+                unique.putIfAbsent(item.url(), item);
             }
         }
-        return stored;
+        return new ArrayList<>(unique.values());
     }
 
     private String appendAttachmentsToBody(String base, List<StoredAttachment> attachments) {
@@ -84,12 +105,28 @@ public class SupportTicketService {
             return safeBase;
         }
         String lines = attachments.stream()
-                .map(a -> "Attachment: " + a.name() + " (" + a.url() + ")")
+                .map(a -> "Attachment: " + a.name() + " (" + buildAttachmentLink(a.url()) + ")")
                 .collect(Collectors.joining("\n"));
         if (safeBase.isBlank()) {
             return lines;
         }
         return safeBase + "\n\n" + lines;
+    }
+
+    private String buildAttachmentLink(String relativePath) {
+        if (relativePath == null || relativePath.isBlank()) return "";
+        String base = (supportFrontendBaseUrl != null && !supportFrontendBaseUrl.isBlank())
+                ? supportFrontendBaseUrl
+                : (fallbackFrontendBaseUrl != null && !fallbackFrontendBaseUrl.isBlank() ? fallbackFrontendBaseUrl : "");
+        if (base == null || base.isBlank()) base = "";
+        String cleanBase = base.replaceAll("/$", "");
+        try {
+            String encoded = URLEncoder.encode(relativePath, StandardCharsets.UTF_8.toString());
+            return cleanBase + "/api/attachments/file?path=" + encoded;
+        } catch (Exception e) {
+            // fallback to raw path if encoding fails
+            return cleanBase + "/api/attachments/file?path=" + relativePath;
+        }
     }
 
     private String primaryAttachmentUrl(List<StoredAttachment> attachments) {
@@ -438,8 +475,9 @@ public class SupportTicketService {
 
                 List<StoredAttachment> storedAttachments = storeAttachments(files);
 
-                // Record initial user message in conversation
-                String initialBody = appendAttachmentsToBody(saved.getDescription(), storedAttachments);
+                // Record initial user message in conversation. Keep attachments as separate records
+                // to avoid duplicate rendering in the UI (attachments are saved on their own rows).
+                String initialBody = saved.getDescription();
                 createSupportTicketMessage(saved, "USER", saved.getContactEmail(), initialBody, storedAttachments);
 
                 logger.info("Created guest support ticket {}", saved.getDisplayId());
@@ -666,8 +704,16 @@ public class SupportTicketService {
         supportTicketMessageRepository.save(event);
 
         if (attachments != null && !attachments.isEmpty()) {
+            java.util.Set<String> saved = new java.util.HashSet<>();
             for (StoredAttachment a : attachments) {
-                com.farmeazy.entity.SupportTicketAttachment ta = new com.farmeazy.entity.SupportTicketAttachment(event.getId(), a.name(), a.url());
+                if (a == null) continue;
+                String url = a.url();
+                if (url == null) continue;
+                // Skip saving duplicate rows and skip the primary if it is already set on the message
+                if (url.equals(primary)) continue;
+                if (saved.contains(url)) continue;
+                saved.add(url);
+                com.farmeazy.entity.SupportTicketAttachment ta = new com.farmeazy.entity.SupportTicketAttachment(event.getId(), a.name(), url);
                 supportTicketAttachmentRepository.save(ta);
             }
         }
@@ -881,7 +927,7 @@ public class SupportTicketService {
             String fileName = storedAttachment != null ? storedAttachment.name() : (file != null ? file.getOriginalFilename() : "attachment");
             String notes = (ticket.getAdminNotes() != null ? ticket.getAdminNotes() : "") +
                     "\n\n--- Admin Attachment (" + java.time.LocalDateTime.now() + ", " + adminEmail + ") ---\n" +
-                "Attachment: " + fileName + " (" + fileUrl + ")\n";
+                "Attachment: " + fileName + " (" + buildAttachmentLink(fileUrl) + ")\n";
             ticket.setAdminNotes(notes);
             ticket.setUpdatedAt(LocalDateTime.now());
             ticketRepository.save(ticket);
@@ -899,7 +945,7 @@ public class SupportTicketService {
                         "Issue summary",
                         ticket.getDescription(),
                         "Attachment added",
-                        fileUrl != null ? (fileName + " (" + fileUrl + ")") : fileName
+                        fileUrl != null ? (fileName + " (" + buildAttachmentLink(fileUrl) + ")") : fileName
                     ),
                     buildTicketUrl(ticket.getDisplayId(), ticket.getUser() == null)
                 );
@@ -936,11 +982,11 @@ public class SupportTicketService {
                 .orElseThrow(() -> new ResourceNotFoundException("Ticket not found: " + displayId));
 
         String replyText = reply != null ? reply : "";
-        String responseMessage = appendAttachmentsToBody(replyText, storedAttachments);
-
-        // Append admin reply and optional attachment to adminNotes
+        // adminNotes should include attachment lines for legacy visibility, but do not embed
+        // those lines into the conversation message (we store attachments separately).
+        String notesAppend = appendAttachmentsToBody(replyText, storedAttachments);
         String notes = (ticket.getAdminNotes() != null ? ticket.getAdminNotes() : "") +
-                "\n\n--- Admin Reply (" + LocalDateTime.now() + ", " + adminEmail + ") ---\n" + responseMessage;
+            "\n\n--- Admin Reply (" + LocalDateTime.now() + ", " + adminEmail + ") ---\n" + notesAppend;
         ticket.setAdminNotes(notes);
 
         // Move status to IN_PROGRESS if appropriate
@@ -950,8 +996,8 @@ public class SupportTicketService {
         ticket.setUpdatedAt(LocalDateTime.now());
         ticketRepository.save(ticket);
 
-        // Add message row
-        createSupportTicketMessage(ticket, "ADMIN", adminEmail, responseMessage, storedAttachments);
+        // Add message row (message text only; attachments stored separately)
+        createSupportTicketMessage(ticket, "ADMIN", adminEmail, replyText, storedAttachments);
 
         // Notify user once about reply and/or attachment
         try {
@@ -1063,8 +1109,8 @@ public class SupportTicketService {
 
         List<StoredAttachment> storedAttachments = storeAttachments(files);
 
-        // Record initial user message in conversation
-        String initialBody = appendAttachmentsToBody(saved.getDescription(), storedAttachments);
+        // Record initial user message in conversation (do not duplicate attachment lines in message)
+        String initialBody = saved.getDescription();
         createSupportTicketMessage(saved, "USER", saved.getContactEmail(), initialBody, storedAttachments);
 
         logger.info("Created support ticket {} for user {}", saved.getDisplayId(), userEmail);
@@ -1160,7 +1206,8 @@ public class SupportTicketService {
 
         String sender = senderEmail != null ? senderEmail : ticket.getContactEmail();
         String messageBody = hasResponse ? response : "Attachment added";
-        messageBody = appendAttachmentsToBody(messageBody, storedAttachments);
+        // Keep attachment lines in the persistent description for legacy search/UI but do not
+        // embed them into the conversation message to avoid duplicates.
         createSupportTicketMessage(ticket, "USER", sender, messageBody, storedAttachments);
 
         ticket.setStatus(TicketStatus.IN_PROGRESS);
@@ -1334,17 +1381,16 @@ public class SupportTicketService {
         // Append response to description
         String responseText = hasResponse ? response : "Attachment added";
         String updatedDescription = ticket.getDescription() + "\n\n--- User Response (" + LocalDateTime.now() + ") ---\n" + responseText;
-        String responseMessage = appendAttachmentsToBody(responseText, storedAttachments);
         if (!storedAttachments.isEmpty()) {
             String attachmentLines = storedAttachments.stream()
-                    .map(a -> "Attachment: " + a.name() + " (" + a.url() + ")")
-                    .collect(Collectors.joining("\n"));
+                .map(a -> "Attachment: " + a.name() + " (" + buildAttachmentLink(a.url()) + ")")
+                .collect(Collectors.joining("\n"));
             updatedDescription += "\n" + attachmentLines;
         }
         ticket.setDescription(updatedDescription);
 
-        // Persist the response as a conversation message so both user/admin history stays in sync.
-        createSupportTicketMessage(ticket, "USER", userEmail, responseMessage, storedAttachments);
+        // Persist the response as a conversation message (text only); attachments are saved separately.
+        createSupportTicketMessage(ticket, "USER", userEmail, responseText, storedAttachments);
         
         // User has replied, ticket should return to active support handling.
         ticket.setStatus(TicketStatus.IN_PROGRESS);
@@ -1372,7 +1418,7 @@ public class SupportTicketService {
                         detailRow("User", userEmail) +
                         detailRow("Status", String.valueOf(ticket.getStatus())),
                     "User message",
-                    responseMessage
+                    responseText
                 ),
                 "Open ticket",
                 buildTicketUrl(resolveDisplayId(ticket), false)

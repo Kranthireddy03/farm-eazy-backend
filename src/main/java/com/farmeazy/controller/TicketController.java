@@ -22,6 +22,8 @@ public class TicketController {
 
     @Autowired
     private TicketService ticketService;
+    @Autowired
+    private com.farmeazy.service.FileStorageService fileStorageService;
 
     @PostMapping
     public ResponseEntity<Ticket> createTicket(@RequestBody Ticket ticket) {
@@ -69,15 +71,8 @@ public class TicketController {
     @PostMapping(path = "/{id}/attachments", consumes = {"multipart/form-data"})
     public ResponseEntity<Ticket> uploadAttachment(@PathVariable Long id, @RequestParam("file") org.springframework.web.multipart.MultipartFile file, @RequestParam(required = false) Long uploadedBy) {
         try {
-            // Save file to local uploads directory
-            java.nio.file.Path uploads = java.nio.file.Paths.get("uploads");
-            if (!java.nio.file.Files.exists(uploads)) java.nio.file.Files.createDirectories(uploads);
-            String filename = System.currentTimeMillis() + "-" + java.util.UUID.randomUUID() + "-" + file.getOriginalFilename();
-            java.nio.file.Path target = uploads.resolve(filename);
-            try (java.io.InputStream in = file.getInputStream()) {
-                java.nio.file.Files.copy(in, target);
-            }
-            String fileUrl = "/uploads/" + filename;
+            String storedName = fileStorageService.store(file);
+            String fileUrl = "/uploads/" + storedName;
             Ticket t = ticketService.addAttachment(id, fileUrl, uploadedBy == null ? 0L : uploadedBy);
             return ResponseEntity.ok(t);
         } catch (Exception ex) {

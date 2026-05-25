@@ -41,7 +41,7 @@ public class FAQQuestionController {
                 String originalName = (item.getOriginalFilename() != null && !item.getOriginalFilename().isBlank())
                         ? item.getOriginalFilename()
                         : storedName;
-                lines.add("Attachment: " + originalName + " (/uploads/" + storedName + ")");
+                lines.add("Attachment: " + originalName + " (" + buildAttachmentLink("/uploads/" + storedName) + ")");
             }
         }
         if (file != null && !file.isEmpty()) {
@@ -49,7 +49,7 @@ public class FAQQuestionController {
             String originalName = (file.getOriginalFilename() != null && !file.getOriginalFilename().isBlank())
                     ? file.getOriginalFilename()
                     : storedName;
-            lines.add("Attachment: " + originalName + " (/uploads/" + storedName + ")");
+            lines.add("Attachment: " + originalName + " (" + buildAttachmentLink("/uploads/" + storedName) + ")");
         }
         if (lines.isEmpty()) {
             return base;
@@ -66,6 +66,26 @@ public class FAQQuestionController {
 
     @Autowired
     private FileStorageService fileStorageService;
+
+    @org.springframework.beans.factory.annotation.Value("${farmeazy.app.support-base-url:${FARMEAZY_SUPPORT_BASE_URL:https://support.farm-eazy.com}}")
+    private String supportFrontendBaseUrl;
+
+    @org.springframework.beans.factory.annotation.Value("${farmeazy.app.base-url:${farmeazy.app.public-base-url:${FARMEAZY_PUBLIC_BASE_URL:https://www.farm-easy.com}}}")
+    private String fallbackFrontendBaseUrl;
+
+    private String buildAttachmentLink(String relativePath) {
+        if (relativePath == null || relativePath.isBlank()) return "";
+        String base = (supportFrontendBaseUrl != null && !supportFrontendBaseUrl.isBlank())
+                ? supportFrontendBaseUrl
+                : (fallbackFrontendBaseUrl != null && !fallbackFrontendBaseUrl.isBlank() ? fallbackFrontendBaseUrl : "");
+        String cleanBase = base == null ? "" : base.replaceAll("/$", "");
+        try {
+            String encoded = java.net.URLEncoder.encode(relativePath, java.nio.charset.StandardCharsets.UTF_8.toString());
+            return cleanBase + "/api/attachments/file?path=" + encoded;
+        } catch (Exception e) {
+            return cleanBase + "/api/attachments/file?path=" + relativePath;
+        }
+    }
 
     @PostMapping
     public ResponseEntity<String> submitQuestion(@Valid @RequestBody FAQQuestionDto dto, Authentication authentication) {
