@@ -40,6 +40,9 @@ public class BlogPostService {
     @Autowired
     private BlogPostRatingRepository blogPostRatingRepository;
 
+    @Autowired
+    private com.farmeazy.repository.BlogCommentRepository blogCommentRepository;
+
     public List<BlogPostDto> getPublicPosts(String category) {
         logger.info("BLOG_SERVICE_GET_PUBLIC_POSTS_START category={}", category);
         List<BlogPost> posts;
@@ -220,6 +223,47 @@ public class BlogPostService {
         BlogPost saved = blogPostRepository.save(post);
         logger.info("BLOG_SERVICE_RATE_DONE slug={} actorEmail={} avg={} count={}", slug, actorEmail, saved.getAverageRating(), saved.getRatingCount());
         return toDto(saved);
+    }
+
+    public List<com.farmeazy.dto.BlogCommentDto> getComments(String slug) {
+        BlogPost post = blogPostRepository.findBySlug(slug)
+                .filter(item -> item.getStatus() == BlogPost.BlogStatus.PUBLISHED)
+                .orElseThrow(() -> new com.farmeazy.exception.ResourceNotFoundException("Published blog post not found: " + slug));
+
+        List<com.farmeazy.entity.BlogComment> rows = blogCommentRepository.findByBlogPostIdOrderByCreatedAtAsc(post.getId());
+        return rows.stream().map(com.farmeazy.dto.BlogCommentDto::fromEntity).toList();
+    }
+
+    @Transactional
+    public com.farmeazy.dto.BlogCommentDto addComment(String slug, String actorEmail, String content) {
+        if (content == null || content.isBlank()) throw new IllegalArgumentException("Comment cannot be empty");
+        BlogPost post = blogPostRepository.findBySlug(slug)
+                .filter(item -> item.getStatus() == BlogPost.BlogStatus.PUBLISHED)
+                .orElseThrow(() -> new com.farmeazy.exception.ResourceNotFoundException("Published blog post not found: " + slug));
+
+        com.farmeazy.entity.BlogComment comment = new com.farmeazy.entity.BlogComment();
+        comment.setBlogPost(post);
+        if (actorEmail != null && !actorEmail.isBlank()) {
+            com.farmeazy.entity.User user = userRepository.findByEmail(actorEmail).orElse(null);
+            comment.setUser(user);
+        }
+        comment.setContent(content.trim());
+        comment = blogCommentRepository.save(comment);
+
+        // Notify post author if possible
+        try {
+            if (post.getCreatedBy() != null && !post.getCreatedBy().isBlank()) {
+                userRepository.findByEmail(post.getCreatedBy()).ifPresent(author -> {
+                    String title = "New comment on your blog post";
+                    String message = "A new comment was added to '" + post.getTitle() + "'";
+                    notificationService.createForUser(author, com.farmeazy.entity.Notification.NotificationType.SYSTEM, title, message, "/blog/" + post.getSlug(), com.farmeazy.entity.Notification.NotificationPriority.NORMAL);
+                });
+            }
+        } catch (Exception ex) {
+            // ignore notification failures
+        }
+
+        return com.farmeazy.dto.BlogCommentDto.fromEntity(comment);
     }
 
     private void recalculateAggregates(BlogPost post) {

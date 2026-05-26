@@ -6,4 +6,5 @@ import java.util.List;
 
 public interface SupportTicketAttachmentRepository extends JpaRepository<SupportTicketAttachment, Long> {
     List<SupportTicketAttachment> findBySupportTicketMessageId(Long messageId);
+    SupportTicketAttachment findByUrl(String url);
 }

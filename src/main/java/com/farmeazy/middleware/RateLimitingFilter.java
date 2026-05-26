@@ -5,6 +5,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -39,6 +40,9 @@ public class RateLimitingFilter extends OncePerRequestFilter {
     }
 
     private final StringRedisTemplate redisTemplate;
+    // In-memory fallback counters when Redis is unavailable
+    private static final ConcurrentHashMap<String, Integer> localCounts = new ConcurrentHashMap<>();
+    private static final ConcurrentHashMap<String, Long> localExpiry = new ConcurrentHashMap<>();
 
     public RateLimitingFilter(StringRedisTemplate redisTemplate) {
         this.redisTemplate = redisTemplate;
@@ -71,12 +75,27 @@ public class RateLimitingFilter extends OncePerRequestFilter {
                     return;
                 }
             } catch (Exception exception) {
-                logger.warn("Rate limiting Redis error for path={} ip={}: {}", path, ip, exception.getMessage());
-                response.setStatus(503);
-                response.setContentType("application/json");
-                response.setCharacterEncoding("UTF-8");
-                response.getWriter().write("{\"status\":503,\"message\":\"Rate limiting is temporarily unavailable\"}");
-                return;
+                // Redis is down/unreachable; use local in-memory fallback instead of failing the request
+                logger.warn("Rate limiting Redis error for path={} ip={}: {}, falling back to in-memory counters", path, ip, exception.getMessage());
+
+                // Clean up expired buckets if necessary and increment local counter
+                long now = Instant.now().toEpochMilli();
+                localExpiry.compute(key, (k, exp) -> {
+                    if (exp == null || exp < now) return now + WINDOW_MILLIS * 2;
+                    return exp;
+                });
+
+                Integer current = localCounts.merge(key, 1, Integer::sum);
+                if (current != null && current > maxAttempts) {
+                    long retryAfterSeconds = 60L;
+                    response.setStatus(429);
+                    response.setContentType("application/json");
+                    response.setCharacterEncoding("UTF-8");
+                    response.setHeader("Retry-After", String.valueOf(retryAfterSeconds));
+                    response.getWriter().write("{\"status\":429,\"message\":\"Too many requests. Please try again later.\",\"retryAfterSeconds\":" + retryAfterSeconds + "}");
+                    return;
+                }
+                // allow the request to proceed under local counters
             }
         }
 

@@ -1,6 +1,7 @@
 package com.farmeazy.service;
-import com.farmeazy.dto.SupportTicketResponseDto;
+
 import com.farmeazy.dto.SupportTicketDto;
+import com.farmeazy.dto.SupportTicketResponseDto;
 import com.farmeazy.entity.Notification.NotificationPriority;
 import com.farmeazy.entity.Notification.NotificationType;
 import com.farmeazy.entity.SupportTicket;
@@ -30,8 +31,6 @@ import org.springframework.web.multipart.MultipartFile;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
-import java.net.URLEncoder;
-import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -113,27 +112,26 @@ public class SupportTicketService {
         return safeBase + "\n\n" + lines;
     }
 
-    private String buildAttachmentLink(String relativePath) {
-        if (relativePath == null || relativePath.isBlank()) return "";
-        String base = (supportFrontendBaseUrl != null && !supportFrontendBaseUrl.isBlank())
-                ? supportFrontendBaseUrl
-                : (fallbackFrontendBaseUrl != null && !fallbackFrontendBaseUrl.isBlank() ? fallbackFrontendBaseUrl : "");
-        if (base == null || base.isBlank()) base = "";
-        String cleanBase = base.replaceAll("/$", "");
-        try {
-            String encoded = URLEncoder.encode(relativePath, StandardCharsets.UTF_8.toString());
-            return cleanBase + "/api/attachments/file?path=" + encoded;
-        } catch (Exception e) {
-            // fallback to raw path if encoding fails
-            return cleanBase + "/api/attachments/file?path=" + relativePath;
-        }
-    }
-
     private String primaryAttachmentUrl(List<StoredAttachment> attachments) {
         if (attachments == null || attachments.isEmpty()) {
             return null;
         }
         return attachments.get(0).url();
+    }
+
+    private String buildAttachmentLink(String relativePath) {
+        if (relativePath == null || relativePath.isBlank()) return "";
+        String base = (supportFrontendBaseUrl != null && !supportFrontendBaseUrl.isBlank())
+                ? supportFrontendBaseUrl
+                : (fallbackFrontendBaseUrl != null && !fallbackFrontendBaseUrl.isBlank() ? fallbackFrontendBaseUrl : "");
+        if (base == null) base = "";
+        String cleanBase = base.replaceAll("/$", "");
+        try {
+            String encoded = java.net.URLEncoder.encode(relativePath, java.nio.charset.StandardCharsets.UTF_8.toString());
+            return cleanBase + "/api/attachments/file?path=" + encoded;
+        } catch (Exception e) {
+            return cleanBase + "/api/attachments/file?path=" + relativePath;
+        }
     }
 
     private static final java.util.Set<String> ALLOWED_SOURCES = java.util.Set.of(
@@ -305,10 +303,12 @@ public class SupportTicketService {
     }
 
     private String toHtmlWithAttachmentLinks(String value) {
-        if (value == null) return "";
+        if (value == null || value.isBlank()) {
+            return "";
+        }
         String escaped = escapeHtml(value);
         String linked = escaped.replaceAll(
-                "(?im)Attachment:\\s*([^\\n(]+?)\\s*\\((https?://[^)]+|/uploads/[^)]+)\\)",
+                "(?im)Attachment[s]?:\\s*([^\\n(]+?)\\s*\\((https?://[^)]+|/uploads/[^)]+)\\)",
                 "<a href=\"$2\" target=\"_blank\" rel=\"noreferrer noopener\">$1</a>"
         );
         return linked.replace("\n", "<br>");
@@ -395,6 +395,13 @@ public class SupportTicketService {
     }
 
     private String buildSupportTicketEmailHtml(SupportTicket ticket, String userName, String issueSummaryHtml, String ticketUrl) {
+        return buildSupportTicketEmailHtml(ticket, userName, issueSummaryHtml, ticketUrl,
+                "Support Ticket Update",
+                "Your support ticket has been received. Our team is reviewing the latest update now."
+        );
+    }
+
+    private String buildSupportTicketEmailHtml(SupportTicket ticket, String userName, String issueSummaryHtml, String ticketUrl, String emailHeading, String emailLeadText) {
         String template = loadTemplate("templates/emails/support-ticket.html");
         Map<String, String> placeholders = new HashMap<>();
         placeholders.put("APP_NAME", "FarmEazy");
@@ -408,6 +415,8 @@ public class SupportTicketService {
         placeholders.put("ISSUE_DESCRIPTION", issueSummaryHtml != null ? issueSummaryHtml : "");
         placeholders.put("RESPONSE_TIME", supportResponseTimeFor(ticket));
         placeholders.put("TICKET_URL", ticketUrl != null ? ticketUrl : "");
+        placeholders.put("EMAIL_HEADING", emailHeading != null && !emailHeading.isBlank() ? emailHeading : "Support Ticket Update");
+        placeholders.put("EMAIL_LEAD", emailLeadText != null && !emailLeadText.isBlank() ? emailLeadText : "Your support ticket has been received. Our team is reviewing the latest update now.");
         placeholders.put("SUPPORT_EMAIL", "support@farm-eazy.com");
         placeholders.put("WEBSITE_URL", "https://farm-eazy.com");
         placeholders.put("YEAR", String.valueOf(java.time.Year.now().getValue()));
@@ -475,8 +484,7 @@ public class SupportTicketService {
 
                 List<StoredAttachment> storedAttachments = storeAttachments(files);
 
-                // Record initial user message in conversation. Keep attachments as separate records
-                // to avoid duplicate rendering in the UI (attachments are saved on their own rows).
+                // Record initial user message in conversation (do not duplicate attachment lines in message)
                 String initialBody = saved.getDescription();
                 createSupportTicketMessage(saved, "USER", saved.getContactEmail(), initialBody, storedAttachments);
 
@@ -516,6 +524,8 @@ public class SupportTicketService {
             }
         @Autowired
         private SupportTicketRepository ticketRepository;
+        @Autowired
+        private com.farmeazy.repository.SupportTicketAttachmentRepository supportTicketAttachmentRepository;
     /**
      * ADMIN: Get all tickets
      */
@@ -695,25 +705,23 @@ public class SupportTicketService {
         SupportTicketMessage event = new SupportTicketMessage(ticket.getId(), senderType, senderName, message, attachmentUrl);
         supportTicketMessageRepository.save(event);
     }
-    private void createSupportTicketMessage(SupportTicket ticket, String senderType, String senderName, String message, java.util.List<StoredAttachment> attachments) {
+
+    private void createSupportTicketMessage(SupportTicket ticket, String senderType, String senderName, String message, List<StoredAttachment> attachments) {
         if (ticket == null || ticket.getId() == null) {
             throw new IllegalStateException("Cannot create support ticket message without a saved ticket ID");
         }
-        String primary = primaryAttachmentUrl(attachments);
-        SupportTicketMessage event = new SupportTicketMessage(ticket.getId(), senderType, senderName, message, primary);
-        supportTicketMessageRepository.save(event);
-
+        String primaryUrl = (attachments == null || attachments.isEmpty()) ? null : attachments.get(0).url();
+        SupportTicketMessage event = new SupportTicketMessage(ticket.getId(), senderType, senderName, message, primaryUrl);
+        SupportTicketMessage saved = supportTicketMessageRepository.save(event);
         if (attachments != null && !attachments.isEmpty()) {
-            java.util.Set<String> saved = new java.util.HashSet<>();
+            java.util.Set<String> savedUrls = new java.util.HashSet<>();
             for (StoredAttachment a : attachments) {
                 if (a == null) continue;
                 String url = a.url();
                 if (url == null) continue;
-                // Skip saving duplicate rows and skip the primary if it is already set on the message
-                if (url.equals(primary)) continue;
-                if (saved.contains(url)) continue;
-                saved.add(url);
-                com.farmeazy.entity.SupportTicketAttachment ta = new com.farmeazy.entity.SupportTicketAttachment(event.getId(), a.name(), url);
+                if (savedUrls.contains(url)) continue;
+                savedUrls.add(url);
+                com.farmeazy.entity.SupportTicketAttachment ta = new com.farmeazy.entity.SupportTicketAttachment(saved.getId(), a.name(), url);
                 supportTicketAttachmentRepository.save(ta);
             }
         }
@@ -760,6 +768,17 @@ public class SupportTicketService {
                 .stream()
                 .map(com.farmeazy.dto.SupportTicketMessageDto::fromEntity)
                 .collect(Collectors.toCollection(ArrayList::new));
+
+        // Populate attachments for each message from the attachments table
+        for (com.farmeazy.dto.SupportTicketMessageDto dto : messages) {
+            if (dto.getId() == null) continue;
+            java.util.List<com.farmeazy.entity.SupportTicketAttachment> rows = supportTicketAttachmentRepository.findBySupportTicketMessageId(dto.getId());
+            if (rows == null || rows.isEmpty()) {
+                dto.setAttachments(null);
+            } else {
+                dto.setAttachments(rows.stream().map(com.farmeazy.dto.SupportTicketAttachmentDto::fromEntity).collect(Collectors.toList()));
+            }
+        }
 
         // Fallback for legacy tickets with no message rows
         if (messages.isEmpty()) {
@@ -827,7 +846,9 @@ public class SupportTicketService {
                 ticket,
                 userEmail,
                 buildSupportIssueSummary("Issue summary", ticket.getDescription(), "Latest update", reply),
-                ticketUrl
+                ticketUrl,
+                "Support ticket reply",
+                "A support executive has replied to your ticket. View the latest update below."
             );
         emailService.sendEmail(userEmail, subject, html, UnifiedEmailService.SenderType.SUPPORT);
 
@@ -868,7 +889,9 @@ public class SupportTicketService {
                 ticket,
                 userEmail,
                 buildSupportIssueSummary("Issue summary", ticket.getDescription(), "Resolution summary", resolution),
-                ticketUrl
+                ticketUrl,
+                "Ticket resolved",
+                "Your ticket has been marked as resolved by our support team. Please review the resolution below."
             );
             emailService.sendEmail(userEmail, subject, html, UnifiedEmailService.SenderType.SUPPORT);
 
@@ -903,9 +926,6 @@ public class SupportTicketService {
     @Autowired
     private SequenceGeneratorService sequenceGeneratorService;
 
-    @Autowired
-    private com.farmeazy.repository.SupportTicketAttachmentRepository supportTicketAttachmentRepository;
-
     private void notifyTicketOwner(SupportTicket ticket, String title, String message, String actionUrl, NotificationPriority priority) {
         if (ticket == null || ticket.getUser() == null) {
             return;
@@ -932,7 +952,7 @@ public class SupportTicketService {
             ticket.setUpdatedAt(LocalDateTime.now());
             ticketRepository.save(ticket);
 
-            createSupportTicketMessage(ticket, "ADMIN", adminEmail, "Attached file: " + fileName, fileUrl);
+            createSupportTicketMessage(ticket, "ADMIN", adminEmail, "Attached file: " + fileName, java.util.List.of(storedAttachment));
 
             logger.info("Admin {} uploaded attachment to ticket {}", adminEmail, displayId);
             // Optionally notify user
@@ -947,7 +967,9 @@ public class SupportTicketService {
                         "Attachment added",
                         fileUrl != null ? (fileName + " (" + buildAttachmentLink(fileUrl) + ")") : fileName
                     ),
-                    buildTicketUrl(ticket.getDisplayId(), ticket.getUser() == null)
+                    buildTicketUrl(ticket.getDisplayId(), ticket.getUser() == null),
+                    "Support ticket updated",
+                    "A support executive attached a file to your ticket. Review the update below."
                 );
             emailService.sendEmail(userEmail, subject, html, UnifiedEmailService.SenderType.SUPPORT);
             return SupportTicketResponseDto.fromEntity(ticket);
@@ -982,9 +1004,9 @@ public class SupportTicketService {
                 .orElseThrow(() -> new ResourceNotFoundException("Ticket not found: " + displayId));
 
         String replyText = reply != null ? reply : "";
-        // adminNotes should include attachment lines for legacy visibility, but do not embed
-        // those lines into the conversation message (we store attachments separately).
         String notesAppend = appendAttachmentsToBody(replyText, storedAttachments);
+
+        // Append admin reply and optional attachment to adminNotes (notes include attachment lines)
         String notes = (ticket.getAdminNotes() != null ? ticket.getAdminNotes() : "") +
             "\n\n--- Admin Reply (" + LocalDateTime.now() + ", " + adminEmail + ") ---\n" + notesAppend;
         ticket.setAdminNotes(notes);
@@ -1091,8 +1113,8 @@ public class SupportTicketService {
                 slaBy = now.plusHours(48);
         }
         ticket.setSlaBy(slaBy);
-        ticket.setContactEmail(dto.getContactEmail() != null ? dto.getContactEmail() : user.getEmail());
-        ticket.setContactPhone(dto.getContactPhone() != null ? dto.getContactPhone() : user.getPhone());
+        ticket.setContactEmail(dto.getContactEmail() != null && !dto.getContactEmail().isBlank() ? dto.getContactEmail() : user.getEmail());
+        ticket.setContactPhone(dto.getContactPhone() != null && !dto.getContactPhone().isBlank() ? dto.getContactPhone() : user.getPhone());
         ticket.setOrderId(dto.getOrderId());
         ticket.setServiceId(dto.getServiceId());
         ticket.setDisplayId(sequenceGeneratorService.getNextSupportTicketDisplayId());
@@ -1104,7 +1126,7 @@ public class SupportTicketService {
             throw new IllegalStateException("Support ticket ID missing after save");
         }
         if (assignedAgent.isPresent()) {
-                createSupportTicketMessage(saved, "SYSTEM", "Auto Assign", "Ticket assigned to " + assignedAgent.get(), (String) null);
+            createSupportTicketMessage(saved, "SYSTEM", "Auto Assign", "Ticket assigned to " + assignedAgent.get(), (String) null);
         }
 
         List<StoredAttachment> storedAttachments = storeAttachments(files);
@@ -1172,10 +1194,46 @@ public class SupportTicketService {
     @Transactional(readOnly = true)
     public java.util.List<com.farmeazy.dto.SupportTicketMessageDto> getPublicTicketMessages(String displayId) {
         SupportTicket ticket = requirePublicAccessibleTicket(displayId);
-        return supportTicketMessageRepository.findBySupportTicketIdOrderByCreatedAtAsc(ticket.getId())
+        java.util.List<com.farmeazy.dto.SupportTicketMessageDto> messages = supportTicketMessageRepository
+                .findBySupportTicketIdOrderByCreatedAtAsc(ticket.getId())
                 .stream()
                 .map(com.farmeazy.dto.SupportTicketMessageDto::fromEntity)
                 .collect(Collectors.toCollection(ArrayList::new));
+
+        // Populate attachments for each message from the attachments table (public access should still show attachments)
+        for (com.farmeazy.dto.SupportTicketMessageDto dto : messages) {
+            if (dto.getId() == null) continue;
+            java.util.List<com.farmeazy.entity.SupportTicketAttachment> rows = supportTicketAttachmentRepository.findBySupportTicketMessageId(dto.getId());
+            if (rows == null || rows.isEmpty()) {
+                dto.setAttachments(null);
+            } else {
+                dto.setAttachments(rows.stream().map(com.farmeazy.dto.SupportTicketAttachmentDto::fromEntity).collect(Collectors.toList()));
+            }
+        }
+
+        // Fallback legacy behavior: if no message rows exist, include description/admin notes similar to authenticated view
+        if (messages.isEmpty()) {
+            if (ticket.getDescription() != null) {
+                com.farmeazy.dto.SupportTicketMessageDto userInitial = new com.farmeazy.dto.SupportTicketMessageDto();
+                userInitial.setId(-1L);
+                userInitial.setSenderType("USER");
+                userInitial.setSenderName(ticket.getContactEmail());
+                userInitial.setMessage(ticket.getDescription());
+                userInitial.setCreatedAt(ticket.getCreatedAt());
+                messages.add(userInitial);
+            }
+            if (ticket.getAdminNotes() != null && !ticket.getAdminNotes().isBlank()) {
+                com.farmeazy.dto.SupportTicketMessageDto adminLegacy = new com.farmeazy.dto.SupportTicketMessageDto();
+                adminLegacy.setId(-1L);
+                adminLegacy.setSenderType("ADMIN");
+                adminLegacy.setSenderName("Admin");
+                adminLegacy.setMessage(ticket.getAdminNotes());
+                adminLegacy.setCreatedAt(ticket.getUpdatedAt());
+                messages.add(adminLegacy);
+            }
+        }
+
+        return messages;
     }
 
     @Transactional
@@ -1206,8 +1264,7 @@ public class SupportTicketService {
 
         String sender = senderEmail != null ? senderEmail : ticket.getContactEmail();
         String messageBody = hasResponse ? response : "Attachment added";
-        // Keep attachment lines in the persistent description for legacy search/UI but do not
-        // embed them into the conversation message to avoid duplicates.
+        // Do not embed attachment lines into the conversation message to avoid duplicates
         createSupportTicketMessage(ticket, "USER", sender, messageBody, storedAttachments);
 
         ticket.setStatus(TicketStatus.IN_PROGRESS);
@@ -1294,10 +1351,44 @@ public class SupportTicketService {
     @Transactional(readOnly = true)
     public java.util.List<com.farmeazy.dto.SupportTicketMessageDto> getTicketMessagesForUser(String userEmail, String displayId) {
         SupportTicket ticket = requireTicketAccess(userEmail, displayId);
-        return supportTicketMessageRepository.findBySupportTicketIdOrderByCreatedAtAsc(ticket.getId())
+        java.util.List<com.farmeazy.dto.SupportTicketMessageDto> messages = supportTicketMessageRepository
+                .findBySupportTicketIdOrderByCreatedAtAsc(ticket.getId())
                 .stream()
                 .map(com.farmeazy.dto.SupportTicketMessageDto::fromEntity)
                 .collect(Collectors.toCollection(ArrayList::new));
+
+        for (com.farmeazy.dto.SupportTicketMessageDto dto : messages) {
+            if (dto.getId() == null) continue;
+            java.util.List<com.farmeazy.entity.SupportTicketAttachment> rows = supportTicketAttachmentRepository.findBySupportTicketMessageId(dto.getId());
+            if (rows == null || rows.isEmpty()) {
+                dto.setAttachments(null);
+            } else {
+                dto.setAttachments(rows.stream().map(com.farmeazy.dto.SupportTicketAttachmentDto::fromEntity).collect(Collectors.toList()));
+            }
+        }
+
+        if (messages.isEmpty()) {
+            if (ticket.getDescription() != null) {
+                com.farmeazy.dto.SupportTicketMessageDto userInitial = new com.farmeazy.dto.SupportTicketMessageDto();
+                userInitial.setId(-1L);
+                userInitial.setSenderType("USER");
+                userInitial.setSenderName(ticket.getContactEmail());
+                userInitial.setMessage(ticket.getDescription());
+                userInitial.setCreatedAt(ticket.getCreatedAt());
+                messages.add(userInitial);
+            }
+            if (ticket.getAdminNotes() != null && !ticket.getAdminNotes().isBlank()) {
+                com.farmeazy.dto.SupportTicketMessageDto adminLegacy = new com.farmeazy.dto.SupportTicketMessageDto();
+                adminLegacy.setId(-1L);
+                adminLegacy.setSenderType("ADMIN");
+                adminLegacy.setSenderName("Admin");
+                adminLegacy.setMessage(ticket.getAdminNotes());
+                adminLegacy.setCreatedAt(ticket.getUpdatedAt());
+                messages.add(adminLegacy);
+            }
+        }
+
+        return messages;
     }
 
     /**
@@ -1389,8 +1480,11 @@ public class SupportTicketService {
         }
         ticket.setDescription(updatedDescription);
 
-        // Persist the response as a conversation message (text only); attachments are saved separately.
+        // Persist the response as a conversation message (text only); attachments stored separately.
         createSupportTicketMessage(ticket, "USER", userEmail, responseText, storedAttachments);
+
+        // For email/notification bodies include attachment lines
+        String responseForEmail = appendAttachmentsToBody(responseText, storedAttachments);
         
         // User has replied, ticket should return to active support handling.
         ticket.setStatus(TicketStatus.IN_PROGRESS);
@@ -1418,7 +1512,7 @@ public class SupportTicketService {
                         detailRow("User", userEmail) +
                         detailRow("Status", String.valueOf(ticket.getStatus())),
                     "User message",
-                    responseText
+                    responseForEmail
                 ),
                 "Open ticket",
                 buildTicketUrl(resolveDisplayId(ticket), false)

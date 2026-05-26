@@ -41,6 +41,7 @@ public class SecureAttachmentController {
     private final FAQCommunicationRepository faqCommunicationRepository;
     private final SupportTicketRepository supportTicketRepository;
     private final SupportTicketMessageRepository supportTicketMessageRepository;
+    private final com.farmeazy.repository.SupportTicketAttachmentRepository supportTicketAttachmentRepository;
 
     public SecureAttachmentController(
             FileStorageService fileStorageService,
@@ -48,23 +49,30 @@ public class SecureAttachmentController {
             FAQQuestionRepository faqQuestionRepository,
             FAQCommunicationRepository faqCommunicationRepository,
             SupportTicketRepository supportTicketRepository,
-            SupportTicketMessageRepository supportTicketMessageRepository) {
+            SupportTicketMessageRepository supportTicketMessageRepository,
+            com.farmeazy.repository.SupportTicketAttachmentRepository supportTicketAttachmentRepository) {
         this.fileStorageService = fileStorageService;
         this.userRepository = userRepository;
         this.faqQuestionRepository = faqQuestionRepository;
         this.faqCommunicationRepository = faqCommunicationRepository;
         this.supportTicketRepository = supportTicketRepository;
         this.supportTicketMessageRepository = supportTicketMessageRepository;
+        this.supportTicketAttachmentRepository = supportTicketAttachmentRepository;
     }
 
     @GetMapping("/file")
     public ResponseEntity<org.springframework.core.io.Resource> getAttachment(
             @RequestParam("path") String path,
             @RequestParam(value = "download", defaultValue = "false") boolean download,
+            @RequestParam(value = "ticketDisplayId", required = false) String ticketDisplayId,
+            @RequestParam(value = "contactEmail", required = false) String contactEmail,
             Authentication authentication) {
 
-        if (authentication == null || !authentication.isAuthenticated() || "anonymousUser".equals(authentication.getPrincipal())) {
-            throw new UnauthorizedException("Authentication is required to access attachments");
+        boolean isAuthenticated = authentication != null && authentication.isAuthenticated() && !"anonymousUser".equals(authentication.getPrincipal());
+        if (!isAuthenticated) {
+            if (!StringUtils.hasText(ticketDisplayId) || !StringUtils.hasText(contactEmail)) {
+                throw new UnauthorizedException("Authentication is required to access attachments");
+            }
         }
 
         String normalizedPath = normalizeUploadPath(path);
@@ -72,13 +80,20 @@ public class SecureAttachmentController {
             throw new UnauthorizedException("Invalid attachment path");
         }
 
-        String currentEmail = authentication.getName();
-        boolean isAdmin = authentication.getAuthorities().stream().anyMatch(a -> {
+        String currentEmail = isAuthenticated ? authentication.getName() : contactEmail;
+        boolean isAdmin = isAuthenticated && authentication.getAuthorities().stream().anyMatch(a -> {
             String role = a.getAuthority();
             return "ROLE_ADMIN".equals(role) || "ROLE_SUPERADMIN".equals(role);
         });
 
-        if (!canAccessAttachment(normalizedPath, currentEmail, isAdmin)) {
+        boolean allowed = false;
+        if (isAuthenticated) {
+            allowed = canAccessAttachment(normalizedPath, currentEmail, isAdmin);
+        } else {
+            allowed = canAccessAttachmentForGuest(normalizedPath, ticketDisplayId, contactEmail);
+        }
+
+        if (!allowed) {
             throw new UnauthorizedException("You are not allowed to access this attachment");
         }
 
@@ -88,6 +103,16 @@ public class SecureAttachmentController {
         String mimeType = java.net.URLConnection.guessContentTypeFromName(filename);
         if (!StringUtils.hasText(mimeType)) {
             mimeType = MediaType.APPLICATION_OCTET_STREAM_VALUE;
+        }
+
+        // Prefer original uploaded filename when available
+        try {
+            com.farmeazy.entity.SupportTicketAttachment found = supportTicketAttachmentRepository.findByUrl(normalizedPath);
+            if (found != null && StringUtils.hasText(found.getFileName())) {
+                filename = found.getFileName();
+            }
+        } catch (Exception ex) {
+            // ignore
         }
 
         ContentDisposition disposition = download
@@ -115,6 +140,7 @@ public class SecureAttachmentController {
         return faqQuestionRepository.existsByQuestionContaining(path)
                 || faqCommunicationRepository.existsByBodyContaining(path)
                 || supportTicketMessageRepository.existsByAttachmentUrl(path)
+                || (supportTicketAttachmentRepository.findByUrl(path) != null)
                 || supportTicketMessageRepository.existsByMessageContaining(path);
     }
 
@@ -179,6 +205,19 @@ public class SecureAttachmentController {
             }
         }
 
+        try {
+            com.farmeazy.entity.SupportTicketAttachment a = supportTicketAttachmentRepository.findByUrl(path);
+            if (a != null) {
+                Long msgId = a.getSupportTicketMessageId();
+                if (msgId != null) {
+                    SupportTicketMessage msg = supportTicketMessageRepository.findById(msgId).orElse(null);
+                    if (msg != null && ticketIds.contains(msg.getSupportTicketId())) return true;
+                }
+            }
+        } catch (Exception ex) {
+            // ignore
+        }
+
         return false;
     }
 
@@ -213,5 +252,31 @@ public class SecureAttachmentController {
         }
 
         return UPLOAD_PREFIX + filename;
+    }
+
+    private boolean canAccessAttachmentForGuest(String path, String ticketDisplayId, String contactEmail) {
+        if (!StringUtils.hasText(ticketDisplayId) || !StringUtils.hasText(contactEmail)) return false;
+        java.util.Optional<SupportTicket> opt = supportTicketRepository.findByDisplayId(ticketDisplayId);
+        if (opt.isEmpty()) return false;
+        SupportTicket ticket = opt.get();
+        if (!contactEmail.equalsIgnoreCase(String.valueOf(ticket.getContactEmail()))) return false;
+
+        if (StringUtils.hasText(ticket.getDescription()) && ticket.getDescription().contains(path)) return true;
+        if (StringUtils.hasText(ticket.getAdminNotes()) && ticket.getAdminNotes().contains(path)) return true;
+
+        List<SupportTicketMessage> messages = supportTicketMessageRepository.findBySupportTicketIdOrderByCreatedAtAsc(ticket.getId());
+        for (SupportTicketMessage m : messages) {
+            if (path.equals(m.getAttachmentUrl())) return true;
+            if (StringUtils.hasText(m.getMessage()) && m.getMessage().contains(path)) return true;
+        }
+
+        try {
+            com.farmeazy.entity.SupportTicketAttachment a = supportTicketAttachmentRepository.findByUrl(path);
+            if (a != null) return true;
+        } catch (Exception ex) {
+            // ignore
+        }
+
+        return false;
     }
 }

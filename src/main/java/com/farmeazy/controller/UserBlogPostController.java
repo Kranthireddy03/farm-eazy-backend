@@ -74,4 +74,19 @@ public class UserBlogPostController {
         logger.info("USER_BLOG_RATE actor={} slug={} rating={}", actorEmail, slug, rating);
         return ResponseEntity.ok(blogPostService.ratePost(slug, actorEmail, rating));
     }
+
+    @GetMapping("/{slug}/comments")
+    public ResponseEntity<java.util.List<com.farmeazy.dto.BlogCommentDto>> getComments(@PathVariable String slug) {
+        return ResponseEntity.ok(blogPostService.getComments(slug));
+    }
+
+    @PostMapping("/{slug}/comments")
+    public ResponseEntity<com.farmeazy.dto.BlogCommentDto> addComment(@PathVariable String slug, @RequestBody java.util.Map<String, String> body, Authentication authentication) {
+        String content = body != null ? body.getOrDefault("content", "") : "";
+        String actor = null;
+        if (authentication != null && authentication.isAuthenticated() && !"anonymousUser".equals(authentication.getPrincipal())) {
+            actor = authentication.getName();
+        }
+        return ResponseEntity.ok(blogPostService.addComment(slug, actor, content));
+    }
 }
