@@ -130,6 +130,7 @@ public class SecurityConfig {
                 .requestMatchers("/h2-console/**").access((authentication, context) -> new AuthorizationDecision(h2ConsoleEnabled))
                 .requestMatchers(HttpMethod.GET, "/api/public/**").permitAll()
                 .requestMatchers(HttpMethod.POST, "/api/public/**").permitAll()
+                .requestMatchers(HttpMethod.POST, "/api/support-tickets/guest").permitAll()
                 .requestMatchers(HttpMethod.POST, "/api/public/support-message").permitAll()
                 .requestMatchers(HttpMethod.GET, "/api/admin/faq-questions/stream").permitAll()
                 .requestMatchers("/api/admin/**").hasAnyRole("ADMIN", "SUPERADMIN")

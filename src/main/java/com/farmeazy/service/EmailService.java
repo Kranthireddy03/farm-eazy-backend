@@ -56,14 +56,14 @@ import java.util.List;
 public class EmailService {
     /**
      * Sends password changed confirmation email.
-     * Uses SUPPORT sender as this is a security-related notification.
+     * Uses NOREPLY sender for automated security alerts.
      * @param to Recipient email address
      * @param fullName User's full name
      */
     public void sendPasswordChangedConfirmation(String to, String fullName) {
         String subject = "Your FarmEazy password was changed";
-        String body = "Hello " + fullName + ",\n\nYour password was changed successfully. If you did not perform this action, please contact support immediately at support@farm-eazy.com.\n\nRegards,\nFarmEazy Support";
-        sendEmail(to, subject, body, EmailType.SUPPORT);
+        String body = "Hello " + fullName + ",\n\nYour password was changed successfully. If you did not perform this action, please contact support immediately at support@farm-eazy.com.\n\nRegards,\nFarmEazy Team";
+        sendEmail(to, subject, body, EmailType.NOREPLY);
     }
 
     private static final Logger logger = LoggerFactory.getLogger(EmailService.class);
@@ -753,7 +753,7 @@ private String normalizeVerificationStatus(boolean success, String verificationS
             getAppBaseUrl() + "/login"
     );
 
-    sendHtmlEmail(userEmail, subject, htmlBody, EmailType.INFO);
+    sendHtmlEmail(userEmail, subject, htmlBody, EmailType.NOREPLY);
     logger.info("Template welcome email sent to: {}", userEmail);
 }
 
@@ -779,7 +779,7 @@ private String normalizeVerificationStatus(boolean success, String verificationS
             resetLink
     );
 
-    sendHtmlEmail(userEmail, subject, htmlBody, EmailType.SUPPORT);
+    sendHtmlEmail(userEmail, subject, htmlBody, EmailType.NOREPLY);
     logger.info("Template password reset email sent to: {}", userEmail);
 }
 
