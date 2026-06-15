@@ -191,6 +191,20 @@
             <version>1.15</version>
         </dependency>
 
+        <!-- AWS SDK for S3 storage using EC2 IAM role credentials -->
+        <dependency>
+            <groupId>software.amazon.awssdk</groupId>
+            <artifactId>s3</artifactId>
+            <version>2.20.125</version>
+        </dependency>
+
+        <!-- Apache Tika for file content validation -->
+        <dependency>
+            <groupId>org.apache.tika</groupId>
+            <artifactId>tika-core</artifactId>
+            <version>2.9.0</version>
+        </dependency>
+
         <!-- Spring Boot Scheduling -->
         <dependency>
             <groupId>org.springframework.boot</groupId>

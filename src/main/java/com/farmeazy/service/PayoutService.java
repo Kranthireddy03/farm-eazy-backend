@@ -6,6 +6,8 @@ import com.farmeazy.exception.ResourceNotFoundException;
 import com.farmeazy.repository.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.cache.annotation.Cacheable;
+import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -57,6 +59,7 @@ public class PayoutService {
      * Create a payout record for a service booking after payment success.
      */
     @Transactional
+    @CacheEvict(cacheNames = {"payoutListUser", "payoutPending"}, allEntries = true)
     public Payout createServiceBookingPayout(ServiceBooking booking) {
         // Check if payout already exists
         if (payoutRepository.existsByReferenceTypeAndReferenceId(
@@ -107,6 +110,7 @@ public class PayoutService {
      * Create a payout record for a product order after payment success.
      */
     @Transactional
+    @CacheEvict(cacheNames = {"payoutListUser", "payoutPending"}, allEntries = true)
     public Payout createProductOrderPayout(Order order, User seller, BigDecimal sellerAmount, BigDecimal platformFee) {
         // Check if payout already exists
         if (payoutRepository.existsByReferenceTypeAndReferenceId(
@@ -144,6 +148,7 @@ public class PayoutService {
      */
     @Scheduled(cron = "0 0 */2 * * *") // Every 2 hours
     @Transactional
+    @CacheEvict(cacheNames = {"payoutListUser", "payoutPending", "payoutById"}, allEntries = true)
     public void processPendingPayouts() {
         LocalDateTime jobStartTime = LocalDateTime.now();
         logger.info("BATCH_JOB_START: Payout processing job started at {}", jobStartTime);
@@ -175,6 +180,7 @@ public class PayoutService {
      * In production, this would call Razorpay Payout API.
      */
     @Transactional
+    @CacheEvict(cacheNames = {"payoutListUser", "payoutPending", "payoutById"}, allEntries = true)
     public void processSinglePayout(Payout payout) {
         if (payout.getBankDetail() == null) {
             throw new RuntimeException("Bank details not found for user");
@@ -270,6 +276,7 @@ public class PayoutService {
     /**
      * Get payouts for a user.
      */
+    @Cacheable(cacheNames = "payoutListUser", key = "#userId", unless = "#result == null || #result.isEmpty()")
     public List<PayoutDto> getPayoutsByUserId(Long userId) {
         return payoutRepository.findByUser_Id(userId).stream()
                 .map(this::toDto)
@@ -279,6 +286,7 @@ public class PayoutService {
     /**
      * Get all pending payouts (admin).
      */
+    @Cacheable(cacheNames = "payoutPending", key = "'all'", unless = "#result == null || #result.isEmpty()")
     public List<PayoutDto> getPendingPayouts() {
         return payoutRepository.findByStatus(Payout.PayoutStatus.PENDING).stream()
                 .map(this::toDto)
@@ -288,6 +296,7 @@ public class PayoutService {
     /**
      * Get payout by ID.
      */
+    @Cacheable(cacheNames = "payoutById", key = "#id", unless = "#result == null")
     public PayoutDto getPayoutById(Long id) {
         Payout payout = payoutRepository.findById(id)
                 .orElseThrow(() -> new ResourceNotFoundException("Payout not found with ID: " + id));

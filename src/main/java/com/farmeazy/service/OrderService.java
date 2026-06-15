@@ -19,6 +19,8 @@ import com.farmeazy.repository.ProductRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.cache.annotation.Cacheable;
+import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -153,6 +155,8 @@ public class OrderService {
     /**
      * Create new order from cart
      */
+    @Transactional
+    @CacheEvict(cacheNames = {"orderListUser"}, allEntries = true)
     public OrderDto createOrder(User user, OrderCreateDto createDto) {
         try {
             // Validate order data
@@ -395,9 +399,7 @@ public class OrderService {
         }
     }
 
-    /**
-     * Get user's orders
-     */
+    @Cacheable(cacheNames = "orderListUser", key = "#user.id", unless = "#result == null || #result.isEmpty()")
     public List<OrderDto> getUserOrders(User user) {
         return orderRepository.findByUserOrderByCreatedAtDesc(user)
                 .stream()
@@ -408,6 +410,7 @@ public class OrderService {
     /**
      * Get specific order
      */
+    @Cacheable(cacheNames = "orderById", key = "#orderId + ':' + #user.id", unless = "#result == null")
     public OrderDto getOrder(User user, Long orderId) {
         Order order = orderRepository.findByIdAndUser(orderId, user)
                 .orElseThrow(() -> new ResourceNotFoundException("Order not found"));
@@ -415,7 +418,7 @@ public class OrderService {
     }
 
     /**
-     * Update order status (for admin/seller)
+     * Get user's orders
      */
     @Transactional
     public void updateOrderStatus(Long orderId, String status) {

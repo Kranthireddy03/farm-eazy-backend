@@ -14,6 +14,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
 
 /**
@@ -55,21 +56,44 @@ public class IrrigationSchedulerTask {
 
             for (Farm farm : activeFarms) {
                 try {
+                    LocalDate today = LocalDate.now();
+                    LocalDate maxWindowEnd = today.plusDays(7);
                     List<IrrigationSchedule> dueIrrigations = irrigationRepository
-                            .findByFarmIdAndStatus(farm.getId(), "SCHEDULED");
+                            .findByFarmIdAndIrrigationDateBetween(farm.getId(), today, maxWindowEnd);
 
                     for (IrrigationSchedule irrigation : dueIrrigations) {
-                        LocalDate irrigDate = irrigation.getIrrigationDate();
-                        if (irrigDate != null && !irrigDate.isAfter(LocalDate.now().plusDays(1))) {
-                            try {
-                                sendReminderToUser(farm, irrigation);
-                                successCount++;
-                            } catch (Exception e) {
-                                logger.warn("Failed to send reminder for farm {}", farm.getId(), e);
-                                failureCount++;
-                            }
-                            remindersCount++;
+                        if (!"SCHEDULED".equalsIgnoreCase(irrigation.getStatus()) && !"PENDING".equalsIgnoreCase(irrigation.getStatus())) {
+                            continue;
                         }
+                        if (Boolean.FALSE.equals(irrigation.getReminderEnabled())) {
+                            continue;
+                        }
+
+                        LocalDate irrigDate = irrigation.getIrrigationDate();
+                        if (irrigDate == null) {
+                            continue;
+                        }
+
+                        int reminderDaysBefore = irrigation.getReminderDaysBefore() != null ? irrigation.getReminderDaysBefore() : 1;
+                        long daysUntilDue = ChronoUnit.DAYS.between(today, irrigDate);
+
+                        if (daysUntilDue < 0 || daysUntilDue > reminderDaysBefore) {
+                            continue;
+                        }
+                        if (today.equals(irrigation.getLastReminderSentDate())) {
+                            continue;
+                        }
+
+                        try {
+                            sendReminderToUser(farm, irrigation);
+                            irrigation.setLastReminderSentDate(today);
+                            irrigationRepository.save(irrigation);
+                            successCount++;
+                        } catch (Exception e) {
+                            logger.warn("Failed to send reminder for farm {}", farm.getId(), e);
+                            failureCount++;
+                        }
+                        remindersCount++;
                     }
                 } catch (Exception e) {
                     logger.error("Error processing farm {}", farm.getId(), e);
@@ -98,21 +122,21 @@ public class IrrigationSchedulerTask {
 
         try {
             if (user.getPhone() != null && !user.getPhone().isEmpty()) {
-                smsService.sendSms(user.getPhone(), message);
-                logger.debug("SMS sent to {}", user.getPhone());
+                smsService.sendIrrigationReminder(user.getPhone(), irrigation.getId().toString(), farm.getFarmName());
+                logger.debug("Irrigation reminder SMS sent to {}", user.getPhone());
             }
         } catch (Exception e) {
-            logger.warn("SMS send failed", e);
+            logger.warn("Irrigation reminder SMS send failed", e);
         }
 
         try {
             if (user.getEmail() != null && !user.getEmail().isEmpty()) {
-                String subject = "Irrigation Reminder: " + cropName;
-                emailService.sendEmail(user.getEmail(), subject, message);
-                logger.debug("Email sent to {}", user.getEmail());
+                String scheduledTime = irrigDate + " " + irrigation.getStartTime();
+                emailService.sendIrrigationReminder(user.getEmail(), user.getUsername(), farm.getFarmName(), cropName, scheduledTime);
+                logger.debug("Irrigation reminder email sent to {}", user.getEmail());
             }
         } catch (Exception e) {
-            logger.warn("Email send failed", e);
+            logger.warn("Irrigation reminder email send failed", e);
         }
 
         logger.info("Reminder sent for farm {}", farm.getId());

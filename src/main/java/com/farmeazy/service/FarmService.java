@@ -114,7 +114,7 @@ public class FarmService {
 
     @Cacheable(cacheNames = "farmListByUser", key = "#userId")
     public List<FarmDto> getAllFarmsByUser(Long userId) {
-        logger.info("FARM_SERVICE_GET_ALL_BY_USER userId={}", userId);
+        logger.info("FARM_SERVICE_GET_ALL_BY_USER userId={} - DATABASE_HIT (cache miss, querying database)", userId);
         return farmRepository.findByUserId(userId)
                 .stream()
                 .map(this::mapFarmToDto)

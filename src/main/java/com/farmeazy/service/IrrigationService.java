@@ -12,6 +12,8 @@ import com.farmeazy.repository.FarmRepository;
 import com.farmeazy.repository.IrrigationScheduleRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.cache.annotation.Cacheable;
+import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -46,6 +48,7 @@ public class IrrigationService {
     private SmsService smsService;
 
     @Transactional
+    @CacheEvict(cacheNames = {"irrigationByFarm", "irrigationUpcoming"}, allEntries = true)
     public IrrigationScheduleDto createSchedule(IrrigationScheduleDto scheduleDto, Long userId) {
         logger.info("IRRIGATION_SERVICE_CREATE_START userId={} farmId={} cropId={} irrigationDate={}", userId, scheduleDto != null ? scheduleDto.getFarmId() : null, scheduleDto != null ? scheduleDto.getCropId() : null, scheduleDto != null ? scheduleDto.getIrrigationDate() : null);
         Farm farm = farmRepository.findByIdAndUserId(scheduleDto.getFarmId(), userId)
@@ -84,13 +87,13 @@ public class IrrigationService {
             logger.warn("IRRIGATION_SERVICE_CREATE_EMAIL_FAILED userId={} scheduleId={} message={}", userId, schedule.getId(), e.getMessage());
         }
         
-        // Send SMS notification for irrigation reminder
+        // Send SMS notification for irrigation reminder with proper template variables
         try {
             String userPhone = farm.getUser().getPhone();
             if (userPhone != null && !userPhone.isBlank()) {
                 smsService.sendIrrigationReminder(
                     userPhone,
-                    crop.getCropName(),
+                    schedule.getId().toString(),
                     farm.getFarmName()
                 );
             }
@@ -103,6 +106,7 @@ public class IrrigationService {
         return mapScheduleToDto(schedule, userId);
     }
 
+    @Cacheable(cacheNames = "irrigationById", key = "#scheduleId + ':' + #userId", unless = "#result == null")
     public IrrigationScheduleDto getScheduleById(Long scheduleId, Long userId) {
         logger.info("IRRIGATION_SERVICE_GET_BY_ID scheduleId={} userId={}", scheduleId, userId);
         IrrigationSchedule schedule = irrigationRepository.findByIdAndFarmUserId(scheduleId, userId)
@@ -111,6 +115,7 @@ public class IrrigationService {
         return mapScheduleToDto(schedule, userId);
     }
 
+    @Cacheable(cacheNames = "irrigationByFarm", key = "#farmId + ':' + #userId + ':' + #pageable.pageNumber + ':' + #pageable.pageSize", unless = "#result == null")
     public Page<IrrigationScheduleDto> getSchedulesByFarm(Long farmId, Long userId, Pageable pageable) {
         logger.info("IRRIGATION_SERVICE_GET_BY_FARM farmId={} userId={} page={} size={}", farmId, userId, pageable.getPageNumber(), pageable.getPageSize());
         Farm farm = farmRepository.findByIdAndUserId(farmId, userId)
@@ -120,6 +125,7 @@ public class IrrigationService {
                 .map(schedule -> mapScheduleToDto(schedule, userId));
     }
 
+    @Cacheable(cacheNames = "irrigationUpcoming", key = "#userId", unless = "#result == null || #result.isEmpty()")
     public List<IrrigationScheduleDto> getUpcomingSchedules(Long userId) {
         logger.info("IRRIGATION_SERVICE_GET_UPCOMING userId={}", userId);
         List<Farm> farms = farmRepository.findByUserId(userId);
@@ -132,6 +138,7 @@ public class IrrigationService {
     }
 
     @Transactional
+    @CacheEvict(cacheNames = {"irrigationById", "irrigationByFarm", "irrigationUpcoming"}, allEntries = true)
     public IrrigationScheduleDto updateSchedule(Long scheduleId, IrrigationScheduleDto scheduleDto, Long userId) {
         logger.info("IRRIGATION_SERVICE_UPDATE_START scheduleId={} userId={} irrigationDate={}", scheduleId, userId, scheduleDto != null ? scheduleDto.getIrrigationDate() : null);
         IrrigationSchedule schedule = irrigationRepository.findByIdAndFarmUserId(scheduleId, userId)
@@ -165,6 +172,7 @@ public class IrrigationService {
     }
 
     @Transactional
+    @CacheEvict(cacheNames = {"irrigationById", "irrigationByFarm", "irrigationUpcoming"}, allEntries = true)
     public IrrigationScheduleDto markAsCompleted(Long scheduleId, Long userId) {
         logger.info("IRRIGATION_SERVICE_MARK_COMPLETED_START scheduleId={} userId={}", scheduleId, userId);
         IrrigationSchedule schedule = irrigationRepository.findByIdAndFarmUserId(scheduleId, userId)
@@ -183,6 +191,7 @@ public class IrrigationService {
     }
 
     @Transactional
+    @CacheEvict(cacheNames = {"irrigationById", "irrigationByFarm", "irrigationUpcoming"}, allEntries = true)
     public void deleteSchedule(Long scheduleId, Long userId) {
         logger.info("IRRIGATION_SERVICE_DELETE_START scheduleId={} userId={}", scheduleId, userId);
         IrrigationSchedule schedule = irrigationRepository.findByIdAndFarmUserId(scheduleId, userId)

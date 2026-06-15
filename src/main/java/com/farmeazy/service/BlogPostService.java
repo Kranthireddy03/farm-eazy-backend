@@ -12,6 +12,8 @@ import com.farmeazy.repository.UserRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.cache.annotation.Cacheable;
+import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -43,6 +45,7 @@ public class BlogPostService {
     @Autowired
     private com.farmeazy.repository.BlogCommentRepository blogCommentRepository;
 
+    @Cacheable(cacheNames = "blogPostsPublic", key = "#category != null ? #category : 'all'", unless = "#result == null || #result.isEmpty()")
     public List<BlogPostDto> getPublicPosts(String category) {
         logger.info("BLOG_SERVICE_GET_PUBLIC_POSTS_START category={}", category);
         List<BlogPost> posts;
@@ -55,6 +58,7 @@ public class BlogPostService {
         return posts.stream().map(this::toDto).toList();
     }
 
+    @Cacheable(cacheNames = "blogPostBySlug", key = "#slug", unless = "#result == null")
     public BlogPostDto getPublicPostBySlug(String slug) {
         logger.info("BLOG_SERVICE_GET_PUBLIC_BY_SLUG_START slug={}", slug);
         BlogPost post = blogPostRepository.findBySlug(slug)
@@ -64,6 +68,7 @@ public class BlogPostService {
         return toDto(post);
     }
 
+    @Cacheable(cacheNames = "blogPostsAdmin", key = "'all'", unless = "#result == null || #result.isEmpty()")
     public List<BlogPostDto> getAllPostsForAdmin() {
         logger.info("BLOG_SERVICE_GET_ALL_FOR_ADMIN_START");
         List<BlogPostDto> result = blogPostRepository.findAllByOrderByUpdatedAtDesc().stream().map(this::toDto).toList();
@@ -71,6 +76,7 @@ public class BlogPostService {
         return result;
     }
 
+    @Cacheable(cacheNames = "blogPostsUser", key = "#actorEmail", unless = "#result == null || #result.isEmpty()")
     public List<BlogPostDto> getUserSubmittedPosts(String actorEmail) {
         logger.info("BLOG_SERVICE_GET_USER_SUBMISSIONS actorEmail={}", actorEmail);
         return blogPostRepository.findByCreatedByAndSourceOrderByUpdatedAtDesc(actorEmail, BLOG_SOURCE_USER)
@@ -88,6 +94,7 @@ public class BlogPostService {
     }
 
     @Transactional
+    @CacheEvict(cacheNames = {"blogPostsPublic", "blogPostsAdmin", "blogPostsUser"}, allEntries = true)
     public BlogPostDto createPost(BlogPostDto dto, String actor) {
         logger.info("BLOG_SERVICE_CREATE_START actor={} title={}", actor, dto != null ? dto.getTitle() : null);
         BlogPost post = new BlogPost();
@@ -126,6 +133,7 @@ public class BlogPostService {
     }
 
     @Transactional
+    @CacheEvict(cacheNames = {"blogPostBySlug", "blogPostsPublic", "blogPostsAdmin", "blogPostsUser"}, allEntries = true)
     public BlogPostDto updatePost(Long id, BlogPostDto dto, String actor) {
         logger.info("BLOG_SERVICE_UPDATE_START id={} actor={}", id, actor);
         BlogPost post = blogPostRepository.findById(id)
@@ -160,6 +168,7 @@ public class BlogPostService {
     }
 
     @Transactional
+    @CacheEvict(cacheNames = {"blogPostBySlug", "blogPostsPublic", "blogPostsAdmin"}, allEntries = true)
     public BlogPostDto approveAndPublish(Long id, String actor) {
         logger.info("BLOG_SERVICE_APPROVE_AND_PUBLISH_START id={} actor={}", id, actor);
         BlogPost post = blogPostRepository.findById(id)
@@ -175,12 +184,14 @@ public class BlogPostService {
     }
 
     @Transactional
+    @CacheEvict(cacheNames = {"blogPostBySlug", "blogPostsPublic", "blogPostsAdmin"}, allEntries = true)
     public BlogPostDto publishPost(Long id, String actor) {
         logger.debug("BLOG_SERVICE_PUBLISH_ALIAS id={} actor={}", id, actor);
         return approveAndPublish(id, actor);
     }
 
     @Transactional
+    @CacheEvict(cacheNames = {"blogPostBySlug", "blogPostsPublic"}, allEntries = true)
     public BlogPostDto unpublishPost(Long id, String actor) {
         logger.info("BLOG_SERVICE_UNPUBLISH_START id={} actor={}", id, actor);
         BlogPost post = blogPostRepository.findById(id)
@@ -313,6 +324,7 @@ public class BlogPostService {
     }
 
     @Transactional
+    @CacheEvict(cacheNames = {"blogPostBySlug", "blogPostsPublic", "blogPostsAdmin", "blogPostsUser"}, allEntries = true)
     public void deletePost(Long id) {
         logger.info("BLOG_SERVICE_DELETE_START id={}", id);
         if (!blogPostRepository.existsById(id)) {

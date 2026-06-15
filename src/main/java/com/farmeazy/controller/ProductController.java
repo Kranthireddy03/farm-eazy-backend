@@ -126,16 +126,13 @@ public class ProductController {
         if (safeName.endsWith(".ogg")) return "video/ogg";
         if (safeName.endsWith(".m4v")) return "video/x-m4v";
         if (safeName.endsWith(".mov")) return "video/quicktime";
-
-        try {
-            Path filePath = fileStorageService.load(filename);
-            String probed = Files.probeContentType(filePath);
-            if (probed != null && !probed.isBlank()) {
-                return probed;
-            }
-        } catch (Exception ignored) {
-        }
-
+        if (safeName.endsWith(".pdf")) return "application/pdf";
+        if (safeName.endsWith(".txt")) return "text/plain";
+        if (safeName.endsWith(".csv")) return "text/csv";
+        if (safeName.endsWith(".doc")) return "application/msword";
+        if (safeName.endsWith(".docx")) return "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+        if (safeName.endsWith(".xls")) return "application/vnd.ms-excel";
+        if (safeName.endsWith(".xlsx")) return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
         return "application/octet-stream";
     }
     

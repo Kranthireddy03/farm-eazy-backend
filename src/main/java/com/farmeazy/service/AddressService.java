@@ -9,6 +9,8 @@ import com.farmeazy.repository.AddressRepository;
 import com.farmeazy.repository.UserRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.cache.annotation.Cacheable;
+import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -52,6 +54,8 @@ public class AddressService {
     /**
      * Create new address for user
      */
+    @Transactional
+    @CacheEvict(cacheNames = {"addressListUser"}, allEntries = true)
     public AddressDto createAddress(User user, AddressDto addressDto) {
         Address address = new Address();
         address.setUser(user);
@@ -83,6 +87,7 @@ public class AddressService {
     /**
      * Get all addresses for user
      */
+    @Cacheable(cacheNames = "addressListUser", key = "#user.id", unless = "#result == null || #result.isEmpty()")
     public List<AddressDto> getUserAddresses(User user) {
         return addressRepository.findByUserOrderByCreatedAtDesc(user)
                 .stream()
@@ -93,6 +98,7 @@ public class AddressService {
     /**
      * Get specific address
      */
+    @Cacheable(cacheNames = "addressById", key = "#addressId + ':' + #user.id", unless = "#result == null")
     public AddressDto getAddress(User user, Long addressId) {
         Address address = addressRepository.findByIdAndUser(addressId, user)
                 .orElseThrow(() -> new ResourceNotFoundException("Address not found"));
@@ -102,6 +108,8 @@ public class AddressService {
     /**
      * Update address
      */
+    @Transactional
+    @CacheEvict(cacheNames = {"addressListUser", "addressById"}, allEntries = true)
     public AddressDto updateAddress(User user, Long addressId, AddressDto addressDto) {
         Address address = addressRepository.findByIdAndUser(addressId, user)
                 .orElseThrow(() -> new ResourceNotFoundException("Address not found"));
@@ -128,6 +136,8 @@ public class AddressService {
     /**
      * Delete address
      */
+    @Transactional
+    @CacheEvict(cacheNames = {"addressListUser", "addressById"}, allEntries = true)
     public void deleteAddress(User user, Long addressId) {
         Address address = addressRepository.findByIdAndUser(addressId, user)
                 .orElseThrow(() -> new ResourceNotFoundException("Address not found"));

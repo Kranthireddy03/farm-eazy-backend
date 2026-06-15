@@ -53,9 +53,7 @@ public class ApiRequestDecryptionFilter extends OncePerRequestFilter {
         if (!path.startsWith("/api/")) {
             return true;
         }
-        if (path.startsWith("/api/auth/")
-                || path.startsWith("/api/otp/")
-            || path.startsWith("/api/test-email/")
+        if (path.startsWith("/api/test-email/")
                 || path.startsWith("/api/public/")
                 || path.startsWith("/api/faq-question")
                 || path.startsWith("/api/faq-questions")

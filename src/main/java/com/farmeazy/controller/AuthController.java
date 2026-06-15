@@ -134,9 +134,9 @@ public class AuthController {
      */
     @PostMapping("/register")
     @Operation(summary = "Register a new user")
-    public ResponseEntity<AuthResponseDto> register(@Valid @RequestBody AuthRegisterDto registerDto, HttpServletResponse servletResponse) {
+    public ResponseEntity<AuthResponseDto> register(@Valid @RequestBody AuthRegisterDto registerDto, HttpServletRequest request, HttpServletResponse servletResponse) {
         AuthResponseDto response = authService.register(registerDto);
-        return buildRefreshCookieResponse(response, servletResponse, HttpStatus.CREATED);
+        return buildRefreshCookieResponse(response, servletResponse, HttpStatus.CREATED, request);
     }
 
     @PostMapping("/register/availability")
@@ -197,21 +197,21 @@ public class AuthController {
     @Operation(summary = "Login user")
     public ResponseEntity<AuthResponseDto> login(@Valid @RequestBody AuthLoginDto loginDto, HttpServletRequest request, HttpServletResponse servletResponse) {
         AuthResponseDto response = authService.login(loginDto, request);
-        return buildRefreshCookieResponse(response, servletResponse, HttpStatus.OK);
+        return buildRefreshCookieResponse(response, servletResponse, HttpStatus.OK, request);
     }
 
     @PostMapping("/google")
     @Operation(summary = "Login with Google credential")
     public ResponseEntity<AuthResponseDto> googleLogin(@Valid @RequestBody GoogleSignInRequestDto request, HttpServletRequest httpRequest, HttpServletResponse servletResponse) {
         AuthResponseDto response = authService.loginWithGoogle(request.getCredential(), httpRequest);
-        return buildRefreshCookieResponse(response, servletResponse, HttpStatus.OK);
+        return buildRefreshCookieResponse(response, servletResponse, HttpStatus.OK, httpRequest);
     }
 
     @PostMapping("/google/register")
     @Operation(summary = "Register with Google credential")
     public ResponseEntity<AuthResponseDto> googleRegister(@Valid @RequestBody GoogleSignInRequestDto request, HttpServletRequest httpRequest, HttpServletResponse servletResponse) {
         AuthResponseDto response = authService.registerWithGoogle(request.getCredential(), httpRequest);
-        return buildRefreshCookieResponse(response, servletResponse, HttpStatus.OK);
+        return buildRefreshCookieResponse(response, servletResponse, HttpStatus.OK, httpRequest);
     }
 
     @PostMapping("/google/complete-profile")
@@ -233,7 +233,7 @@ public class AuthController {
         }
 
         AuthResponseDto response = authService.completeGoogleProfile(userEmail, request, httpRequest);
-        return buildRefreshCookieResponse(response, servletResponse, HttpStatus.OK);
+        return buildRefreshCookieResponse(response, servletResponse, HttpStatus.OK, httpRequest);
     }
 
     @PostMapping("/google/defer-profile")
@@ -265,7 +265,7 @@ public class AuthController {
     public ResponseEntity<AuthResponseDto> refresh(HttpServletRequest request, HttpServletResponse servletResponse) {
         String refreshToken = getRefreshTokenFromCookie(request);
         AuthResponseDto response = authService.refreshAccessToken(refreshToken, request);
-        return buildRefreshCookieResponse(response, servletResponse, HttpStatus.OK);
+        return buildRefreshCookieResponse(response, servletResponse, HttpStatus.OK, request);
     }
 
     @PostMapping("/logout")
@@ -275,13 +275,7 @@ public class AuthController {
         if (refreshToken != null) {
             authService.logout(refreshToken);
         }
-        ResponseCookie clearCookie = ResponseCookie.from(REFRESH_TOKEN_COOKIE, "")
-                .path("/")
-                .httpOnly(true)
-                .secure(true)
-                .sameSite("None")
-                .maxAge(0)
-                .build();
+        ResponseCookie clearCookie = buildClearRefreshCookie(request);
         return ResponseEntity.ok()
                 .header(HttpHeaders.SET_COOKIE, clearCookie.toString())
                 .body(new java.util.HashMap<String, String>() {{
@@ -289,28 +283,51 @@ public class AuthController {
                 }});
     }
 
-    private ResponseEntity<AuthResponseDto> buildRefreshCookieResponse(AuthResponseDto authResponse, HttpServletResponse servletResponse, HttpStatus status) {
+    private ResponseEntity<AuthResponseDto> buildRefreshCookieResponse(AuthResponseDto authResponse, HttpServletResponse servletResponse, HttpStatus status, HttpServletRequest request) {
         if (authResponse != null && authResponse.getRefreshToken() != null && !authResponse.getRefreshToken().isBlank()) {
-            ResponseCookie refreshCookie = ResponseCookie.from(REFRESH_TOKEN_COOKIE, authResponse.getRefreshToken())
-                    .path("/")
-                    .httpOnly(true)
-                    .secure(true)
-                    .sameSite("None")
-                    .maxAge(refreshTokenExpirationMs / 1000)
-                    .build();
+            ResponseCookie refreshCookie = buildRefreshTokenCookie(authResponse.getRefreshToken(), request, refreshTokenExpirationMs / 1000);
             servletResponse.addHeader(HttpHeaders.SET_COOKIE, refreshCookie.toString());
             authResponse.setRefreshToken(null);
         } else {
-            ResponseCookie clearCookie = ResponseCookie.from(REFRESH_TOKEN_COOKIE, "")
-                    .path("/")
-                    .httpOnly(true)
-                    .secure(true)
-                    .sameSite("None")
-                    .maxAge(0)
-                    .build();
+            ResponseCookie clearCookie = buildClearRefreshCookie(request);
             servletResponse.addHeader(HttpHeaders.SET_COOKIE, clearCookie.toString());
         }
         return ResponseEntity.status(status).body(authResponse);
+    }
+
+    private boolean isRequestSecure(HttpServletRequest request) {
+        if (request == null) {
+            return true;
+        }
+        if (request.isSecure()) {
+            return true;
+        }
+        String forwardedProto = request.getHeader("X-Forwarded-Proto");
+        return forwardedProto != null && forwardedProto.equalsIgnoreCase("https");
+    }
+
+    private String getCookieSameSite(HttpServletRequest request) {
+        return isRequestSecure(request) ? "None" : "Lax";
+    }
+
+    private ResponseCookie buildRefreshTokenCookie(String refreshToken, HttpServletRequest request, long maxAgeSeconds) {
+        return ResponseCookie.from(REFRESH_TOKEN_COOKIE, refreshToken)
+                .path("/")
+                .httpOnly(true)
+                .secure(isRequestSecure(request))
+                .sameSite(getCookieSameSite(request))
+                .maxAge(maxAgeSeconds)
+                .build();
+    }
+
+    private ResponseCookie buildClearRefreshCookie(HttpServletRequest request) {
+        return ResponseCookie.from(REFRESH_TOKEN_COOKIE, "")
+                .path("/")
+                .httpOnly(true)
+                .secure(isRequestSecure(request))
+                .sameSite(getCookieSameSite(request))
+                .maxAge(0)
+                .build();
     }
 
     private String getRefreshTokenFromCookie(HttpServletRequest request) {

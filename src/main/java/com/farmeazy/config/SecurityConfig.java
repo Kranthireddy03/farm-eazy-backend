@@ -14,13 +14,17 @@ import org.springframework.security.authorization.AuthorizationDecision;
 import org.springframework.security.config.annotation.authentication.configuration.AuthenticationConfiguration;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configuration.EnableWebSecurity;
+import org.springframework.security.config.annotation.method.configuration.EnableMethodSecurity;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.core.userdetails.UserDetailsService;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+import org.springframework.security.web.header.writers.StaticHeadersWriter;
 import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
+import com.farmeazy.middleware.ApiGatewaySecurityFilter;
+import com.farmeazy.middleware.ApiRequestDecryptionFilter;
 import org.springframework.web.cors.CorsConfigurationSource;
 import org.springframework.web.cors.CorsConfiguration;
 import org.springframework.beans.factory.annotation.Value;
@@ -39,10 +43,13 @@ import java.util.stream.Collectors;
 import static org.springframework.security.config.Customizer.withDefaults;
 @Configuration
 @EnableWebSecurity
+@EnableMethodSecurity
 public class SecurityConfig {
     private final JwtAuthenticationEntryPoint jwtAuthenticationEntryPoint;
     private final JwtUtil jwtUtil;
     private final RateLimitingFilter rateLimitingFilter;
+    private final ApiGatewaySecurityFilter apiGatewaySecurityFilter;
+    private final ApiRequestDecryptionFilter apiRequestDecryptionFilter;
 
     @Value("${cors.allowed-origins:}")
     private String allowedOrigins;
@@ -56,15 +63,19 @@ public class SecurityConfig {
     @Value("${springdoc.swagger-ui.enabled:false}")
     private boolean swaggerEnabled;
 
-    @Value("${security.headers.csp:default-src 'self'; connect-src 'self' https://farm-eazy-backend.onrender.com https://www.googleapis.com; img-src 'self' data: https:; script-src 'self' 'unsafe-inline' https://accounts.google.com; style-src 'self' 'unsafe-inline'; frame-ancestors 'none';}")
+    @Value("${security.headers.csp:default-src 'self'; script-src 'self' https://accounts.google.com; style-srhttps://farm-eazy-backend.onrender.com https://www.googleapis.com; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'; upgrade-insecure-requests;}")
     private String contentSecurityPolicy;
 
     public SecurityConfig(JwtAuthenticationEntryPoint jwtAuthenticationEntryPoint,
                           JwtUtil jwtUtil,
-                          RateLimitingFilter rateLimitingFilter) {
+                          RateLimitingFilter rateLimitingFilter,
+                          ApiGatewaySecurityFilter apiGatewaySecurityFilter,
+                          ApiRequestDecryptionFilter apiRequestDecryptionFilter) {
         this.jwtAuthenticationEntryPoint = jwtAuthenticationEntryPoint;
         this.jwtUtil = jwtUtil;
         this.rateLimitingFilter = rateLimitingFilter;
+        this.apiGatewaySecurityFilter = apiGatewaySecurityFilter;
+        this.apiRequestDecryptionFilter = apiRequestDecryptionFilter;
     }
 
     @Bean
@@ -84,19 +95,40 @@ public class SecurityConfig {
 
     @Bean
     public SecurityFilterChain filterChain(HttpSecurity http, JwtAuthenticationFilter jwtAuthenticationFilter) throws Exception {
+        // Adjust Content-Security-Policy at runtime: when H2 console is enabled in local/dev,
+        // allow framing by the same origin so the H2 iframe can load. In production the
+        // configured `contentSecurityPolicy` (which may include "frame-ancestors 'none'")
+        // remains unchanged.
+        final String effectiveCsp;
+        if (h2ConsoleEnabled && contentSecurityPolicy != null && contentSecurityPolicy.contains("frame-ancestors")) {
+            // Replace any existing frame-ancestors directive with a permissive same-origin entry for local H2
+            effectiveCsp = contentSecurityPolicy.replaceAll("frame-ancestors\\s+[^;]+;?", "frame-ancestors 'self';");
+        } else if (h2ConsoleEnabled && (contentSecurityPolicy == null || !contentSecurityPolicy.contains("frame-ancestors"))) {
+            // Append frame-ancestors 'self' if none specified
+            effectiveCsp = (contentSecurityPolicy == null ? "" : contentSecurityPolicy.trim()) + " frame-ancestors 'self';";
+        } else {
+            effectiveCsp = contentSecurityPolicy;
+        }
+
         http.cors(withDefaults())
             .csrf(csrf -> csrf.disable())
-            .headers(headers -> headers
-                .frameOptions(frameOptions -> frameOptions.sameOrigin())
-                .contentTypeOptions(withDefaults())
-                .xssProtection(withDefaults())
-                .contentSecurityPolicy(csp -> csp.policyDirectives(contentSecurityPolicy))
-                .httpStrictTransportSecurity(hsts -> hsts
+            .headers(headers -> {
+                if (h2ConsoleEnabled) {
+                    headers.frameOptions(frameOptions -> frameOptions.sameOrigin());
+                } else {
+                    headers.frameOptions(frameOptions -> frameOptions.deny());
+                }
+                headers.contentTypeOptions(withDefaults());
+                headers.xssProtection(withDefaults());
+                headers.contentSecurityPolicy(csp -> csp.policyDirectives(effectiveCsp));
+                headers.addHeaderWriter(new StaticHeadersWriter("Permissions-Policy", "camera=(), microphone=(), geolocation=()"));
+                headers.httpStrictTransportSecurity(hsts -> hsts
                     .includeSubDomains(true)
                     .preload(true)
-                    .maxAgeInSeconds(31536000))
-                .cacheControl(withDefaults())
-                .referrerPolicy(referrer -> referrer.policy(org.springframework.security.web.header.writers.ReferrerPolicyHeaderWriter.ReferrerPolicy.NO_REFERRER)))
+                    .maxAgeInSeconds(31536000));
+                headers.cacheControl(withDefaults());
+                headers.referrerPolicy(referrer -> referrer.policy(org.springframework.security.web.header.writers.ReferrerPolicyHeaderWriter.ReferrerPolicy.NO_REFERRER));
+            })
             .exceptionHandling(exceptionHandling -> exceptionHandling
                 .authenticationEntryPoint(jwtAuthenticationEntryPoint))
             .sessionManagement(sessionManagement -> sessionManagement
@@ -104,7 +136,7 @@ public class SecurityConfig {
             .securityContext(securityContext -> securityContext
                 .requireExplicitSave(false))
             .authorizeHttpRequests(authorize -> authorize
-                .requestMatchers("/", "/favicon.ico", "/health").permitAll()
+                .requestMatchers("/", "/favicon.ico", "/health", "/actuator/health", "/actuator/info").permitAll()
                 .requestMatchers("/api/auth/login").permitAll()
                 .requestMatchers("/api/auth/register").permitAll()
                 .requestMatchers("/api/auth/register/availability").permitAll()
@@ -119,6 +151,7 @@ public class SecurityConfig {
                 .requestMatchers("/api/auth/login/change-password-otp").permitAll()
                 .requestMatchers("/api/auth/google").permitAll()
                 .requestMatchers("/api/auth/google/register").permitAll()
+                .requestMatchers("/api/gateway/test").permitAll()
                 .requestMatchers("/api/auth/google/complete-profile").authenticated()
                 .requestMatchers("/api/auth/google/defer-profile").authenticated()
                 .requestMatchers("/api/auth/suggest-username").permitAll()
@@ -132,6 +165,7 @@ public class SecurityConfig {
                 .requestMatchers(HttpMethod.POST, "/api/public/**").permitAll()
                 .requestMatchers(HttpMethod.POST, "/api/support-tickets/guest").permitAll()
                 .requestMatchers(HttpMethod.POST, "/api/public/support-message").permitAll()
+                .requestMatchers("/ws/**").permitAll()
                 .requestMatchers(HttpMethod.GET, "/api/admin/faq-questions/stream").permitAll()
                 .requestMatchers("/api/admin/**").hasAnyRole("ADMIN", "SUPERADMIN")
                 .requestMatchers(HttpMethod.POST, "/api/payment/webhook").permitAll()
@@ -147,7 +181,9 @@ public class SecurityConfig {
                 .anyRequest().authenticated()
             );
 
-        http.addFilterBefore(rateLimitingFilter, UsernamePasswordAuthenticationFilter.class);
+        http.addFilterBefore(apiRequestDecryptionFilter, UsernamePasswordAuthenticationFilter.class);
+        http.addFilterBefore(apiGatewaySecurityFilter, ApiRequestDecryptionFilter.class);
+        http.addFilterAfter(rateLimitingFilter, ApiRequestDecryptionFilter.class);
         http.addFilterBefore(jwtAuthenticationFilter, UsernamePasswordAuthenticationFilter.class);
 
         return http.build();
@@ -197,6 +233,7 @@ public class SecurityConfig {
         source.registerCorsConfiguration("/faq-question/**", configuration);
         source.registerCorsConfiguration("/faq-questions/**", configuration);
         source.registerCorsConfiguration("/notifications/**", configuration);
+        source.registerCorsConfiguration("/ws/**", configuration);
         return source;
     }
 }

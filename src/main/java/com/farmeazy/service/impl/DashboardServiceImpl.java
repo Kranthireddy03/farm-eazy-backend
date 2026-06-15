@@ -9,7 +9,10 @@ import com.farmeazy.entity.SupportTicket;
 import com.farmeazy.repository.FAQQuestionRepository;
 import com.farmeazy.repository.SupportTicketRepository;
 import com.farmeazy.service.DashboardService;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Sort;
 import org.springframework.data.jpa.domain.Specification;
@@ -24,6 +27,8 @@ import java.util.List;
 
 @Service
 public class DashboardServiceImpl implements DashboardService {
+
+    private static final Logger log = LoggerFactory.getLogger(DashboardServiceImpl.class);
 
     @Autowired
     private SupportTicketRepository supportTicketRepository;
@@ -203,7 +208,9 @@ public class DashboardServiceImpl implements DashboardService {
     }
 
     @Override
+    @Cacheable(cacheNames = "dashboardStats", key = "#filter + ':' + #source + ':' + #status", unless = "#result == null")
     public DashboardStatsDto getStats(String filter, String source, String status) {
+        log.info("DASHBOARD_GET_STATS filter={}, source={}, status={} - DATABASE_HIT (cache miss, querying database)", filter, source, status);
         String normalizedSource = normalizeSource(source);
         String normalizedStatus = normalizeStatus(status);
         LocalDateTime now = LocalDateTime.now();

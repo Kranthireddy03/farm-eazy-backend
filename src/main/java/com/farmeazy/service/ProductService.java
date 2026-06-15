@@ -15,6 +15,8 @@ import com.farmeazy.repository.ProductRepository;
 import com.farmeazy.repository.ProductMediaRepository;
 import com.farmeazy.repository.UserRepository;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.cache.annotation.Cacheable;
+import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
@@ -30,6 +32,7 @@ public class ProductService {
              * Update product with new files (images/videos)
              */
             @Transactional
+            @CacheEvict(cacheNames = {"productById", "productListActive", "productListByCategory", "productListSeller"}, allEntries = true)
             public ProductDto updateProductWithFiles(Long id, ProductCreateDto dto, String email, List<MultipartFile> files) {
                 Product product = productRepository.findById(id)
                     .orElseThrow(() -> new ResourceNotFoundException("Product not found with id: " + id));
@@ -160,6 +163,7 @@ public class ProductService {
     }
     
     @Transactional
+    @CacheEvict(cacheNames = {"productListActive", "productListByCategory", "productListSeller"}, allEntries = true)
     public ProductDto createProduct(ProductCreateDto dto, String email, List<MultipartFile> files) {
         User seller = userRepository.findByEmail(email)
             .orElseThrow(() -> new ResourceNotFoundException("User not found with email: " + email));
@@ -276,18 +280,21 @@ public class ProductService {
         return convertToDto(savedProduct, null, null);
     }
     
+    @Cacheable(cacheNames = "productListActive", key = "'all:' + #userLocationHeader", unless = "#result == null || #result.isEmpty()")
     public List<ProductDto> getAllActiveProducts(String userLocationHeader) {
         return productRepository.findByStatusOrderByCreatedAtDesc("ACTIVE").stream()
             .map(product -> convertToDto(product, userLocationHeader, null))
             .collect(Collectors.toList());
     }
     
+    @Cacheable(cacheNames = "productListByCategory", key = "#category + ':' + #userLocationHeader", unless = "#result == null || #result.isEmpty()")
     public List<ProductDto> getProductsByCategory(String category, String userLocationHeader) {
         return productRepository.findByCategoryAndStatusOrderByCreatedAtDesc(category, "ACTIVE").stream()
             .map(product -> convertToDto(product, userLocationHeader, null))
             .collect(Collectors.toList());
     }
     
+    @Cacheable(cacheNames = "productListSeller", key = "#email", unless = "#result == null || #result.isEmpty()")
     public List<ProductDto> getMyProducts(String email) {
         User seller = userRepository.findByEmail(email)
             .orElseThrow(() -> new ResourceNotFoundException("User not found with email: " + email));
@@ -302,12 +309,14 @@ public class ProductService {
         return productRepository.findBySeller(seller).size();
     }
     
+    @Cacheable(cacheNames = "productById", key = "#id + ':null'", unless = "#result == null")
     public ProductDto getProductById(Long id) {
         Product product = productRepository.findWithDetailsById(id)
             .orElseThrow(() -> new ResourceNotFoundException("Product not found with id: " + id));
         return convertToDto(product, null, null);
     }
 
+    @Cacheable(cacheNames = "productById", key = "#id + ':' + #userLocationHeader", unless = "#result == null")
     public ProductDto getProductById(Long id, String userLocationHeader) {
         Product product = productRepository.findWithDetailsById(id)
             .orElseThrow(() -> new ResourceNotFoundException("Product not found with id: " + id));
@@ -320,6 +329,7 @@ public class ProductService {
     }
     
     @Transactional
+    @CacheEvict(cacheNames = {"productById", "productListActive", "productListByCategory", "productListSeller"}, allEntries = true)
     public ProductDto updateProduct(Long id, ProductCreateDto dto, String email) {
         Product product = requireOwnedProduct(id, email);
         
@@ -392,6 +402,7 @@ public class ProductService {
     }
     
     @Transactional
+    @CacheEvict(cacheNames = {"productById", "productListActive", "productListByCategory", "productListSeller"}, allEntries = true)
     public void deleteProduct(Long id, String email) {
         Product product = requireOwnedProduct(id, email);
         
@@ -429,6 +440,7 @@ public class ProductService {
     }
     
     @Transactional
+    @CacheEvict(cacheNames = {"productById", "productListActive"}, allEntries = true)
     public ProductDto updateProductStatus(Long id, String status, String email) {
         Product product = requireOwnedProduct(id, email);
         

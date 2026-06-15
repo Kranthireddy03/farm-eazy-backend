@@ -12,6 +12,8 @@ import com.farmeazy.repository.UserRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.cache.annotation.Cacheable;
+import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
@@ -47,6 +49,7 @@ public class NotificationService {
      * Create a notification for a specific user
      */
     @Transactional
+    @CacheEvict(cacheNames = {"notificationUser"}, allEntries = true)
     public Notification createForUser(User user, NotificationType type, String title, String message) {
         return createForUser(user, type, title, message, null, NotificationPriority.NORMAL);
     }
@@ -55,6 +58,7 @@ public class NotificationService {
      * Create a notification for a specific user with action URL
      */
     @Transactional
+    @CacheEvict(cacheNames = {"notificationUser"}, allEntries = true)
     public Notification createForUser(User user, NotificationType type, String title, String message, 
                                       String actionUrl, NotificationPriority priority) {
         Notification notification = new Notification(user, type, title, message);
@@ -70,6 +74,7 @@ public class NotificationService {
      * Create notification by user ID
      */
     @Transactional
+    @CacheEvict(cacheNames = {"notificationUser"}, allEntries = true)
     public Notification createForUserId(Long userId, NotificationType type, String title, String message) {
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new ResourceNotFoundException("User not found: " + userId));
@@ -99,7 +104,9 @@ public class NotificationService {
     /**
      * Get all active notifications for a user (includes broadcasts)
      */
+    @Cacheable(cacheNames = "notificationUser", key = "#user.id", unless = "#result == null || #result.isEmpty()")
     public List<NotificationDto> getNotificationsForUser(User user) {
+        log.info("NOTIFICATION_SERVICE_GET_USER userId={} - DATABASE_HIT (cache miss, querying database)", user.getId());
         List<Notification> notifications = notificationRepository.findAllActiveForUser(
                 user, 
                 String.valueOf(user.getId()), 
@@ -160,6 +167,7 @@ public class NotificationService {
      * Mark notification as read
      */
     @Transactional
+    @CacheEvict(cacheNames = {"notificationUser"}, allEntries = true)
     public void markAsRead(Long notificationId, User user) {
         Notification notification = requireNotificationAccess(notificationId, user);
 

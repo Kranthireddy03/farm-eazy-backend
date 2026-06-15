@@ -51,9 +51,7 @@ public class ApiEncryptionResponseAdvice implements ResponseBodyAdvice<Object> {
         if (path == null || !path.startsWith("/api/")) {
             return body;
         }
-        if (path.startsWith("/api/auth/")
-                || path.startsWith("/api/otp/")
-            || path.startsWith("/api/test-email/")
+        if (path.startsWith("/api/test-email/")
                 || path.startsWith("/api/public/")
                 || path.startsWith("/api/faq-question/")
                 || path.startsWith("/api/faq/question")

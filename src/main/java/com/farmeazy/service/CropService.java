@@ -108,7 +108,7 @@ public class CropService {
 
     @Cacheable(cacheNames = "cropListByUser", key = "#userId")
     public List<CropDto> getAllCropsByUser(Long userId) {
-        logger.info("CROP_SERVICE_GET_ALL_BY_USER userId={}", userId);
+        logger.info("CROP_SERVICE_GET_ALL_BY_USER userId={} - DATABASE_HIT (cache miss, querying database)", userId);
         return cropRepository.findByFarmUserId(userId)
                 .stream()
                 .map(crop -> mapCropToDto(crop, userId))

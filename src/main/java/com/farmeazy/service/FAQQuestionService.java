@@ -8,6 +8,8 @@ import com.farmeazy.repository.UserRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.cache.annotation.Cacheable;
+import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import com.farmeazy.dto.FAQQuestionDto;
@@ -154,6 +156,7 @@ public class FAQQuestionService {
         return getAllApprovedFaqs(null);
     }
 
+    @Cacheable(cacheNames = "faqApproved", key = "#sourceFilter != null ? #sourceFilter : 'all'", unless = "#result == null || #result.isEmpty()")
     public List<FAQQuestionDto> getAllApprovedFaqs(String sourceFilter) {
         List<FAQQuestion> faqs = faqQuestionRepository.findByAddedToFAQTrue()
                 .stream()
@@ -399,6 +402,7 @@ public class FAQQuestionService {
         return getPublicFaqById(id, null);
     }
 
+    @Cacheable(cacheNames = "faqById", key = "#id + ':' + (#sourceFilter != null ? #sourceFilter : 'all')", unless = "#result == null")
     public FAQQuestionDto getPublicFaqById(Long id, String sourceFilter) {
         FAQQuestion entity = faqQuestionRepository.findById(id)
                 .orElseThrow(() -> new com.farmeazy.exception.ResourceNotFoundException("FAQ question not found: " + id));
@@ -425,6 +429,7 @@ public class FAQQuestionService {
         return dto;
     }
 
+    @Cacheable(cacheNames = "faqAdmin", key = "'all'", unless = "#result == null || #result.isEmpty()")
     public List<FAQQuestionDto> getAllQuestionsForAdmin() {
         logger.debug("Loading full FAQ list for admin workflow");
         return faqQuestionRepository.findAll()
@@ -565,11 +570,13 @@ public class FAQQuestionService {
     }
 
     @Transactional
+    @CacheEvict(cacheNames = {"faqApproved", "faqAdmin"}, allEntries = true)
     public void answerQuestion(Long id, String answer, boolean addToFAQ) {
         answerQuestion(id, answer, addToFAQ, "USER");
     }
 
     @Transactional
+    @CacheEvict(cacheNames = {"faqApproved", "faqById", "faqAdmin"}, allEntries = true)
     public void answerQuestion(Long id, String answer, boolean addToFAQ, String visibilityTarget) {
         logger.info("Answering FAQ question id={} publishToFaq={}", id, addToFAQ);
         FAQQuestion entity = faqQuestionRepository.findById(id).orElseThrow();
@@ -641,6 +648,7 @@ public class FAQQuestionService {
     }
 
     @Transactional
+    @CacheEvict(cacheNames = {"faqApproved", "faqById", "faqAdmin"}, allEntries = true)
     public void deleteQuestion(Long id) {
         // Remove any communications linked to this question to satisfy FK constraints
         faqCommunicationRepository.deleteByFaqQuestionId(id);

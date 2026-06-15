@@ -43,14 +43,62 @@ public class RedisCacheConfig implements CachingConfigurer {
                 .entryTtl(Duration.ofMinutes(10));
 
         Map<String, RedisCacheConfiguration> cacheTtls = new HashMap<>();
+        // Support Tickets (short TTL due to high update frequency)
         cacheTtls.put("supportTicketList", baseConfig.entryTtl(Duration.ofMinutes(2)));
         cacheTtls.put("supportTicketAdminStats", baseConfig.entryTtl(Duration.ofMinutes(1)));
         cacheTtls.put("supportTicketUserStats", baseConfig.entryTtl(Duration.ofMinutes(1)));
-                cacheTtls.put("farmById", baseConfig.entryTtl(Duration.ofMinutes(5)));
-                cacheTtls.put("farmListByUser", baseConfig.entryTtl(Duration.ofMinutes(3)));
-                cacheTtls.put("cropById", baseConfig.entryTtl(Duration.ofMinutes(5)));
-                cacheTtls.put("cropListByUser", baseConfig.entryTtl(Duration.ofMinutes(3)));
-                cacheTtls.put("cropListByFarm", baseConfig.entryTtl(Duration.ofMinutes(3)));
+        
+        // Farm & Crop (moderate TTL)
+        cacheTtls.put("farmById", baseConfig.entryTtl(Duration.ofMinutes(5)));
+        cacheTtls.put("farmListByUser", baseConfig.entryTtl(Duration.ofMinutes(3)));
+        cacheTtls.put("cropById", baseConfig.entryTtl(Duration.ofMinutes(5)));
+        cacheTtls.put("cropListByUser", baseConfig.entryTtl(Duration.ofMinutes(3)));
+        cacheTtls.put("cropListByFarm", baseConfig.entryTtl(Duration.ofMinutes(3)));
+        
+        // Products (longer TTL - less frequent updates)
+        cacheTtls.put("productById", baseConfig.entryTtl(Duration.ofMinutes(10)));
+        cacheTtls.put("productListActive", baseConfig.entryTtl(Duration.ofMinutes(8)));
+        cacheTtls.put("productListByCategory", baseConfig.entryTtl(Duration.ofMinutes(8)));
+        cacheTtls.put("productListSeller", baseConfig.entryTtl(Duration.ofMinutes(5)));
+        
+        // Blog Posts (longer TTL - static content)
+        cacheTtls.put("blogPostBySlug", baseConfig.entryTtl(Duration.ofMinutes(15)));
+        cacheTtls.put("blogPostsPublic", baseConfig.entryTtl(Duration.ofMinutes(15)));
+        cacheTtls.put("blogPostsAdmin", baseConfig.entryTtl(Duration.ofMinutes(10)));
+        cacheTtls.put("blogPostsUser", baseConfig.entryTtl(Duration.ofMinutes(8)));
+        
+        // FAQ (longer TTL - static content)
+        cacheTtls.put("faqApproved", baseConfig.entryTtl(Duration.ofMinutes(20)));
+        cacheTtls.put("faqById", baseConfig.entryTtl(Duration.ofMinutes(20)));
+        cacheTtls.put("faqAdmin", baseConfig.entryTtl(Duration.ofMinutes(15)));
+        
+        // Orders (moderate TTL - business critical)
+        cacheTtls.put("orderListUser", baseConfig.entryTtl(Duration.ofMinutes(3)));
+        cacheTtls.put("orderById", baseConfig.entryTtl(Duration.ofMinutes(5)));
+        
+        // Notifications (very short TTL - real-time updates)
+        cacheTtls.put("notificationUser", baseConfig.entryTtl(Duration.ofMinutes(1)));
+        
+        // Dashboard Stats (short TTL - frequently viewed)
+        cacheTtls.put("dashboardStats", baseConfig.entryTtl(Duration.ofMinutes(2)));
+        
+        // Delivery Locations (long TTL - rarely changes)
+        cacheTtls.put("deliveryLocationAll", baseConfig.entryTtl(Duration.ofMinutes(30)));
+        cacheTtls.put("deliveryLocationActive", baseConfig.entryTtl(Duration.ofMinutes(30)));
+        
+        // Addresses (moderate TTL)
+        cacheTtls.put("addressListUser", baseConfig.entryTtl(Duration.ofMinutes(5)));
+        cacheTtls.put("addressById", baseConfig.entryTtl(Duration.ofMinutes(5)));
+        
+        // Irrigation (moderate TTL)
+        cacheTtls.put("irrigationById", baseConfig.entryTtl(Duration.ofMinutes(5)));
+        cacheTtls.put("irrigationByFarm", baseConfig.entryTtl(Duration.ofMinutes(3)));
+        cacheTtls.put("irrigationUpcoming", baseConfig.entryTtl(Duration.ofMinutes(2)));
+        
+        // Payouts (short TTL - financial data)
+        cacheTtls.put("payoutListUser", baseConfig.entryTtl(Duration.ofMinutes(3)));
+        cacheTtls.put("payoutPending", baseConfig.entryTtl(Duration.ofMinutes(2)));
+        cacheTtls.put("payoutById", baseConfig.entryTtl(Duration.ofMinutes(5)));
 
                 CacheManager redisCacheManager = RedisCacheManager.builder(redisConnectionFactory)
                                 .cacheDefaults(baseConfig)
@@ -66,7 +114,31 @@ public class RedisCacheConfig implements CachingConfigurer {
                                 "farmListByUser",
                                 "cropById",
                                 "cropListByUser",
-                                "cropListByFarm"
+                                "cropListByFarm",
+                                "productById",
+                                "productListActive",
+                                "productListByCategory",
+                                "productListSeller",
+                                "blogPostBySlug",
+                                "blogPostsPublic",
+                                "blogPostsAdmin",
+                                "blogPostsUser",
+                                "faqApproved",
+                                "faqById",
+                                "faqAdmin",
+                                "orderListUser",
+                                "orderById",
+                                "notificationUser",
+                                "deliveryLocationAll",
+                                "deliveryLocationActive",
+                                "addressListUser",
+                                "addressById",
+                                "irrigationById",
+                                "irrigationByFarm",
+                                "irrigationUpcoming",
+                                "payoutListUser",
+                                "payoutPending",
+                                "payoutById"
                 );
 
                 if (!isRedisAvailable(redisConnectionFactory)) {

@@ -386,17 +386,8 @@ public class BankVerificationService {
     }
 
     private JSONObject createRazorpayLinkedAccount(BankVerificationRequest request) throws Exception {
-        String phone = normalizePhoneForRazorpay(request.getUser().getPhone());
-        if (phone == null || phone.isBlank()) {
-            throw new IllegalStateException("Valid 10-digit phone is required for Razorpay linked account");
-        }
-
         JSONObject payload = new JSONObject();
-        payload.put("name", request.getAccountHolderName() != null && !request.getAccountHolderName().isBlank()
-                ? request.getAccountHolderName()
-                : request.getUser().getUsername());
         payload.put("email", request.getUser().getEmail());
-        payload.put("contact", phone);
         payload.put("type", "route");
         payload.put("reference_id", request.getVerificationNumber());
 
@@ -415,7 +406,7 @@ public class BankVerificationService {
 
         JSONObject payload = new JSONObject();
         JSONObject bankAccount = new JSONObject();
-        bankAccount.put("name", dto.getAccountHolderName());
+        // Razorpay Route bank account attachment does not require customer name in UAT mode.
         bankAccount.put("account_number", dto.getAccountNumber());
         bankAccount.put("ifsc", dto.getIfscCode());
         payload.put("bank_account", bankAccount);
@@ -442,6 +433,8 @@ public class BankVerificationService {
         String authRaw = razorpayKeyId + ":" + razorpayKeySecret;
         String auth = "Basic " + Base64.getEncoder().encodeToString(authRaw.getBytes(StandardCharsets.UTF_8));
 
+        logger.debug("RAZORPAY_API_REQUEST: path={}, payload={}", path, payload.toString());
+
         HttpRequest request = HttpRequest.newBuilder()
                 .uri(URI.create("https://api.razorpay.com" + path))
                 .timeout(Duration.ofSeconds(30))
@@ -452,6 +445,7 @@ public class BankVerificationService {
 
         HttpResponse<String> response = HttpClient.newHttpClient().send(request, HttpResponse.BodyHandlers.ofString());
         String body = response.body() == null ? "{}" : response.body();
+        logger.debug("RAZORPAY_API_RESPONSE: path={}, status={}, body={}", path, response.statusCode(), body);
         JSONObject json = new JSONObject(body);
 
         if (response.statusCode() >= 200 && response.statusCode() < 300) {

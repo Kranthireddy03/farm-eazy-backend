@@ -11,6 +11,7 @@ import com.farmeazy.exception.ResourceNotFoundException;
 import com.farmeazy.repository.*;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import com.farmeazy.service.FileStorageService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.data.domain.Page;
@@ -20,9 +21,6 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.security.MessageDigest;
 import java.time.LocalDateTime;
 import java.util.List;
@@ -73,11 +71,11 @@ public class ServiceRequestService {
     @Autowired
     private EmailService emailService;
 
+    @Autowired
+    private FileStorageService fileStorageService;
+
     @Value("${farmeazy.support.email:no-reply@farm-eazy.com}")
     private String supportEmail;
-
-    @Value("${file.upload-dir:./uploads}")
-    private String uploadDir;
 
     // ========== CREATE SERVICE REQUEST ==========
 
@@ -144,29 +142,20 @@ public class ServiceRequestService {
             throw new IllegalArgumentException("File is empty");
         }
         
-        // Create upload directory
-        String attachmentDir = uploadDir + "/service-requests/" + request.getRequestNumber();
-        Path dirPath = Paths.get(attachmentDir);
-        Files.createDirectories(dirPath);
-        
-        // Generate unique filename
         String originalFilename = file.getOriginalFilename();
         String extension = originalFilename != null && originalFilename.contains(".") 
-                ? originalFilename.substring(originalFilename.lastIndexOf(".")) 
+                ? originalFilename.substring(originalFilename.lastIndexOf(".") + 1) 
                 : "";
-        String uniqueFilename = UUID.randomUUID().toString() + extension;
         
-        // Save file
-        Path filePath = dirPath.resolve(uniqueFilename);
-        Files.copy(file.getInputStream(), filePath);
+        String storedName = fileStorageService.store(file);
+        String attachmentUrl = "/uploads/" + storedName;
         
-        // Create attachment record
         ServiceRequestAttachment attachment = new ServiceRequestAttachment();
         attachment.setServiceRequest(request);
-        attachment.setFileName(uniqueFilename);
+        attachment.setFileName(storedName);
         attachment.setOriginalFileName(originalFilename);
-        attachment.setFilePath(filePath.toString());
-        attachment.setFileType(extension.replace(".", ""));
+        attachment.setFilePath(attachmentUrl);
+        attachment.setFileType(extension);
         attachment.setFileSize(file.getSize());
         attachment.setMimeType(file.getContentType());
         attachment.setUploadedBy(user);
